@@ -4,3 +4,9 @@ export type {
   EventDefinition,
   EventType,
 } from "./events/registry.js";
+export { provisioningDocumentSchema } from "./provisioning/schema.js";
+export type {
+  HomileoProvisioningDocument,
+  MessageTypeDeclaration,
+  SpaceKindDeclaration,
+} from "./provisioning/schema.js";

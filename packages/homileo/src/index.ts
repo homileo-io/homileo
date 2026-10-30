@@ -1,5 +1,6 @@
 import "./preload.js";
 import { closeHttpServer, tuneServerKeepAlive } from "./utils/httpServer.js";
+import { ProvisioningError, provision } from "./utils/provisioning/index.js";
 import { closeRedisConnection, initializeRedis } from "./utils/redis.js";
 import { initializeTereo, stopTereo } from "./utils/tereo.js";
 import { disconnectDatabase } from "./utils/db/prisma.js";
@@ -33,6 +34,18 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
       await initializeTereo();
 
       if (!runsApi) return;
+
+      // Before listening: an invalid set must stop the start, not serve with
+      // the kinds of the last good one.
+      try {
+        await provision();
+      } catch (err) {
+        if (err instanceof ProvisioningError) {
+          for (const problem of err.problems)
+            logger.error({ ...problem }, "Invalid provisioning");
+        }
+        throw err;
+      }
 
       // Imported after Redis is up, as the modules behind it may resolve the
       // client when they load.

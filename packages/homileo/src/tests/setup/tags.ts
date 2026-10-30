@@ -83,6 +83,7 @@ export const AREA_BY_PATH: ReadonlyArray<
   ["middleware/auth", "auth"],
   ["policy", "access"],
   ["utils/provisioning", "provisioning"],
+  ["cli", "provisioning"],
   ["utils/changes", "events"],
   ["jobs/eventPartitions", "events"],
   ["routes/health", "platform"],
