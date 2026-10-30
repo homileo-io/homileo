@@ -1,7 +1,7 @@
 import { CreateSessionBodySchema, ListSessionsQuerySchema } from "./schemas.js";
 import { holdsKindGrant, canCreateSessionIn } from "../../../policy/index.js";
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
-import { readableSession, readableSpace } from "../../../utils/access.js";
+import { readableSessions, readableSpace } from "../../../utils/access.js";
 import { participantView, sessionView } from "../../../views/session.js";
 import { encodeSessionCursor, parseSessionCursor } from "./utils.js";
 import { callerOf, type Caller } from "../../../middleware/auth.js";
@@ -16,7 +16,6 @@ import {
   ArchivedError,
   BadRequestError,
   ForbiddenError,
-  NotFoundError,
   ValidationError,
 } from "../../../utils/errors.js";
 
@@ -44,16 +43,13 @@ export const listSessions = async (req: Request, res: Response) => {
       everything: true,
       take: EXTERNAL_REF_SCAN_LIMIT,
     });
-    const visible: typeof rows = [];
-    for (const row of rows) {
-      if (visible.length === query.limit) break;
-      try {
-        await readableSession(caller, row.id);
-        visible.push(row);
-      } catch (err) {
-        if (!(err instanceof NotFoundError)) throw err;
-      }
-    }
+    const readable = await readableSessions(
+      caller,
+      rows.map((r) => r.id)
+    );
+    const visible = rows
+      .filter((r) => readable.has(r.id))
+      .slice(0, query.limit);
     res.status(200).json({
       data: await withParticipants(caller, visible),
       nextCursor: null,
@@ -74,8 +70,16 @@ export const listSessions = async (req: Request, res: Response) => {
     take: query.limit + 1,
   });
   const page = rows.slice(0, query.limit);
+  // Participation alone does not make a session readable; a dropped row still moves the cursor.
+  const readable = await readableSessions(
+    caller,
+    page.map((r) => r.id)
+  );
   res.status(200).json({
-    data: await withParticipants(caller, page),
+    data: await withParticipants(
+      caller,
+      page.filter((r) => readable.has(r.id))
+    ),
     nextCursor:
       rows.length > query.limit
         ? encodeSessionCursor(page[page.length - 1])

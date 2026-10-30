@@ -3,6 +3,7 @@
 import { purgeOrganizations, signIn } from "../../../support/signedIn.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chatFixtures } from "../../../support/chatFixtures.js";
+import { personToken } from "../../../support/tokens.js";
 import { prisma } from "../../../../utils/db/prisma.js";
 import { fetchJson } from "../../../support/http.js";
 import env from "../../../../env.js";
@@ -593,5 +594,40 @@ describe("GET /v1/sessions with a kind grant", () => {
     expect(res.body.data.map((s: { id: string }) => s.id)).toEqual([
       members.id,
     ]);
+  });
+
+  it("drops a session the caller still participates in but can no longer read", async () => {
+    const org = newOrg();
+    const kind = await provisionKind({
+      grants: [{ permission: "sessions-test.moderate", access: "moderate" }],
+    });
+    const holder = await signIn(org, ["sessions-test.moderate"]);
+    const space = await fixtures.space({ org, kind, visibility: "members" });
+    const created = await fetchJson(
+      "POST",
+      `${app.url}/v1/sessions`,
+      holder.token,
+      { spaceId: space.id }
+    );
+    expect(created.status).toBe(201);
+    const ids = (body: { data: Array<{ id: string }> }) =>
+      body.data.map((s) => s.id);
+    const before = await fetchJson(
+      "GET",
+      `${app.url}/v1/sessions`,
+      holder.token
+    );
+    expect(ids(before.body)).toEqual([created.body.session.id]);
+
+    const withoutGrant = personToken({ userId: holder.tereoUserId, org });
+    const after = await fetchJson(
+      "GET",
+      `${app.url}/v1/sessions`,
+      withoutGrant
+    );
+
+    expect(after.status).toBe(200);
+    expect(ids(after.body)).toEqual([]);
+    expect(after.body.nextCursor).toBeNull();
   });
 });
