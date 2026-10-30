@@ -20,10 +20,6 @@ describe("POST /v1/sessions/:sessionId/messages body", () => {
       { clientMessageId: "c".repeat(129), body: "x" },
     ],
     ["an unknown key", { clientMessageId: CID, body: "x", extra: 1 }],
-    [
-      "attachments (not yet accepted)",
-      { clientMessageId: CID, body: "x", attachments: [] },
-    ],
     ["neither body nor payload", { clientMessageId: CID }],
     ["a text message without a body", { clientMessageId: CID, type: "text" }],
     [

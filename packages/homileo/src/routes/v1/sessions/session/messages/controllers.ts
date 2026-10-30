@@ -2,6 +2,7 @@ import { ListMessagesQuerySchema, SendMessageBodySchema } from "./schemas.js";
 import { callerOf, principalOf } from "../../../../../middleware/auth.js";
 import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../../utils/notifyMentions.js";
+import { postRefusalError } from "../../../../../utils/postRefusals.js";
 import { validatePayload } from "../../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../../utils/transaction.js";
 import { readableSession } from "../../../../../utils/access.js";
@@ -13,26 +14,20 @@ import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
 import type { Message } from "@homileo-io/sdk";
 import {
+  attachMessageFiles,
+  keepAttachments,
+  resolveAttachments,
+} from "../../../../../utils/attachments.js";
+import {
   validateBody,
   validateParams,
   validateQuery,
 } from "../../../../../utils/validateReq.js";
 import {
   AppError,
-  ArchivedError,
   BadRequestError,
-  NotAParticipantError,
-  NotFoundError,
-  PostingRestrictedError,
   ValidationError,
 } from "../../../../../utils/errors.js";
-
-const refusalError = {
-  not_found: () => new NotFoundError("Session not found"),
-  archived: () => new ArchivedError("The session is archived"),
-  not_a_participant: () => new NotAParticipantError(),
-  posting_restricted: () => new PostingRestrictedError(),
-};
 
 const invalidRoot = (message: string) =>
   new ValidationError(`Invalid request body. threadRootId: ${message}`, [
@@ -59,6 +54,7 @@ export const sendMessage = async (req: Request, res: Response) => {
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
   await warmKinds();
+  const attachments = await resolveAttachments(body.attachments ?? []);
 
   const outcome = await withChanges(
     async (tx, record): Promise<{ created: boolean; message: Message }> => {
@@ -81,7 +77,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       }
 
       const refusal = postRefusal(caller, context.facts);
-      if (refusal) throw refusalError[refusal]();
+      if (refusal) throw postRefusalError[refusal]();
 
       await validatePayload(body.type, body.payload, tx);
 
@@ -120,6 +116,12 @@ export const sendMessage = async (req: Request, res: Response) => {
         createdAt: now,
       });
 
+      await attachMessageFiles(tx, {
+        sessionId,
+        senderId: caller.principalId,
+        messageId: row.id,
+        attachments,
+      });
       await db.messages.insertMentions(
         tx,
         row,
@@ -185,5 +187,6 @@ export const sendMessage = async (req: Request, res: Response) => {
       { details: { message: outcome.message } }
     );
   }
+  await keepAttachments(attachments);
   res.status(201).json({ message: outcome.message });
 };

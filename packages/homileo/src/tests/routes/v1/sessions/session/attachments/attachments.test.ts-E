@@ -1,0 +1,305 @@
+// @module-tag int
+// @module-tag sessions
+// @module-tag attachments
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { purgeOrganizations, signIn } from "../../../../../support/signedIn.js";
+import { setFilesClient } from "../../../../../../utils/attachments.js";
+import { chatFixtures } from "../../../../../support/chatFixtures.js";
+import { sendMessage } from "../../../../../support/messageApi.js";
+import { fakeFiles } from "../../../../../support/fakeFiles.js";
+import { prisma } from "../../../../../../utils/db/prisma.js";
+import { startV1App } from "../../../../../support/v1App.js";
+import { fetchJson } from "../../../../../support/http.js";
+import { MessageSchema } from "@homileo-io/sdk";
+import { v7 as uuidv7 } from "uuid";
+
+const fixtures = chatFixtures();
+const orgs: string[] = [];
+const files = fakeFiles();
+let url: string;
+let close: () => Promise<unknown>;
+
+beforeAll(async () => {
+  ({ url, close } = await startV1App());
+  setFilesClient(files.client);
+});
+afterEach(() => {
+  files.objects.clear();
+  files.presigned.length = 0;
+  files.failPatch.on = false;
+});
+afterAll(async () => {
+  setFilesClient(null);
+  await close();
+  await fixtures.cleanup();
+  await purgeOrganizations(orgs);
+});
+
+const room = async () => {
+  const org = uuidv7();
+  orgs.push(org);
+  const me = await signIn(org);
+  const other = await signIn(org);
+  const session = await fixtures.session({ org });
+  await fixtures.participant(session, { id: me.principalId }, "owner");
+  await fixtures.participant(session, { id: other.principalId }, "member");
+  return { org, me, other, session };
+};
+
+const upload = (sessionId: string, token: string, body: object) =>
+  fetchJson("POST", `${url}/v1/sessions/${sessionId}/attachments`, token, body);
+
+const send = (sessionId: string, token: string, body: object) =>
+  sendMessage(sessionId, token, body, url);
+
+/** Requests an upload and finishes it, as a client would. */
+const uploaded = async (sessionId: string, token: string, bytes = 12) => {
+  const res = await upload(sessionId, token, {
+    filename: "notes.txt",
+    contentType: "text/plain",
+  });
+  expect(res.status).toBe(201);
+  files.setSize(res.body.objectId, bytes);
+  return res.body.objectId as string;
+};
+
+describe("POST /v1/sessions/:sessionId/attachments", () => {
+  it("makes a placeholder under the session and sender, expiring in a day", async () => {
+    const { me, session } = await room();
+
+    const res = await upload(session.id, me.token, {
+      filename: "notes.txt",
+      contentType: "text/plain",
+    });
+
+    expect(res.status).toBe(201);
+    const object = files.objects.get(res.body.objectId)!;
+    expect(object.key).toMatch(
+      new RegExp(`^sessions/${session.id}/${me.principalId}/[0-9a-f-]{36}$`)
+    );
+    expect(object.sizeBytes).toBe("0");
+    expect(object.contentType).toBe("text/plain");
+    const ttl = Date.parse(object.deleteAfter!) - Date.now();
+    expect(ttl).toBeGreaterThan(23.9 * 3600_000);
+    expect(ttl).toBeLessThanOrEqual(24 * 3600_000);
+    expect(res.body.uploadUrl).toBe(
+      `https://files.test/write/${res.body.objectId}`
+    );
+    expect(files.presigned).toEqual([
+      { id: res.body.objectId, operation: "write", expiresInSeconds: 900 },
+    ]);
+    expect(Date.parse(res.body.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("is refused to a reader who may not post", async () => {
+    const { org, session } = await room();
+    const outsider = await signIn(org);
+
+    const res = await upload(session.id, outsider.token, {
+      filename: "a",
+      contentType: "t/p",
+    });
+
+    expect(res.status).toBe(404);
+    expect(files.objects.size).toBe(0);
+  });
+
+  it("is a 403 not_a_participant for a reader of an open session who is not in it", async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const outsider = await signIn(org);
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ org, space, access: "space" });
+
+    const res = await upload(session.id, outsider.token, {
+      filename: "a",
+      contentType: "t/p",
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("not_a_participant");
+  });
+
+  it("is 409 for an archived session", async () => {
+    const { me, session } = await room();
+    await prisma.session.update({
+      where: { id: session.id },
+      data: { archivedAt: new Date() },
+    });
+
+    const res = await upload(session.id, me.token, {
+      filename: "a",
+      contentType: "t/p",
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("resource_archived");
+  });
+
+  it("rejects a bad filename", async () => {
+    const { me, session } = await room();
+
+    const res = await upload(session.id, me.token, {
+      filename: "a/b",
+      contentType: "t/p",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("invalid_request");
+  });
+
+  it("removes the placeholder if its expiry cannot be set", async () => {
+    const { me, session } = await room();
+    files.failPatch.on = true;
+
+    const res = await upload(session.id, me.token, {
+      filename: "a",
+      contentType: "t/p",
+    });
+
+    expect(res.status).toBe(500);
+    expect(files.objects.size).toBe(0);
+  });
+});
+
+describe("sending a message with attachments", () => {
+  it("shows the attachment in the view and clears the object's expiry", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token, 12);
+
+    const sent = await send(session.id, me.token, {
+      body: "see file",
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(201);
+    expect(MessageSchema.parse(sent.body.message).attachments).toEqual([
+      {
+        id: expect.any(String),
+        filename: "notes.txt",
+        contentType: "text/plain",
+        size: 12,
+        position: 0,
+      },
+    ]);
+    expect(files.objects.get(objectId)!.deleteAfter).toBeNull();
+  });
+
+  it("takes attachments without a body, in order, with a given filename", async () => {
+    const { me, session } = await room();
+    const first = await uploaded(session.id, me.token, 3);
+    const second = await uploaded(session.id, me.token, 4);
+
+    const sent = await send(session.id, me.token, {
+      attachments: [
+        { objectId: second, filename: "b.txt" },
+        { objectId: first },
+      ],
+    });
+
+    expect(sent.status).toBe(201);
+    expect(
+      sent.body.message.attachments.map(
+        (a: { filename: string; position: number; size: number }) => [
+          a.position,
+          a.filename,
+          a.size,
+        ]
+      )
+    ).toEqual([
+      [0, "b.txt", 4],
+      [1, "notes.txt", 3],
+    ]);
+  });
+
+  it("still sends when clearing the expiry fails", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token);
+    files.failPatch.on = true;
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(201);
+    expect(sent.body.message.attachments).toHaveLength(1);
+  });
+
+  it("refuses an object of another session", async () => {
+    const { me, session } = await room();
+    const elsewhere = await room();
+    const objectId = await uploaded(elsewhere.session.id, elsewhere.me.token);
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("attachment_not_found");
+  });
+
+  it("refuses an object another sender uploaded", async () => {
+    const { me, other, session } = await room();
+    const objectId = await uploaded(session.id, other.token);
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("attachment_not_found");
+  });
+
+  it("refuses an object that does not exist", async () => {
+    const { me, session } = await room();
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId: uuidv7() }],
+    });
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("attachment_not_found");
+  });
+
+  it("refuses an object never uploaded", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token, 0);
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("attachment_not_uploaded");
+  });
+
+  it("refuses an object already on another message, and keeps no message", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token);
+    expect(
+      (await send(session.id, me.token, { attachments: [{ objectId }] })).status
+    ).toBe(201);
+
+    const again = await send(session.id, me.token, {
+      body: "again",
+      attachments: [{ objectId }],
+    });
+
+    expect(again.status).toBe(400);
+    expect(again.body.error).toBe("attachment_not_found");
+    expect(
+      await prisma.message.count({ where: { sessionId: session.id } })
+    ).toBe(1);
+  });
+
+  it("refuses 11 attachments", async () => {
+    const { me, session } = await room();
+
+    const sent = await send(session.id, me.token, {
+      attachments: Array.from({ length: 11 }, () => ({ objectId: uuidv7() })),
+    });
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("invalid_request");
+  });
+});

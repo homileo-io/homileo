@@ -1,0 +1,69 @@
+/v1/sessions/{sessionId}/attachments:
+  post:
+    tags: [Messages]
+    summary: Start an attachment upload
+    description: |
+      Creates an empty placeholder object in tereo's `homileo-attachments` bucket, under
+      `sessions/<sessionId>/<principalId>/<id>`, and returns a presigned URL to `PUT` the file
+      to (valid 15 minutes). Name the returned `objectId` in `attachments` when sending a
+      message. A placeholder no message claims is removed by tereo after 24 hours.
+
+      Checked as sending is: the caller must be a participant (`403 not_a_participant`) and,
+      where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
+      archived session or space is `409 resource_archived`. Records no event.
+
+      **Required permissions:** none; the caller must be able to read the session.
+    operationId: createAttachmentUpload
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/messages/schemas.yaml#/CreateAttachmentRequest'
+    responses:
+      '201':
+        description: The placeholder and its upload URL
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/CreateAttachmentResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+
+/v1/messages/{messageId}/attachments/{attachmentId}:
+  get:
+    tags: [Messages]
+    summary: Get an attachment's download URL
+    description: |
+      The attachment and a presigned URL to download it, valid 5 minutes.
+
+      **Required permissions:** none; the caller must be able to read the message's session.
+      Anything else is `404`: an unreadable session, a deleted message, an attachment of another
+      message, or a file tereo no longer has.
+    operationId: getAttachment
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+      - name: attachmentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    responses:
+      '200':
+        description: The attachment and its URL
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/AttachmentResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

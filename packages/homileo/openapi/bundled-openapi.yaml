@@ -1219,6 +1219,8 @@ paths:
           session or space is `409 resource_archived`.
         - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
           its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
+        - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
+          `400 attachment_not_uploaded`); they are kept once the message is sent.
         - A reply's root must be a top-level, undeleted message of the same session:
           `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
           The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
@@ -1389,6 +1391,90 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/attachments:
+    post:
+      tags:
+        - Messages
+      summary: Start an attachment upload
+      description: |
+        Creates an empty placeholder object in tereo's `homileo-attachments` bucket, under
+        `sessions/<sessionId>/<principalId>/<id>`, and returns a presigned URL to `PUT` the file
+        to (valid 15 minutes). Name the returned `objectId` in `attachments` when sending a
+        message. A placeholder no message claims is removed by tereo after 24 hours.
+
+        Checked as sending is: the caller must be a participant (`403 not_a_participant`) and,
+        where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
+        archived session or space is `409 resource_archived`. Records no event.
+
+        **Required permissions:** none; the caller must be able to read the session.
+      operationId: createAttachmentUpload
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAttachmentRequest'
+      responses:
+        '201':
+          description: The placeholder and its upload URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAttachmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/attachments/{attachmentId}:
+    get:
+      tags:
+        - Messages
+      summary: Get an attachment's download URL
+      description: |
+        The attachment and a presigned URL to download it, valid 5 minutes.
+
+        **Required permissions:** none; the caller must be able to read the message's session.
+        Anything else is `404`: an unreadable session, a deleted message, an attachment of another
+        message, or a file tereo no longer has.
+      operationId: getAttachment
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The attachment and its URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
   /v1/messages/{messageId}/revisions:
@@ -3431,6 +3517,57 @@ components:
           type: string
         eventId:
           type: string
+    CreateAttachmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - filename
+        - contentType
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[^/\x00-\x1f\x7f]+$
+          description: Kept as the attachment's default filename; no slash or control characters
+        contentType:
+          type: string
+          minLength: 1
+          maxLength: 255
+    CreateAttachmentResponse:
+      type: object
+      required:
+        - objectId
+        - uploadUrl
+        - expiresAt
+      properties:
+        objectId:
+          type: string
+          format: uuid
+          description: Names the upload in `attachments` when sending
+        uploadUrl:
+          type: string
+          description: A presigned URL to `PUT` the file's bytes to
+        expiresAt:
+          type: string
+          format: date-time
+          description: When `uploadUrl` stops working
+    AttachmentResponse:
+      type: object
+      required:
+        - attachment
+        - url
+        - expiresAt
+      properties:
+        attachment:
+          $ref: '#/components/schemas/Attachment'
+        url:
+          type: string
+          description: A presigned download URL
+        expiresAt:
+          type: string
+          format: date-time
+          description: When `url` stops working
     ReactionSummary:
       type: object
       required:
@@ -3551,7 +3688,7 @@ components:
       required:
         - clientMessageId
       description: |
-        A `text` message (the default type) needs `body` and takes no `payload`. A message of a
+        A `text` message (the default type) needs `body` or `attachments` and takes no `payload`. A message of a
         provisioned type needs `payload`; its `body`, if given, is the fallback rendering.
       properties:
         clientMessageId:
@@ -3576,6 +3713,27 @@ components:
           type: string
           format: uuid
           description: Send as a reply to this top-level, undeleted message of the same session
+        attachments:
+          type: array
+          maxItems: 10
+          description: |
+            Files uploaded through `POST /v1/sessions/{sessionId}/attachments` by this sender for
+            this session, in display order. Each `objectId` must be unique, uploaded (not empty) and
+            not on another message, else `400 attachment_not_uploaded` or `400 attachment_not_found`.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - objectId
+            properties:
+              objectId:
+                type: string
+                format: uuid
+              filename:
+                type: string
+                minLength: 1
+                maxLength: 255
+                description: Overrides the filename given at upload
       examples:
         - clientMessageId: 7f1c2a9e-local-1
           body: Shipped today, <@0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b>

@@ -45,6 +45,8 @@
         session or space is `409 resource_archived`.
       - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
         its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
+      - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
+        `400 attachment_not_uploaded`); they are kept once the message is sent.
       - A reply's root must be a top-level, undeleted message of the same session:
         `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
         The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the

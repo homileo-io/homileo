@@ -6,6 +6,15 @@ import { z } from "zod";
 export const MESSAGE_BODY_MAX = 40_000;
 export const PAYLOAD_MAX_BYTES = 64 * 1024;
 
+export const MAX_ATTACHMENTS = 10;
+
+export const AttachmentFilenameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  // eslint-disable-next-line no-control-regex
+  .regex(/^[^/\x00-\x1f\x7f]+$/, "No slash or control characters");
+
 export const SendMessageBodySchema = z
   .strictObject({
     clientMessageId: z.string().min(1).max(128),
@@ -21,14 +30,27 @@ export const SendMessageBodySchema = z
       .optional(),
     metadata: metadataSchema.optional(),
     threadRootId: IdSchema.optional(),
+    attachments: z
+      .array(
+        z.strictObject({
+          objectId: IdSchema,
+          filename: AttachmentFilenameSchema.optional(),
+        })
+      )
+      .max(MAX_ATTACHMENTS)
+      .refine(
+        (a) => new Set(a.map((x) => x.objectId)).size === a.length,
+        "objectIds must be unique"
+      )
+      .optional(),
   })
   .superRefine((m, ctx) => {
     if (m.type === BUILTIN_MESSAGE_TYPE) {
-      if (m.body === undefined) {
+      if (m.body === undefined && !m.attachments?.length) {
         ctx.addIssue({
           code: "custom",
           path: ["body"],
-          message: "A text message needs a body",
+          message: "A text message needs a body or attachments",
         });
       }
       if (m.payload !== undefined) {
