@@ -120,7 +120,8 @@ requires (`AREA_BY_PATH` in `tags.ts`, longest prefix wins). Detail tags are opt
 - The top-level `describe` names the route (`"PATCH /v1/spaces/:id"`) or the exported function
   (`"processEntryRetention"`); `it` names state the behaviour (`"returns 409 when the slug is taken"`).
 - A file covering several methods of one route may name its top-level `describe` by the path alone (`"/v1/spaces"`); otherwise use `"METHOD /path"`.
-- Helpers come from `support/` (`http.ts`, `principals.ts`, `testService.ts`, `<area>.ts`).
+- Helpers come from `support/`: `http.ts` (`fetchJson`), `chatFixtures.ts` (principals, spaces and
+  sessions, with `cleanup()`), and `pure/` for helpers `unit` files may import (`policyFacts.ts`).
 - Unique names, cleanup in `afterAll`.
 
 ## Commands

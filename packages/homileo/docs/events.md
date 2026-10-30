@@ -43,13 +43,16 @@ await prisma.$transaction(async (tx) => {
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
    `eventType: "homileo.<type>"`, the change's `organizationId`, `entityType`/`entityId` from
-   `entity`, and `data: { eventId: String(id), ...payload }`.
+   `entity`, and `data: { ...payload, eventId: String(id) }` (the real id wins over a payload key).
 4. If `audit` is given, `outbox.audit(tx, …)` writes an audit row with the change's
    `organizationId`, `entityType` and `entityId`; the SDK sets `source` from the service slug.
 
 It returns the event, with its `bigint` id, so the caller can publish it to sockets after commit.
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so
-they increase in allocation order, which is not always commit order.
+they increase in allocation order, which is not always commit order: an event can become visible
+after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,
+so `/sync` (plan 2) must hold its cursor back across ids whose transactions may still commit — a
+gap-aware cursor. Ids are `bigint` inside Homileo and leave the process as strings.
 
 tereo's reaper sends the outbox rows to tereo after commit, deduplicated by row id.
 

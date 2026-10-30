@@ -77,8 +77,9 @@ During work, run the focused tests (the file, or a tag expression) — CI runs t
   `TEST_PORT`) that every `int` file talks to. Stop `npm run dev` first if it holds the port.
 - `int` files run serially (`fileParallelism: false`) in no promised order.
 - The server starts `ensureEventPartitions()` before listening, so today's and the next week's
-  `chat.events` partitions exist. No reaper runs in the test process yet; a test that needs the outbox
-  drained calls the SDK's `processBatch()`.
+  `chat.events` partitions exist. Test mode turns the outbox reaper's dispatch off, so outbox rows
+  stay in `core.core_outbox` for tests to read; a test that needs them drained calls the SDK's
+  `processBatch()`.
 
 ## Auth in Tests
 
