@@ -17,6 +17,7 @@ import {
   canReadSpace,
 } from "../../../../../../policy/index.js";
 import {
+  ArchivedError,
   ConflictError,
   ForbiddenError,
   NotFoundError,
@@ -63,6 +64,7 @@ export const putMember = async (req: Request, res: Response) => {
       tx,
       lock: true,
     });
+    if (facts.archived) throw new ArchivedError("The space is archived");
     const target = await tx.principal.findUnique({
       where: { id: principalId },
     });
@@ -137,6 +139,10 @@ export const removeMember = async (req: Request, res: Response) => {
       tx,
       lock: true,
     });
+    // Leaving is the one change an archived space still takes.
+    if (facts.archived && principalId !== caller.principalId) {
+      throw new ArchivedError("The space is archived");
+    }
     const current = await tx.spaceMember.findUnique({
       where: { spaceId_userId: { spaceId, userId: principalId } },
     });

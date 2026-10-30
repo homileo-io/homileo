@@ -11,7 +11,8 @@
       invalid_request` with an issue at `principalId`); in a group without a space only its
       `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
       re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
-      already a current participant. Records `session.participant_added`.
+      already a current participant. Records `session.participant_added`. An archived session, or
+      one in an archived space, takes neither (`409 resource_archived`).
 
       **Required permissions:** none; any signed-in caller in an organization.
     operationId: putSessionParticipant
@@ -41,12 +42,15 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
   delete:
     tags: [Sessions]
     summary: Leave a session or remove a participant
     description: |
-      When `principalId` is the caller, they leave: any participant may, except in a DM (`403`).
+      When `principalId` is the caller, they leave: any participant may, except in a DM (`403`),
+      even from an archived session or space. Removing someone else from an archived session, or
+      one in an archived space, is `409 resource_archived`.
       Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
       without a space, its `owner` or `homileo.chat.admin` (who must be a participant to reach
       it). A principal who is not a current participant is `404`. When the last `owner` of a group
@@ -71,4 +75,5 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

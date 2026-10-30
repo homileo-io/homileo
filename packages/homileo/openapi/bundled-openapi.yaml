@@ -395,11 +395,12 @@ paths:
 
         **Required permissions:** none; the caller must be able to moderate the space to add a
         `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
-        `homileo.chat.admin`. An archived space takes no changes. A caller who can read the space
-        but not make the change gets 403; one who cannot read it, 404.
+        `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
+        who cannot read it, 404.
 
-        **Errors:** `404` for a principal that does not exist, `409 last_owner` for a change that
-        would leave the space without an owner.
+        **Errors:** `404` for a principal that does not exist, `409 resource_archived` for an
+        archived space (even a request for the role the principal already has), `409 last_owner`
+        for a change that would leave the space without an owner.
       operationId: putSpaceMember
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -452,7 +453,8 @@ paths:
         `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
         one who cannot read it, 404.
 
-        **Errors:** `404` when the principal is not a member, `409 last_owner` for the last owner.
+        **Errors:** `409 resource_archived` for removing someone else from an archived space, `404`
+        when the principal is not a member, `409 last_owner` for the last owner.
       operationId: removeSpaceMember
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -484,7 +486,7 @@ paths:
         a repeat returns the pending request without a new event. `invite`: 403.
 
         **Required permissions:** none; the caller must be able to read the space (a space they
-        cannot read is a 404). An archived space cannot be joined (403).
+        cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
       operationId: joinSpace
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -509,6 +511,8 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
   /v1/spaces/{spaceId}/join-requests:
@@ -1000,7 +1004,8 @@ paths:
         invalid_request` with an issue at `principalId`); in a group without a space only its
         `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
         re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
-        already a current participant. Records `session.participant_added`.
+        already a current participant. Records `session.participant_added`. An archived session, or
+        one in an archived space, takes neither (`409 resource_archived`).
 
         **Required permissions:** none; any signed-in caller in an organization.
       operationId: putSessionParticipant
@@ -1038,6 +1043,8 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
     delete:
@@ -1045,7 +1052,9 @@ paths:
         - Sessions
       summary: Leave a session or remove a participant
       description: |
-        When `principalId` is the caller, they leave: any participant may, except in a DM (`403`).
+        When `principalId` is the caller, they leave: any participant may, except in a DM (`403`),
+        even from an archived session or space. Removing someone else from an archived session, or
+        one in an archived space, is `409 resource_archived`.
         Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
         without a space, its `owner` or `homileo.chat.admin` (who must be a participant to reach
         it). A principal who is not a current participant is `404`. When the last `owner` of a group
@@ -1079,6 +1088,8 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
   /v1/sessions/{sessionId}/read:

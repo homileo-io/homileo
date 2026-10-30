@@ -1,5 +1,4 @@
 import { canReadSpace, joinSpaceOutcome } from "../../../../../policy/index.js";
-import { ForbiddenError, NotFoundError } from "../../../../../utils/errors.js";
 import { joinRequestView, memberView } from "../../../../../views/space.js";
 import { validateParams } from "../../../../../utils/validateReq.js";
 import { withChanges } from "../../../../../utils/transaction.js";
@@ -7,6 +6,11 @@ import { readableSpace } from "../../../../../utils/access.js";
 import { callerOf } from "../../../../../middleware/auth.js";
 import { SpaceParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
+import {
+  ArchivedError,
+  ForbiddenError,
+  NotFoundError,
+} from "../../../../../utils/errors.js";
 
 export const joinSpace = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -17,6 +21,7 @@ export const joinSpace = async (req: Request, res: Response) => {
       tx,
       lock: true,
     });
+    if (facts.archived) throw new ArchivedError("The space is archived");
     const decision = joinSpaceOutcome(caller, facts);
     if (decision === "forbidden") {
       if (!canReadSpace(caller, facts))

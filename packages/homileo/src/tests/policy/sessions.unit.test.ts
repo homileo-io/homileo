@@ -438,7 +438,7 @@ describe("canLeaveSession", () => {
     ["space session participant", session({ participantRole: "member" }), true],
     ["DM participant", dm(), false],
     ["not a participant", group(null), false],
-    ["archived", group("member", { archived: true }), false],
+    ["archived", group("member", { archived: true }), true],
   ])("%s -> %s", (_n, ss, want) => {
     expect(canLeaveSession(caller(), ss)).toBe(want);
   });

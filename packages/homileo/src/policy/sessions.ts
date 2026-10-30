@@ -69,12 +69,14 @@ export const canArchiveSession = (c: OrgCaller, ss: SessionFacts): boolean => {
   return ss.participantRole === "owner" || c.isAdmin;
 };
 
-/** Anyone in a session can leave it except in a DM, which always has its two participants. */
+/**
+ * Anyone in a session can leave it, archived or not, except in a DM, which always has its two
+ * participants.
+ */
 export const canLeaveSession = (c: OrgCaller, ss: SessionFacts): boolean =>
   sameOrganization(c, ss) &&
   ss.participantRole !== null &&
-  ss.type !== "direct" &&
-  !ss.archived;
+  ss.type !== "direct";
 
 /** Reacting needs participation and a writable session, but not the space's post policy. */
 export const canReact = (c: OrgCaller, ss: SessionFacts): boolean =>

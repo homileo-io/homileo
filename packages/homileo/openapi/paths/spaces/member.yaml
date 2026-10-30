@@ -10,11 +10,12 @@
 
       **Required permissions:** none; the caller must be able to moderate the space to add a
       `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
-      `homileo.chat.admin`. An archived space takes no changes. A caller who can read the space
-      but not make the change gets 403; one who cannot read it, 404.
+      `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
+      who cannot read it, 404.
 
-      **Errors:** `404` for a principal that does not exist, `409 last_owner` for a change that
-      would leave the space without an owner.
+      **Errors:** `404` for a principal that does not exist, `409 resource_archived` for an
+      archived space (even a request for the role the principal already has), `409 last_owner`
+      for a change that would leave the space without an owner.
     operationId: putSpaceMember
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
@@ -60,7 +61,8 @@
       `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
       one who cannot read it, 404.
 
-      **Errors:** `404` when the principal is not a member, `409 last_owner` for the last owner.
+      **Errors:** `409 resource_archived` for removing someone else from an archived space, `404`
+      when the principal is not a member, `409 last_owner` for the last owner.
     operationId: removeSpaceMember
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'

@@ -9,7 +9,7 @@
       a repeat returns the pending request without a new event. `invite`: 403.
 
       **Required permissions:** none; the caller must be able to read the space (a space they
-      cannot read is a 404). An archived space cannot be joined (403).
+      cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
     operationId: joinSpace
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
@@ -30,4 +30,5 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

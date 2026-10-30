@@ -119,7 +119,7 @@ describe("POST /v1/spaces/:spaceId/join", () => {
     expect(res.body.error).toBe("forbidden");
   });
 
-  it("answers 403 on an archived space", async () => {
+  it("answers 409 resource_archived on an archived space", async () => {
     const org = api.organization();
     const space = await fixtures.space({
       org,
@@ -128,8 +128,10 @@ describe("POST /v1/spaces/:spaceId/join", () => {
       archived: true,
     });
     const joiner = await api.actor(org);
+    const res = await join(joiner.token, space.id);
 
-    expect((await join(joiner.token, space.id)).status).toBe(403);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("resource_archived");
   });
 
   it("answers 404 on a members space the caller cannot read, whatever its join policy", async () => {

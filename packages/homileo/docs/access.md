@@ -62,8 +62,10 @@ Participants are added with `canAddParticipant` and removed with `canRemoveParti
 The design does not state these.
 
 - **Archived is read-only.** An archived space or session (or a session in an archived space) refuses
-  join, post, edit, delete and participant changes. Reading stays allowed. Moderation and
-  management of the space itself (`canModerateSpace`, `canManageSpace`) are not blocked by archiving.
+  join, post, edit, delete, member and participant changes with `409 resource_archived`, checked
+  before the policy. Leaving (a space or a session) is the exception. Reading stays allowed.
+  Moderation and management of the space itself (`canModerateSpace`, `canManageSpace`) are not
+  blocked by archiving.
 - **A deleted message cannot be edited, and cannot be deleted again.**
 - **`homileo.chat.admin` passes every moderate and manage check** in the organization, except
   that it never reads a space-less session, deletes messages in one or adds participants to one,
@@ -97,7 +99,7 @@ The design does not state these.
   (a `members` space is lost, a `public` one kept; `access: members` sessions are lost); their kind
   grants and admin role are unknown to the caller and ignored. A leaving caller is judged with their
   own permissions.
-- **Leave a session** (`canLeaveSession`): any participant of an unarchived session except a DM.
+- **Leave a session** (`canLeaveSession`): any participant except in a DM, archived or not.
   When the last `owner` of a space-less group leaves or is removed, ownership passes to the
   remaining participant who joined first (no event records the role change).
 - **Kind bots** (decision 4): a kind's `bots` become `member`s of every new space of the kind and

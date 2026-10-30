@@ -1,5 +1,6 @@
 import { participantView, memberView } from "../../../../../../views/index.js";
 import { validateParams } from "../../../../../../utils/validateReq.js";
+import type { SessionFacts } from "../../../../../../policy/index.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
 import { readableSession } from "../../../../../../utils/access.js";
 import { callerOf } from "../../../../../../middleware/auth.js";
@@ -14,10 +15,16 @@ import {
   canRemoveParticipant,
 } from "../../../../../../policy/index.js";
 import {
+  ArchivedError,
   ForbiddenError,
   NotFoundError,
   ValidationError,
 } from "../../../../../../utils/errors.js";
+
+const refuseIfArchived = (facts: SessionFacts): void => {
+  if (facts.space?.archived) throw new ArchivedError("The space is archived");
+  if (facts.archived) throw new ArchivedError("The session is archived");
+};
 
 export const putParticipant = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -33,6 +40,7 @@ export const putParticipant = async (req: Request, res: Response) => {
       lock: true,
     });
     const joining = principalId === caller.principalId;
+    refuseIfArchived(facts);
     if (
       joining
         ? !canJoinSession(caller, facts)
@@ -121,6 +129,8 @@ export const removeParticipant = async (req: Request, res: Response) => {
       lock: true,
     });
     const leaving = principalId === caller.principalId;
+    // Leaving is the one change an archived session or space still takes.
+    if (!leaving) refuseIfArchived(facts);
     const target = await db.participants.findCurrent(
       tx,
       sessionId,

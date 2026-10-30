@@ -127,10 +127,10 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `GET /spaces/:spaceId` | `canReadSpace` | | |
 | `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
 | `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
-| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`) | `space.member_added`, or `space.join_requested` for `request` |
+| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added`, or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
 | `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` or `space.member_role_changed` |
-| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave) | `403`, `404`, `409 last_owner` | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
+| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
 | `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409` already decided, `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
 
@@ -148,8 +148,8 @@ kind; `externalRef` is unique per kind within the organization.
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `409 external_ref_taken`, `400 invalid_state` | `session.updated` |
 | `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
-| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space | `session.participant_added`, `space.member_added` when joining through an open space |
-| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self) or `canRemoveParticipant` | `403`, `404` | `session.participant_removed`, `session.access_revoked` |
+| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
+| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived) or `canRemoveParticipant` | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
 | `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` | |
 | `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |

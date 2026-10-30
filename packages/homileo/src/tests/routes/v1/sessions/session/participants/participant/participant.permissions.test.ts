@@ -132,6 +132,61 @@ describe("participant permissions", () => {
     ).toBe(204);
   });
 
+  it("refuses adds, joins and removals in an archived session or space with 409 resource_archived, but not leaving", async () => {
+    const org = newOrg();
+    const archivedSpace = await fixtures.space({
+      org,
+      visibility: "public",
+      joinPolicy: "open",
+      archived: true,
+    });
+    const inArchivedSpace = await fixtures.session({
+      org,
+      space: archivedSpace,
+      access: "space",
+    });
+    const archivedGroup = await fixtures.session({ org, archived: true });
+    const owner = await signIn(org);
+    const member = await signIn(org);
+    const joiner = await signIn(org);
+    const victim = await fixtures.principal();
+    await fixtures.member(archivedSpace, { id: owner.principalId }, "owner");
+    await fixtures.member(archivedSpace, { id: member.principalId });
+    for (const s of [inArchivedSpace, archivedGroup]) {
+      await fixtures.participant(s, { id: owner.principalId }, "owner");
+      await fixtures.participant(s, { id: member.principalId });
+      await fixtures.participant(s, victim);
+    }
+    const target = await fixtures.principal();
+    await fixtures.member(archivedSpace, target);
+
+    const refused = [
+      await fetchJson("PUT", url(archivedGroup.id, target.id), owner.token),
+      await fetchJson("DELETE", url(archivedGroup.id, victim.id), owner.token),
+      await fetchJson("PUT", url(inArchivedSpace.id, target.id), owner.token),
+      await fetchJson(
+        "PUT",
+        url(inArchivedSpace.id, joiner.principalId),
+        joiner.token
+      ),
+      await fetchJson(
+        "DELETE",
+        url(inArchivedSpace.id, victim.id),
+        owner.token
+      ),
+    ];
+    for (const res of refused) {
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("resource_archived");
+    }
+    for (const s of [archivedGroup, inArchivedSpace]) {
+      expect(
+        (await fetchJson("DELETE", url(s.id, member.principalId), member.token))
+          .status
+      ).toBe(204);
+    }
+  });
+
   it("answers 404 across organizations", async () => {
     const s = await fixtures.session({ org: newOrg() });
     const foreign = await signIn(newOrg());

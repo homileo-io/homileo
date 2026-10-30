@@ -135,22 +135,37 @@ describe("member changes by role (decision 5)", () => {
     expect(reader.status).toBe(404);
   });
 
-  it("refuses changes to an archived space, but not leaving it", async () => {
+  it("refuses changes to an archived space with 409 resource_archived, but not leaving it", async () => {
     const { space, callers } = await arrange({ archived: true });
     const victim = await api.actor(space.organizationId);
+    const path = (id: string) => `${url}/v1/spaces/${space.id}/members/${id}`;
     const add = await fetchJson(
       "PUT",
-      `${url}/v1/spaces/${space.id}/members/${victim.principal.id}`,
+      path(victim.principal.id),
       callers.owner.token,
       { role: "member" }
     );
+    const promote = await fetchJson(
+      "PUT",
+      path(callers.member.principal.id),
+      callers.owner.token,
+      { role: "moderator" }
+    );
+    const remove = await fetchJson(
+      "DELETE",
+      path(callers.moderator.principal.id),
+      callers.owner.token
+    );
     const leave = await fetchJson(
       "DELETE",
-      `${url}/v1/spaces/${space.id}/members/${callers.member.principal.id}`,
+      path(callers.member.principal.id),
       callers.member.token
     );
 
-    expect(add.status).toBe(403);
+    for (const res of [add, promote, remove]) {
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("resource_archived");
+    }
     expect(leave.status).toBe(204);
   });
 
