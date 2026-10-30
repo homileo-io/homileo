@@ -82,7 +82,7 @@ describe("GET /v1/me/unread", () => {
   it("is cleared by PUT read", async () => {
     const { me, other, s } = await setup();
     await seed.many(s.id, other.id, 3);
-    expect(sessionEntry((await get(me.token)).body, s.id).unread).toBe(3);
+    expect(sessionEntry((await get(me.token)).body, s.id)?.unread).toBe(3);
 
     await fetchJson(
       "PUT",
@@ -112,8 +112,8 @@ describe("GET /v1/me/unread", () => {
 
     const entry = sessionEntry((await get(me.token)).body, s.id);
 
-    expect(entry.mentions).toBe(3);
-    expect(entry.unread).toBe(4);
+    expect(entry?.mentions).toBe(3);
+    expect(entry?.unread).toBe(4);
   });
 
   it("counts a message with a user and a here mention once", async () => {
@@ -122,7 +122,7 @@ describe("GET /v1/me/unread", () => {
       mentions: [{ kind: "user", userId: me.principalId }, { kind: "here" }],
     });
 
-    expect(sessionEntry((await get(me.token)).body, s.id).mentions).toBe(1);
+    expect(sessionEntry((await get(me.token)).body, s.id)?.mentions).toBe(1);
   });
 
   it("counts a mention in a reply, which is not a top-level unread", async () => {
