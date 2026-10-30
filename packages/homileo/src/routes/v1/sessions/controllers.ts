@@ -7,15 +7,15 @@ import { encodeSessionCursor, parseSessionCursor } from "./utils.js";
 import { callerOf, type Caller } from "../../../middleware/auth.js";
 import { prisma, type Prisma } from "../../../utils/db/prisma.js";
 import { BUILTIN_KIND } from "../../../definitions/builtins.js";
+import { assertState } from "../../../utils/spaceSettings.js";
 import { withChanges } from "../../../utils/transaction.js";
 import { memberView } from "../../../views/space.js";
 import type { Request, Response } from "express";
 import { db } from "../../../utils/db/index.js";
 import {
-  AppError,
   ArchivedError,
-  BadRequestError,
   ForbiddenError,
+  PostingRestrictedError,
   ValidationError,
 } from "../../../utils/errors.js";
 
@@ -126,9 +126,7 @@ export const createSession = async (req: Request, res: Response) => {
       }
       if (!canCreateSessionIn(caller, space.facts)) {
         if (space.facts.postPolicy === "moderators") {
-          throw new AppError(
-            403,
-            "posting_restricted",
+          throw new PostingRestrictedError(
             "Only moderators start sessions in this space"
           );
         }
@@ -155,12 +153,7 @@ export const createSession = async (req: Request, res: Response) => {
     }
 
     const kind = space?.facts.kind ?? BUILTIN_KIND;
-    if (body.state !== undefined && !kind.states.includes(body.state)) {
-      throw new BadRequestError(
-        "invalid_state",
-        `The state must be one of: ${kind.states.join(", ") || "(none)"}`
-      );
-    }
+    assertState(kind, body.state);
 
     const row = await tx.session.create({
       data: {

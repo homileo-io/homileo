@@ -72,7 +72,6 @@ export const recordChange = async (
       eventType: `homileo.${change.type}`,
       entityType: change.entity.type,
       entityId: change.entity.id,
-      // Last, so a payload key of the same name cannot replace the real id.
       data: { ...(payload as object), eventId: String(row.id) },
     });
   }

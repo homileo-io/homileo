@@ -1,3 +1,4 @@
+import { CursorDateSchema } from "../../../utils/cursor.js";
 import { metadataSchema } from "../../../utils/metadata.js";
 import { IdSchema } from "../../../utils/idSchema.js";
 import { z } from "zod";
@@ -28,3 +29,13 @@ export const ListSessionsQuerySchema = z.strictObject({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+/**
+ * `[lastMessageAt, createdAt, id]`. A cursor holds only strings and numbers, so a session with no
+ * messages has `""` for `lastMessageAt`.
+ */
+export const SessionCursorSchema = z.tuple([
+  z.union([z.literal(""), CursorDateSchema]),
+  CursorDateSchema,
+  IdSchema,
+]);

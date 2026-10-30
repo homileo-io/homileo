@@ -1,8 +1,10 @@
 import { validateBody, validateParams } from "../../../../utils/validateReq.js";
 import { SessionParamsSchema, UpdateSessionBodySchema } from "./schemas.js";
 import { participantView, sessionView } from "../../../../views/session.js";
+import { ArchivedError, ForbiddenError } from "../../../../utils/errors.js";
 import { canEditSessionSettings } from "../../../../policy/index.js";
 import { BUILTIN_KIND } from "../../../../definitions/builtins.js";
+import { assertState } from "../../../../utils/spaceSettings.js";
 import { withChanges } from "../../../../utils/transaction.js";
 import { readableSession } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
@@ -10,11 +12,6 @@ import { callerOf } from "../../../../middleware/auth.js";
 import { db } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "util";
-import {
-  ArchivedError,
-  BadRequestError,
-  ForbiddenError,
-} from "../../../../utils/errors.js";
 
 export const getSession = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -45,13 +42,7 @@ export const updateSession = async (req: Request, res: Response) => {
       throw new ForbiddenError("You may not change this session's settings");
     }
 
-    const states = (facts.space?.kind ?? BUILTIN_KIND).states;
-    if (body.state && !states.includes(body.state)) {
-      throw new BadRequestError(
-        "invalid_state",
-        `The state must be one of: ${states.join(", ") || "(none)"}`
-      );
-    }
+    assertState(facts.space?.kind ?? BUILTIN_KIND, body.state);
 
     const data: Prisma.SessionUpdateInput = {};
     if (body.name !== undefined && body.name !== current.name) {

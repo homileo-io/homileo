@@ -1,4 +1,5 @@
 import { ValidationError } from "./errors.js";
+import { z } from "zod";
 
 /** An opaque list cursor: the sort key's values, as base64url JSON. */
 export const encodeCursor = (values: (string | number)[]): string =>
@@ -24,4 +25,22 @@ export const decodeCursor = (
     throw invalid();
   }
   return values as (string | number)[];
+};
+
+/** A cursor's timestamp: ISO 8601 in UTC with milliseconds, as `Date#toISOString` writes it. */
+export const CursorDateSchema = z.iso.datetime({ precision: 3 }).refine((v) => {
+  const date = new Date(v);
+  return !Number.isNaN(date.getTime()) && date.toISOString() === v;
+});
+
+/** Decodes `cursor` and checks each value against `schema`, a tuple of the sort key's types. */
+export const parseCursor = <T extends z.ZodTuple>(
+  cursor: string,
+  schema: T
+): z.output<T> => {
+  const parsed = schema.safeParse(
+    decodeCursor(cursor, schema.def.items.length)
+  );
+  if (!parsed.success) throw new ValidationError("Invalid cursor");
+  return parsed.data;
 };

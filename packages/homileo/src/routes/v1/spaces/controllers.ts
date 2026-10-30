@@ -1,11 +1,11 @@
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
-import { BadRequestError, ValidationError } from "../../../utils/errors.js";
-import { decodeCursor, encodeCursor } from "../../../utils/cursor.js";
 import { ensureBotPrincipals } from "../../../utils/db/principals.js";
+import { encodeCursor, parseCursor } from "../../../utils/cursor.js";
 import { mapUniqueViolation } from "../../../utils/prismaErrors.js";
 import { BUILTIN_KIND } from "../../../definitions/builtins.js";
 import { memberView, spaceView } from "../../../views/space.js";
 import { withChanges } from "../../../utils/transaction.js";
+import { BadRequestError } from "../../../utils/errors.js";
 import type { Prisma } from "../../../utils/db/prisma.js";
 import { callerOf } from "../../../middleware/auth.js";
 import { activeKind } from "../../../utils/kinds.js";
@@ -26,9 +26,8 @@ export const listSpaces = async (req: Request, res: Response) => {
   const query = validateQuery(ListSpacesQuerySchema, req);
   let after: { createdAt: Date; id: string } | undefined;
   if (query.cursor !== undefined) {
-    const key = SpaceCursorSchema.safeParse(decodeCursor(query.cursor, 2));
-    if (!key.success) throw new ValidationError("Invalid cursor");
-    after = { createdAt: new Date(key.data[0]), id: key.data[1] };
+    const [createdAt, id] = parseCursor(query.cursor, SpaceCursorSchema);
+    after = { createdAt: new Date(createdAt), id };
   }
 
   const page = await db.spaces.listPage(caller, { ...query, after });
