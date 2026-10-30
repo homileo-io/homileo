@@ -99,18 +99,16 @@ Imports are sorted by **line length, longest first**. Single-line imports come b
 imports, which are ordered by the length of their last line.
 
 ```typescript
-// packages/homileo/src/routes/v1/me/index.ts
-import { rateLimitGeneral } from "../../middleware/rateLimit.js";
-import { requireAuth } from "../../middleware/auth.js";
-import photoRouter from "./photo/index.js";
-import totpRouter from "./totp/index.js";
+// packages/homileo/src/routes/v1/spaces/index.ts
+import { authenticate, requireOrganization } from "../../../middleware/auth.js";
+import { CreateSpaceSchema } from "./schemas.js";
+import spaceRouter from "./space/index.js";
 import { Router } from "express";
 import {
-  getProfile,
-  getSessions,
-  revokeSession,
-  revokeAllSessions,
-  changePassword,
+  listSpaces,
+  createSpace,
+  archiveSpace,
+  restoreSpace,
 } from "./controllers.js";
 ```
 

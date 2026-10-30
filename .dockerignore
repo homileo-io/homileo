@@ -1,4 +1,3 @@
-.nx/migrate-runs
 node_modules
 **/node_modules
 # Images build from source; host-built output never goes in.

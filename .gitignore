@@ -15,6 +15,7 @@ logs/
 
 .nx/cache
 .nx/workspace-data
+.nx/migrate-runs
 vite.config.*.timestamp*
 vitest.config.*.timestamp*
 # Other sessions' git worktrees
