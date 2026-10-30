@@ -59,7 +59,11 @@
       "options": {
         "command": "vitest run",
         "cwd": "packages/homileo"
-      }
+      },
+      "dependsOn": [
+        "^build",
+        "generate"
+      ]
     },
     "test:unit": {
       "executor": "nx:run-commands",

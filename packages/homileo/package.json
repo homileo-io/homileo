@@ -20,6 +20,7 @@
     "test:logs": "../../docker/test/run.sh logs -f runner",
     "test:clean": "../../docker/test/run.sh down -v",
     "cli": "tsx src/cli/index.ts",
+    "tereo:provisioning": "tsx scripts/tereo-provisioning.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",

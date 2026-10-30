@@ -1,6 +1,8 @@
 # Local backing services for Homileo.
 #
 #   docker compose up -d postgres redis   # then `npm run dev` in packages/homileo
+#   docker compose up                     # everything: migrate, then homileo on 4101;
+#                                         # no .env needed, tereo is replaced by test mode
 #
 # Host ports (5452 / 6399) keep clear of 5432/6379 and of tereo's own stack
 # (5442 / 6389); override with HOMILEO_POSTGRES_PORT / HOMILEO_REDIS_PORT. Both
@@ -33,6 +35,48 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Migrations, once per `up`, before homileo starts.
+  migrate:
+    image: homileo:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["./migrate.sh"]
+    environment:
+      # The image defaults to production, whose PUBLIC_URL and TRUST_PROXY
+      # checks refuse a localhost stack.
+      NODE_ENV: &node-env development
+      DATABASE_URL: &database-url postgresql://homileo:homileo@postgres:5432/homileo
+      REDIS_URL: &redis-url redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  homileo:
+    image: homileo:local
+    env_file:
+      - path: packages/homileo/.env
+        required: false
+    environment:
+      NODE_ENV: *node-env
+      ROLE: all
+      # Pinned over packages/homileo/.env, which is written for a service run
+      # with `npm run dev`: inside the container it listens on 4101, and its
+      # public URL is wherever HOMILEO_PORT publishes it.
+      PORT: "4101"
+      PUBLIC_URL: http://localhost:${HOMILEO_PORT:-4101}
+      DATABASE_URL: *database-url
+      REDIS_URL: *redis-url
+      # No tereo to reach locally: accept the SDK's test tokens.
+      TEREO_TEST_MODE: "true"
+    ports:
+      - "${HOMILEO_PORT:-4101}:4101"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres:

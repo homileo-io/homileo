@@ -5,6 +5,7 @@ import { closeRedisConnection, initializeRedis } from "./utils/redis.js";
 import { ensureEventPartitions } from "./utils/partitions.js";
 import { initializeTereo, stopTereo } from "./utils/tereo.js";
 import { disconnectDatabase } from "./utils/db/prisma.js";
+import { startWorker, stopWorker } from "./worker.js";
 import { createServer, type Server } from "http";
 import { logger } from "./utils/logger.js";
 import env from "./env.js";
@@ -15,6 +16,7 @@ import env from "./env.js";
 const DRAIN_TIMEOUT_MS = env.SHUTDOWN_TIMEOUT_SECONDS * 1000;
 
 const runsApi = env.ROLE === "all" || env.ROLE === "api";
+const runsWorker = env.ROLE === "all" || env.ROLE === "worker";
 
 export interface ServerInstance {
   start: () => Promise<void>;
@@ -34,39 +36,41 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
       await initializeRedis();
       await initializeTereo();
 
-      if (!runsApi) return;
-
-      // Before listening: an invalid set must stop the start, not serve with
-      // the kinds of the last good one.
-      try {
-        await provision();
-      } catch (err) {
-        if (err instanceof ProvisioningError) {
-          for (const problem of err.problems)
-            logger.error({ ...problem }, "Invalid provisioning");
+      if (runsApi) {
+        // Before listening: an invalid set must stop the start, not serve with
+        // the kinds of the last good one.
+        try {
+          await provision();
+        } catch (err) {
+          if (err instanceof ProvisioningError) {
+            for (const problem of err.problems)
+              logger.error({ ...problem }, "Invalid provisioning");
+          }
+          throw err;
         }
-        throw err;
+
+        // Events recorded today and tomorrow need their partitions even while
+        // the worker, which creates them a week ahead, is down.
+        await ensureEventPartitions();
+
+        // Imported after Redis is up, as the modules behind it may resolve the
+        // client when they load.
+        const { default: app } = await import("./app.js");
+        server = createServer(app);
+        tuneServerKeepAlive(server);
+
+        const listening = server;
+        await new Promise<void>((resolve, reject) => {
+          listening.once("error", reject);
+          listening.listen(port, () => {
+            listening.off("error", reject);
+            logger.info({ port, role: env.ROLE }, "homileo listening");
+            resolve();
+          });
+        });
       }
 
-      // Events recorded today and tomorrow need their partitions even while
-      // the worker, which creates them a week ahead, is down.
-      await ensureEventPartitions();
-
-      // Imported after Redis is up, as the modules behind it may resolve the
-      // client when they load.
-      const { default: app } = await import("./app.js");
-      server = createServer(app);
-      tuneServerKeepAlive(server);
-
-      const listening = server;
-      await new Promise<void>((resolve, reject) => {
-        listening.once("error", reject);
-        listening.listen(port, () => {
-          listening.off("error", reject);
-          logger.info({ port, role: env.ROLE }, "homileo listening");
-          resolve();
-        });
-      });
+      if (runsWorker) await startWorker();
     },
 
     stop: () => {
@@ -96,6 +100,7 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
             logger.info("HTTP server closed");
           });
         }
+        await step("worker", stopWorker);
         await step("tereo", stopTereo);
         await step("redis", closeRedisConnection);
         await step("database", disconnectDatabase);
