@@ -26,6 +26,7 @@ export const initializeTereo = async (): Promise<void> => {
     return;
   }
   const testMode = env.TEREO_TEST_MODE;
+  // The placeholders apply only in test mode, which env.ts refuses in production.
   client = createCoreClient({
     service: env.TEREO_SERVICE_SLUG,
     url: env.TEREO_URL ?? (testMode ? "http://localhost:1" : undefined),

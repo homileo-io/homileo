@@ -45,6 +45,10 @@
     },
     "dev": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build",
+        "generate"
+      ],
       "options": {
         "command": "tsx watch ./src/index.ts",
         "cwd": "packages/homileo"
@@ -59,6 +63,10 @@
     },
     "test:unit": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build",
+        "generate"
+      ],
       "options": {
         "command": "vitest run --project unit",
         "cwd": "packages/homileo"
@@ -66,6 +74,10 @@
     },
     "test:int": {
       "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build",
+        "generate"
+      ],
       "options": {
         "command": "vitest run --project int",
         "cwd": "packages/homileo"
