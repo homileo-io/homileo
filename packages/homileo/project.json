@@ -4,10 +4,25 @@
   "projectType": "application",
   "sourceRoot": "packages/homileo/src",
   "targets": {
+    "generate": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "prisma generate",
+        "cwd": "packages/homileo"
+      },
+      "inputs": [
+        "{projectRoot}/prisma/schema.prisma"
+      ],
+      "outputs": [
+        "{projectRoot}/prisma/generated"
+      ],
+      "cache": true
+    },
     "build": {
       "executor": "nx:run-commands",
       "dependsOn": [
-        "^build"
+        "^build",
+        "generate"
       ],
       "options": {
         "command": "tsc",
@@ -20,7 +35,8 @@
     "check": {
       "executor": "nx:run-commands",
       "dependsOn": [
-        "^build"
+        "^build",
+        "generate"
       ],
       "options": {
         "command": "tsc --noEmit",
