@@ -1,8 +1,8 @@
 # Contributing
 
-Homileo is a private repository. This guide is for the people working in it. For a new feature or a
-change to how Homileo behaves, agree the approach first (an issue or a spec in
-`docs/superpowers/specs/`) before you write it.
+Thanks for helping with Homileo. Bug reports, fixes and documentation are all welcome. For a new
+feature or a change to how Homileo behaves, open an issue first so the approach can be agreed
+before you write it.
 
 ## Getting set up
 

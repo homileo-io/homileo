@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A generic chat service for apps built on tereo — spaces, sessions, messages, threads, reactions, mentions, read state, attachments, presence, search and realtime delivery, extended through provisioning documents",
   "author": "Aaron Leman",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "private": true,
   "workspaces": [
     "packages/*"

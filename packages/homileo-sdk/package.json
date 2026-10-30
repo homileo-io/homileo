@@ -17,7 +17,8 @@
     "!dist/tests",
     "!src/tests",
     "provisioning.schema.json",
-    "!**/*.tsbuildinfo"
+    "!**/*.tsbuildinfo",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsc",
@@ -29,7 +30,7 @@
     "test:watch": "vitest"
   },
   "author": "Aaron Leman",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "zod": "^4.6.7"
   },

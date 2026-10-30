@@ -109,6 +109,9 @@ info:
   description: |
     {Overview of the areas, Authentication (tereo tokens), Organizations, Permissions and access,
      Pagination, Error handling, Realtime and /sync, Webhook deliveries}
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
   - url: http://localhost:4101
@@ -269,8 +272,8 @@ npm run openapi:build   # lint, then regenerate openapi/bundled-openapi.yaml
 
 The bundle is committed: run `openapi:build` after editing the spec and commit the result. Keep its
 path, `openapi/bundled-openapi.yaml` — consumers such as the standalone UI read it from there.
-`redocly.yaml` extends `recommended`, turns `no-server-example.com` and `info-license-strict` off
-(the repo is private and unlicensed), and makes `security-defined` an error.
+`redocly.yaml` extends `recommended`, turns `no-server-example.com` and `info-license-strict` off,
+and makes `security-defined` an error.
 
 ## When to Update
 

@@ -104,7 +104,8 @@ One ordinary package, shared by every area:
 - **Raw SQL** names tables with their schema (`"chat"."events"`) — there is no `public` schema.
 - **Logging**: JSON via Pino, object first (`logger.info({ meta }, "msg")`), with `request_id`
   added during a request. Errors go under `err` (`logger.error({ err }, "msg")`).
-- **Repo is private**: `"license": "UNLICENSED"` in every `package.json`; no LICENSE or NOTICE files.
+- **License**: Apache-2.0 (`LICENSE`, `NOTICE`); every `package.json` says `"license": "Apache-2.0"`, and
+  `@homileo-io/sdk` ships its own `LICENSE` and `NOTICE`.
 
 ## Local development
 
