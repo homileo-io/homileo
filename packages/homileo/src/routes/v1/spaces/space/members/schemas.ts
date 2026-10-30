@@ -1,3 +1,4 @@
+import { IdSchema } from "../../../../../utils/idSchema.js";
 import { z } from "zod";
 
 export const ListMembersQuerySchema = z.strictObject({
@@ -7,4 +8,4 @@ export const ListMembersQuerySchema = z.strictObject({
 });
 
 /** A list cursor's values: `joined_at` as an ISO string, then the principal id. */
-export const MemberCursorSchema = z.tuple([z.iso.datetime(), z.guid()]);
+export const MemberCursorSchema = z.tuple([z.iso.datetime(), IdSchema]);

@@ -1,12 +1,10 @@
 // @module-tag int
 // @module-tag spaces
+import { spaceApiFixtures } from "../../../../../support/spaceApi.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../../../../../utils/db/prisma.js";
+import { startV1App } from "../../../../../support/v1App.js";
 import { fetchJson } from "../../../../../support/http.js";
-import {
-  spaceApiFixtures,
-  startV1App,
-} from "../../../../../support/spaceApi.js";
 
 const api = spaceApiFixtures();
 const { fixtures } = api;

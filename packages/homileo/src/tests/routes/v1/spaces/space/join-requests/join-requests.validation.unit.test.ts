@@ -32,4 +32,13 @@ describe("JoinRequestCursorSchema", () => {
     ).toBe(true);
     expect(JoinRequestCursorSchema.safeParse([1, 2]).success).toBe(false);
   });
+
+  it("lower-cases the id", () => {
+    const at = new Date().toISOString();
+    const id = uuidv7();
+    expect(JoinRequestCursorSchema.parse([at, id.toUpperCase()])).toEqual([
+      at,
+      id,
+    ]);
+  });
 });

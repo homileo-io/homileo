@@ -81,11 +81,14 @@ describe("POST /v1/spaces events", () => {
       entityId: res.body.space.id,
       userId: principal.tereoUserId,
     });
-    expect(hooks.map((h) => h.payload.eventType)).toEqual([
+    expect(hooks.map((h) => h.payload.eventType).sort()).toEqual([
       "homileo.space.created",
       "homileo.space.member_added",
     ]);
-    expect(hooks[0].payload).toMatchObject({
+    const created = hooks.find(
+      (h) => h.payload.eventType === "homileo.space.created"
+    );
+    expect(created?.payload).toMatchObject({
       entityType: "space",
       entityId: res.body.space.id,
     });

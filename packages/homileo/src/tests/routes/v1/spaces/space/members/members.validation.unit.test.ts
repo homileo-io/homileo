@@ -29,6 +29,12 @@ describe("MemberCursorSchema", () => {
     ).toBe(true);
   });
 
+  it("lower-cases the id", () => {
+    const at = new Date().toISOString();
+    const id = uuidv7();
+    expect(MemberCursorSchema.parse([at, id.toUpperCase()])).toEqual([at, id]);
+  });
+
   it.each([
     ["a non-timestamp", ["yesterday", uuidv7()]],
     ["a non-uuid id", [new Date().toISOString(), "x"]],

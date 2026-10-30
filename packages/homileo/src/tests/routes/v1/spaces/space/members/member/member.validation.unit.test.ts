@@ -22,6 +22,17 @@ describe("PutMemberSchema", () => {
 });
 
 describe("MemberParamsSchema", () => {
+  it("lower-cases both ids", () => {
+    const spaceId = uuidv7();
+    const principalId = uuidv7();
+    expect(
+      MemberParamsSchema.parse({
+        spaceId: spaceId.toUpperCase(),
+        principalId: principalId.toUpperCase(),
+      })
+    ).toEqual({ spaceId, principalId });
+  });
+
   it("takes two UUIDs and refuses anything else", () => {
     expect(
       MemberParamsSchema.safeParse({ spaceId: uuidv7(), principalId: uuidv7() })
