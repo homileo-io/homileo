@@ -41,7 +41,9 @@ export const initializeTereo = async (): Promise<void> => {
     outbox: {
       db: prisma,
       table: "core.core_outbox",
-      dispatch: env.ROLE !== "api",
+      // In test mode tereo is a placeholder URL, so the reaper would only fail
+      // to deliver; rows stay in the outbox for tests to inspect.
+      dispatch: env.ROLE !== "api" && !testMode,
     },
     testMode,
   });
