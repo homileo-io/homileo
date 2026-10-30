@@ -281,9 +281,6 @@ CREATE UNIQUE INDEX "principals_tereo_user_id_key" ON "chat"."principals"("tereo
 CREATE UNIQUE INDEX "principals_app_external_id_key" ON "chat"."principals"("app", "external_id");
 
 -- CreateIndex
-CREATE INDEX "spaces_organization_id_idx" ON "chat"."spaces"("organization_id");
-
--- CreateIndex
 CREATE UNIQUE INDEX "spaces_organization_id_kind_external_ref_key" ON "chat"."spaces"("organization_id", "kind", "external_ref");
 
 -- CreateIndex
@@ -324,6 +321,9 @@ CREATE INDEX "message_mentions_user_id_message_id_idx" ON "chat"."message_mentio
 
 -- CreateIndex
 CREATE INDEX "attachments_message_id_idx" ON "chat"."attachments"("message_id");
+
+-- CreateIndex
+CREATE INDEX "thread_followers_user_id_idx" ON "chat"."thread_followers"("user_id");
 
 -- CreateIndex
 CREATE INDEX "events_organization_id_id_idx" ON "chat"."events"("organization_id", "id");

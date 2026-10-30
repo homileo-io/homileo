@@ -15,11 +15,16 @@ const packageRoot = path.resolve(
   "../.."
 );
 
+// The shared server listens on PORT; the two servers here take the next two.
+const basePort = Number(process.env.PORT);
+const apiPort = basePort + 1;
+const stopPort = basePort + 2;
+
 describe("ROLE=api", () => {
   // A process of its own: the role is read from the environment when the
   // modules load, and the shared server runs every role.
   it("serves /health and runs no worker", async () => {
-    const port = 4152;
+    const port = apiPort;
     const child = spawn(
       process.execPath,
       ["--import", "tsx", path.join(packageRoot, "src/index.ts")],
@@ -70,11 +75,12 @@ describe("stop", () => {
     await initializeTereo();
     const tereoStart = vi.spyOn(getTereo(), "start");
     const tereoStop = vi.spyOn(getTereo(), "stop");
-    const server = createAppServer(4151);
+    const server = createAppServer(stopPort);
     await server.start();
     expect(tereoStart).toHaveBeenCalledTimes(1);
     expect(
-      (await fetchJson("GET", "http://localhost:4151/health", null)).status
+      (await fetchJson("GET", `http://localhost:${stopPort}/health`, null))
+        .status
     ).toBe(200);
 
     await server.stop();
@@ -82,7 +88,7 @@ describe("stop", () => {
     expect(tereoStop).toHaveBeenCalledTimes(1);
     expect(server.isRunning()).toBe(false);
     await expect(
-      fetch("http://localhost:4151/health", {
+      fetch(`http://localhost:${stopPort}/health`, {
         signal: AbortSignal.timeout(2000),
       })
     ).rejects.toThrow();

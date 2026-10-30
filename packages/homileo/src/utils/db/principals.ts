@@ -21,6 +21,12 @@ export const setProfileLookup = (lookup: ProfileLookup | null) => {
   lookupProfile = lookup ?? ((id) => getTereo().auth.getUser(id));
 };
 
+const DISPLAY_NAME_MAX = 255;
+
+/** Cuts by code point, so a surrogate pair is never split. */
+export const truncateDisplayName = (name: string | null): string | null =>
+  name === null ? null : Array.from(name).slice(0, DISPLAY_NAME_MAX).join("");
+
 /**
  * Finds or creates the user principal of a tereo user. A known user is one
  * read; only a miss inserts, and requests that race on a first sign-in all
@@ -38,7 +44,7 @@ export const findOrCreateUser = async (input: {
   await prisma.$executeRaw`INSERT INTO "chat"."principals"
       (id, kind, tereo_user_id, is_bot, display_name, created_at, updated_at)
     VALUES (${uuidv7()}::uuid, 'user', ${input.tereoUserId}::uuid, ${input.isBot},
-      ${input.displayName}, NOW(), NOW())
+      ${truncateDisplayName(input.displayName)}, NOW(), NOW())
     ON CONFLICT (tereo_user_id) DO NOTHING`;
   return prisma.principal.findUniqueOrThrow({ where });
 };
@@ -74,7 +80,7 @@ export const refreshProfile = async (principal: Principal): Promise<void> => {
     data: {
       profileRefreshedAt: new Date(),
       ...(user && {
-        displayName: user.name ?? principal.displayName,
+        displayName: truncateDisplayName(user.name ?? principal.displayName),
         avatarUrl:
           (typeof photo === "string" ? photo : photo?.url) ??
           principal.avatarUrl,

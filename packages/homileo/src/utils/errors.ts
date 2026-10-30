@@ -1,4 +1,5 @@
 import { Response, Request, NextFunction } from "express";
+import { InvalidAuditEntryError } from "@tereo-io/sdk";
 import { logger } from "./logger.js";
 import { ZodError } from "zod";
 import {
@@ -225,6 +226,11 @@ const errorResponse = (err: Error): ErrorResponse => {
 
   if (isAppErrorLike(err)) {
     return { status: err.statusCode, code: err.code, message: err.message };
+  }
+
+  // An audit entry the SDK refused before queueing it: the caller's input.
+  if (err instanceof InvalidAuditEntryError) {
+    return { status: 400, code: "invalid_request", message: err.message };
   }
 
   // A write conflict or deadlock (P2034): retryable, so 409 lets clients
