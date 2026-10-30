@@ -32,7 +32,7 @@ npm script, an Nx target from a `packages/*/project.json`, Docker Compose, or Pr
 | Lint | `npm run lint` | root |
 | Lint / re-bundle the OpenAPI spec (from plan 2) | `npm run openapi:lint` / `npm run openapi:build` | `packages/homileo` |
 | Type-check every package | `npm run check` | root |
-| Create a version plan | `npm run version-plan` | root |
+| Create a version plan (`tereo-provisioning.json` embeds `homileo`'s version: regenerate it with `npm run tereo:provisioning` after every version bump) | `npm run version-plan` | root |
 
 ## Root npm scripts (`package.json`)
 

@@ -1,8 +1,7 @@
 // @module-tag int
 // @module-tag platform
 // @module-tag job
-import { initializeTereo, getTereo, stopTereo } from "../utils/tereo.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { partitionName } from "../utils/partitions.js";
 import { startWorker, stopWorker } from "../worker.js";
 import { prisma } from "../utils/db/prisma.js";
@@ -31,20 +30,13 @@ const dropPartitionsOf2032 = async () => {
 };
 
 describe("worker", () => {
-  beforeEach(async () => {
-    await initializeTereo();
-  });
-
   afterEach(async () => {
     vi.useRealTimers();
     await stopWorker();
-    await stopTereo();
     await dropPartitionsOf2032();
   });
 
   it("ensures event partitions on start and daily", async () => {
-    vi.spyOn(getTereo(), "start").mockResolvedValue();
-
     vi.useFakeTimers({
       toFake: ["Date", "setInterval", "clearInterval"],
       now: START,
@@ -64,19 +56,5 @@ describe("worker", () => {
     await vi.waitFor(async () => {
       expect(await partitionExists(dayEight)).toBe(true);
     });
-  });
-
-  it("starts and stops the outbox reaper", async () => {
-    const tereo = getTereo();
-    const start = vi.spyOn(tereo, "start").mockResolvedValue();
-    const stop = vi.spyOn(tereo, "stop");
-
-    await startWorker();
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(stop).not.toHaveBeenCalled();
-
-    await stopWorker();
-    await stopTereo();
-    expect(stop).toHaveBeenCalledTimes(1);
   });
 });

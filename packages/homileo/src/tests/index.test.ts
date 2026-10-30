@@ -1,9 +1,10 @@
 // @module-tag int
 // @module-tag platform
+import { describe, expect, it, vi } from "vitest";
 import { prisma } from "../utils/db/prisma.js";
 import { createAppServer } from "../index.js";
 import { fetchJson } from "./support/http.js";
-import { describe, expect, it } from "vitest";
+import { getTereo } from "../utils/tereo.js";
 import { redis } from "../utils/redis.js";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
@@ -53,6 +54,8 @@ describe("ROLE=api", () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ status: "ok", postgres: "ok", redis: "ok" });
       expect(output).not.toContain("homileo worker started");
+      // The tereo client starts in every role, the api included.
+      expect(output).toContain("Started request handler");
     } finally {
       child.kill("SIGTERM");
       expect(await exited).toBe(0);
@@ -68,8 +71,11 @@ describe("stop", () => {
       (await fetchJson("GET", "http://localhost:4151/health", null)).status
     ).toBe(200);
 
+    const stopTereoClient = vi.spyOn(getTereo(), "stop");
+
     await server.stop();
 
+    expect(stopTereoClient).toHaveBeenCalledTimes(1);
     expect(server.isRunning()).toBe(false);
     await expect(
       fetch("http://localhost:4151/health", {

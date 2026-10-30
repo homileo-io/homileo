@@ -2,8 +2,8 @@ import "./preload.js";
 import { closeHttpServer, tuneServerKeepAlive } from "./utils/httpServer.js";
 import { ProvisioningError, provision } from "./utils/provisioning/index.js";
 import { closeRedisConnection, initializeRedis } from "./utils/redis.js";
+import { getTereo, initializeTereo, stopTereo } from "./utils/tereo.js";
 import { ensureEventPartitions } from "./utils/partitions.js";
-import { initializeTereo, stopTereo } from "./utils/tereo.js";
 import { disconnectDatabase } from "./utils/db/prisma.js";
 import { startWorker, stopWorker } from "./worker.js";
 import { createServer, type Server } from "http";
@@ -35,6 +35,9 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
       running = true;
       await initializeRedis();
       await initializeTereo();
+      // The request handler serves every role's calls to tereo; the outbox
+      // reaper inside it runs only where `outbox.dispatch` allows.
+      await getTereo().start();
 
       if (runsApi) {
         // Before listening: an invalid set must stop the start, not serve with
