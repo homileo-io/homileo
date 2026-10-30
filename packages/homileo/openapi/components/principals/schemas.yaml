@@ -1,0 +1,55 @@
+Principal:
+  type: object
+  description: A user, bot or external identity that sends messages and joins spaces and sessions
+  required: [id, kind, tereoUserId, isBot, displayName, avatarUrl]
+  properties:
+    id: { type: string, format: uuid, description: Unique identifier }
+    kind:
+      type: string
+      enum: [user, external]
+    tereoUserId:
+      type: [string, 'null']
+      format: uuid
+      description: The tereo user the principal is, for a `user`
+    isBot:
+      type: boolean
+      description: True for a tereo service account
+    displayName:
+      type: [string, 'null']
+      maxLength: 255
+    avatarUrl:
+      type: [string, 'null']
+
+GetPrincipalResponse:
+  type: object
+  required: [principal]
+  properties:
+    principal: { $ref: '#/Principal' }
+
+ResolvePrincipalsRequest:
+  type: object
+  additionalProperties: false
+  required: [tereoUserIds]
+  properties:
+    tereoUserIds:
+      type: array
+      description: Tereo user ids, without duplicates
+      minItems: 1
+      maxItems: 100
+      uniqueItems: true
+      items: { type: string, format: uuid }
+  examples:
+    - tereoUserIds: ['0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b']
+
+ResolvePrincipalsResponse:
+  type: object
+  required: [data, missing]
+  properties:
+    data:
+      type: array
+      description: The principals of the users tereo knows, in the order asked
+      items: { $ref: '#/Principal' }
+    missing:
+      type: array
+      description: The ids tereo does not know; no principal is created for them
+      items: { type: string, format: uuid }

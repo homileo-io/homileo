@@ -57,7 +57,12 @@ tags:
   - name: Platform
     description: Health and the caller's own identity
 
+  - name: Principals
+    description: Users, bots and external identities that take part in chat
+
 x-tagGroups:
+  - name: Principals
+    tags: [Principals]
   - name: Platform
     tags: [Platform]
 
@@ -66,6 +71,10 @@ paths:
     $ref: './paths/platform/health.yaml#/~1health'
   /v1/me:
     $ref: './paths/platform/me.yaml#/~1v1~1me'
+  /v1/principals/resolve:
+    $ref: './paths/principals/resolve.yaml#/~1v1~1principals~1resolve'
+  /v1/principals/{principalId}:
+    $ref: './paths/principals/principal.yaml#/~1v1~1principals~1{principalId}'
 
 components:
   securitySchemes:
@@ -98,6 +107,14 @@ components:
       $ref: './components/platform/schemas.yaml#/HealthStatus'
     MeResponse:
       $ref: './components/platform/schemas.yaml#/MeResponse'
+    Principal:
+      $ref: './components/principals/schemas.yaml#/Principal'
+    GetPrincipalResponse:
+      $ref: './components/principals/schemas.yaml#/GetPrincipalResponse'
+    ResolvePrincipalsRequest:
+      $ref: './components/principals/schemas.yaml#/ResolvePrincipalsRequest'
+    ResolvePrincipalsResponse:
+      $ref: './components/principals/schemas.yaml#/ResolvePrincipalsResponse'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 

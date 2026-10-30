@@ -53,6 +53,8 @@ security:
 tags:
   - name: Platform
     description: Health and the caller's own identity
+  - name: Principals
+    description: Users, bots and external identities that take part in chat
 paths:
   /health:
     get:
@@ -98,6 +100,72 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/principals/resolve:
+    post:
+      tags:
+        - Principals
+      summary: Resolve tereo users to principals
+      description: |
+        Returns the principal of each tereo user id, creating it for a user not seen before.
+        Principals already stored are returned as they are; only unseen ids are looked up in tereo,
+        and a user whose tereo account is a service account becomes a bot. Ids tereo does not know
+        are listed in `missing`. `data` keeps the order of the request. Safe to repeat and to call
+        concurrently.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: resolvePrincipals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolvePrincipalsRequest'
+      responses:
+        '200':
+          description: The principals, and the ids tereo does not know
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvePrincipalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/principals/{principalId}:
+    get:
+      tags:
+        - Principals
+      summary: Get a principal
+      description: |
+        One principal by id. Principals belong to no organization, so any signed-in caller may read
+        any of them.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getPrincipal
+      parameters:
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The principal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPrincipalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
 webhooks: {}
@@ -242,6 +310,86 @@ components:
           description: The token's tereo permissions
           items:
             type: string
+    Principal:
+      type: object
+      description: A user, bot or external identity that sends messages and joins spaces and sessions
+      required:
+        - id
+        - kind
+        - tereoUserId
+        - isBot
+        - displayName
+        - avatarUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier
+        kind:
+          type: string
+          enum:
+            - user
+            - external
+        tereoUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The tereo user the principal is, for a `user`
+        isBot:
+          type: boolean
+          description: True for a tereo service account
+        displayName:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        avatarUrl:
+          type:
+            - string
+            - 'null'
+    GetPrincipalResponse:
+      type: object
+      required:
+        - principal
+      properties:
+        principal:
+          $ref: '#/components/schemas/Principal'
+    ResolvePrincipalsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tereoUserIds
+      properties:
+        tereoUserIds:
+          type: array
+          description: Tereo user ids, without duplicates
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+      examples:
+        - tereoUserIds:
+            - 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+    ResolvePrincipalsResponse:
+      type: object
+      required:
+        - data
+        - missing
+      properties:
+        data:
+          type: array
+          description: The principals of the users tereo knows, in the order asked
+          items:
+            $ref: '#/components/schemas/Principal'
+        missing:
+          type: array
+          description: The ids tereo does not know; no principal is created for them
+          items:
+            type: string
+            format: uuid
     WebhookEvent:
       type: object
       description: |
@@ -323,6 +471,9 @@ components:
             - string
             - 'null'
 x-tagGroups:
+  - name: Principals
+    tags:
+      - Principals
   - name: Platform
     tags:
       - Platform
