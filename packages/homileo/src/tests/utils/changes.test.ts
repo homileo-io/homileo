@@ -1,5 +1,6 @@
 // @module-tag int
 // @module-tag events
+import { readPayload, spacePayload } from "../support/eventPayloads.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
 import { chatFixtures } from "../support/chatFixtures.js";
@@ -44,6 +45,7 @@ describe("recordChange", () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();
     const spaceId = uuidv7();
+    const payload = spacePayload(spaceId);
 
     const event = await prisma.$transaction((tx) =>
       recordChange(tx, {
@@ -52,7 +54,7 @@ describe("recordChange", () => {
         spaceId,
         actorId: actor.id,
         entity: { type: "Space", id: spaceId },
-        payload: { name: "General" },
+        payload,
       })
     );
 
@@ -62,7 +64,7 @@ describe("recordChange", () => {
     expect(stored.type).toBe("space.created");
     expect(stored.organizationId).toBe(organizationId);
     expect(stored.actorId).toBe(actor.id);
-    expect(event.payload).toEqual({ name: "General" });
+    expect(event.payload).toEqual(payload);
     const rows = await outboxRows(organizationId);
     expect(rows).toHaveLength(1);
     expect(rows[0].destination).toBe("webhook");
@@ -71,11 +73,11 @@ describe("recordChange", () => {
       organizationId,
       entityType: "Space",
       entityId: spaceId,
-      data: { eventId: String(event.id), name: "General" },
+      data: { eventId: String(event.id), ...payload },
     });
   });
 
-  it("keeps the real eventId when the payload has one", async () => {
+  it("puts the real event id in the webhook data", async () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();
     const spaceId = uuidv7();
@@ -87,13 +89,13 @@ describe("recordChange", () => {
         spaceId,
         actorId: actor.id,
         entity: { type: "Space", id: spaceId },
-        payload: { eventId: "forged", name: "General" },
+        payload: spacePayload(spaceId),
       })
     );
 
     const rows = await outboxRows(organizationId);
     expect(rows[0].payload).toMatchObject({
-      data: { eventId: String(event.id), name: "General" },
+      data: { eventId: String(event.id) },
     });
   });
 
@@ -108,7 +110,7 @@ describe("recordChange", () => {
           organizationId,
           actorId: actor.id,
           entity: { type: "Space", id: uuidv7() },
-          payload: {},
+          payload: spacePayload(),
         });
         throw new Error("boom");
       })
@@ -128,7 +130,7 @@ describe("recordChange", () => {
         organizationId,
         actorId: actor.id,
         entity: { type: "Session", id: uuidv7() },
-        payload: { seq: 3 },
+        payload: readPayload(),
       })
     );
 
@@ -168,7 +170,7 @@ describe("recordChange", () => {
             organizationId,
             actorId: actor.id,
             entity: { type: "Session", id: uuidv7() },
-            payload: {},
+            payload: readPayload(),
           })
         )
       )

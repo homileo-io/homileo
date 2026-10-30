@@ -1,4 +1,14 @@
+import { Id, Timestamp } from "../resources/common.js";
 import { z } from "zod";
+import {
+  JoinRequestSchema,
+  MessageSchema,
+  ParticipantSchema,
+  SessionSchema,
+  SpaceMemberSchema,
+  SpaceRoleSchema,
+  SpaceSchema,
+} from "../resources/index.js";
 
 export type EventChannel = "space" | "session" | "user";
 
@@ -10,37 +20,90 @@ export interface EventDefinition {
   payload: z.ZodType;
 }
 
-const payload = z.record(z.string(), z.unknown());
+const def = (
+  channel: EventChannel,
+  payload: z.ZodType,
+  webhook = true
+): EventDefinition => ({ channel, webhook, payload });
 
-const def = (channel: EventChannel, webhook = true): EventDefinition => ({
-  channel,
-  webhook,
-  payload,
+const Space = z.strictObject({ space: SpaceSchema });
+const Session = z.strictObject({ session: SessionSchema });
+const Message = z.strictObject({ message: MessageSchema });
+const Request = z.strictObject({ request: JoinRequestSchema });
+const Reaction = z.strictObject({
+  sessionId: Id,
+  messageId: Id,
+  principalId: Id,
+  emoji: z.string(),
 });
 
 export const EVENT_TYPES = {
-  "space.created": def("space"),
-  "space.updated": def("space"),
-  "space.archived": def("space"),
-  "space.member_added": def("space"),
-  "space.member_removed": def("space"),
-  "space.member_role_changed": def("space"),
-  "space.join_requested": def("space"),
-  "space.join_decided": def("space"),
-  "session.created": def("session"),
-  "session.updated": def("session"),
-  "session.archived": def("session"),
-  "session.participant_added": def("session"),
-  "session.participant_removed": def("session"),
-  "message.created": def("session"),
-  "message.edited": def("session"),
-  "message.deleted": def("session"),
-  "reaction.added": def("session"),
-  "reaction.removed": def("session"),
-  "thread.updated": def("session"),
-  "read.updated": def("user", false),
-  "space.access_revoked": def("user", false),
-  "session.access_revoked": def("user", false),
+  "space.created": def("space", Space),
+  "space.updated": def("space", Space),
+  "space.archived": def("space", Space),
+  "space.member_added": def(
+    "space",
+    z.strictObject({ spaceId: Id, member: SpaceMemberSchema })
+  ),
+  "space.member_removed": def(
+    "space",
+    z.strictObject({ spaceId: Id, principalId: Id })
+  ),
+  "space.member_role_changed": def(
+    "space",
+    z.strictObject({
+      spaceId: Id,
+      member: SpaceMemberSchema,
+      previousRole: SpaceRoleSchema,
+    })
+  ),
+  "space.join_requested": def("space", Request),
+  "space.join_decided": def("space", Request),
+  "session.created": def("session", Session),
+  "session.updated": def("session", Session),
+  "session.archived": def("session", Session),
+  "session.participant_added": def(
+    "session",
+    z.strictObject({ sessionId: Id, participant: ParticipantSchema })
+  ),
+  "session.participant_removed": def(
+    "session",
+    z.strictObject({ sessionId: Id, principalId: Id })
+  ),
+  "message.created": def("session", Message),
+  "message.edited": def("session", Message),
+  "message.deleted": def("session", Message),
+  "reaction.added": def("session", Reaction),
+  "reaction.removed": def("session", Reaction),
+  "thread.updated": def(
+    "session",
+    z.strictObject({
+      sessionId: Id,
+      rootId: Id,
+      replyCount: z.number().int(),
+      lastReplyAt: Timestamp.nullable(),
+    })
+  ),
+  "read.updated": def(
+    "user",
+    z.strictObject({
+      principalId: Id,
+      sessionId: Id,
+      threadRootId: Id.nullable(),
+      lastReadSeq: z.number().int(),
+    }),
+    false
+  ),
+  "space.access_revoked": def(
+    "user",
+    z.strictObject({ principalId: Id, spaceId: Id }),
+    false
+  ),
+  "session.access_revoked": def(
+    "user",
+    z.strictObject({ principalId: Id, sessionId: Id }),
+    false
+  ),
 } as const satisfies Record<string, EventDefinition>;
 
 export type EventType = keyof typeof EVENT_TYPES;

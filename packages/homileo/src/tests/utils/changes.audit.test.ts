@@ -2,6 +2,7 @@
 // @module-tag events
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
+import { spacePayload } from "../support/eventPayloads.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { recordChange } from "../../utils/changes.js";
 import { prisma } from "../../utils/db/prisma.js";
@@ -36,7 +37,7 @@ describe("recordChange audit", () => {
         organizationId,
         actorId: actor.id,
         entity: { type: "Space", id: entityId },
-        payload: {},
+        payload: spacePayload(),
         audit: { action: "UPDATE", userId, metadata: { reason: "test" } },
       })
     );
@@ -66,7 +67,7 @@ describe("recordChange audit", () => {
         organizationId: otherOrganizationId,
         actorId: actor.id,
         entity: { type: "Space", id: uuidv7() },
-        payload: {},
+        payload: spacePayload(),
       })
     );
 

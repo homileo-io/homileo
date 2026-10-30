@@ -13,3 +13,4 @@ export type {
   MessageTypeDeclaration,
   SpaceKindDeclaration,
 } from "./provisioning/schema.js";
+export * from "./resources/index.js";
