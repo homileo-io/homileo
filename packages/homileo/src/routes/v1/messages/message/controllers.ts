@@ -8,6 +8,7 @@ import type { MessageContext } from "../../../../utils/access.js";
 import { withChanges } from "../../../../utils/transaction.js";
 import { readableMessage } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
+import { lockedMessage, refuseIfArchived } from "./utils.js";
 import { db, prisma } from "../../../../utils/db/index.js";
 import { warmKinds } from "../../../../utils/kinds.js";
 import type { Request, Response } from "express";
@@ -22,24 +23,6 @@ import {
   EditWindowClosedError,
   ForbiddenError,
 } from "../../../../utils/errors.js";
-
-/** The message under the session lock, space first, so a concurrent change to either is seen. */
-export const lockedMessage = async (
-  tx: Prisma.TransactionClient,
-  caller: ReturnType<typeof callerOf>,
-  messageId: string
-): Promise<MessageContext> => {
-  const sessionId = await db.messages.sessionIdOf(tx, messageId);
-  if (sessionId) await db.sessions.lockSpaceOf(tx, sessionId);
-  return readableMessage(caller, messageId, { tx, lock: true });
-};
-
-/** A session or space that is archived takes no edits, as with sending. */
-export const refuseIfArchived = (facts: MessageContext["facts"]): void => {
-  if (facts.archived || (facts.space?.archived ?? false)) {
-    throw new ArchivedError("The session is archived");
-  }
-};
 
 const factsOf = (m: MessageContext["message"]) => ({
   senderId: m.senderId,

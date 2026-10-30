@@ -1,8 +1,8 @@
 import { validateParams } from "../../../../../../utils/validateReq.js";
 import type { MessageContext } from "../../../../../../utils/access.js";
-import { lockedMessage, refuseIfArchived } from "../../controllers.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
 import type { Prisma } from "../../../../../../utils/db/prisma.js";
+import { lockedMessage, refuseIfArchived } from "../../utils.js";
 import { callerOf } from "../../../../../../middleware/auth.js";
 import { canReact } from "../../../../../../policy/index.js";
 import { db } from "../../../../../../utils/db/index.js";
