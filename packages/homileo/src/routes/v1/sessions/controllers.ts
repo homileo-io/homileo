@@ -20,6 +20,9 @@ import {
   ValidationError,
 } from "../../../utils/errors.js";
 
+/** Matches of one reference that are read before the caller's limit applies. */
+const EXTERNAL_REF_SCAN_LIMIT = 1000;
+
 export const listSessions = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const query = validateQuery(ListSessionsQuerySchema, req);
@@ -39,10 +42,11 @@ export const listSessions = async (req: Request, res: Response) => {
       // Visibility here is per session, so the policy filters after the read.
       spaceId: undefined,
       everything: true,
-      take: query.limit,
+      take: EXTERNAL_REF_SCAN_LIMIT,
     });
-    const visible = [];
+    const visible: typeof rows = [];
     for (const row of rows) {
+      if (visible.length === query.limit) break;
       try {
         await readableSession(caller, row.id);
         visible.push(row);

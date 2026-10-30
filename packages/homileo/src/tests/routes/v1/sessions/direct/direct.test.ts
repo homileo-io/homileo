@@ -102,6 +102,33 @@ describe("POST /v1/sessions/direct", () => {
     expect(res.body.error).toBe("cannot_dm_self");
   });
 
+  it("refuses a DM with oneself written in upper case", async () => {
+    const a = await signIn(newOrg());
+
+    const res = await fetchJson("POST", URL, a.token, {
+      principalId: a.principalId.toUpperCase(),
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("cannot_dm_self");
+  });
+
+  it("finds the same DM when the other id is written in upper case", async () => {
+    const org = newOrg();
+    const a = await signIn(org);
+    const b = await signIn(org);
+    const first = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+
+    const again = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId.toUpperCase(),
+    });
+
+    expect(again.status).toBe(200);
+    expect(again.body.session.id).toBe(first.body.session.id);
+  });
+
   it("answers 404 for an unknown principal", async () => {
     const a = await signIn(newOrg());
 

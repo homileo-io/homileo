@@ -315,6 +315,16 @@ describe("POST /v1/sessions without a space", () => {
     });
   });
 
+  it("treats an upper-case copy of the creator's id as the creator", async () => {
+    const me = await signIn(newOrg());
+
+    const res = await fetchJson("POST", URL, me.token, {
+      participantIds: [me.principalId.toUpperCase()],
+    });
+
+    expect(res.status).toBe(201);
+  });
+
   it("does not add the creator twice when they list themselves", async () => {
     const me = await signIn(newOrg());
 
@@ -494,6 +504,33 @@ describe("GET /v1/sessions", () => {
       visible.id,
     ]);
     expect(res.body.nextCursor).toBeNull();
+  });
+
+  it("returns the readable match with limit=1 when an unreadable one comes first", async () => {
+    const org = newOrg();
+    const me = await signIn(org);
+    const ref = `ref-${uuidv7()}`;
+    const invisible = await fixtures.session({ org });
+    const visible = await fixtures.session({ org });
+    await fixtures.participant(visible, { id: me.principalId });
+    await prisma.session.update({
+      where: { id: invisible.id },
+      data: { externalRef: ref, lastMessageAt: new Date() },
+    });
+    await prisma.session.update({
+      where: { id: visible.id },
+      data: { externalRef: ref },
+    });
+
+    const res = await fetchJson(
+      "GET",
+      `${URL}?externalRef=${ref}&limit=1`,
+      me.token
+    );
+
+    expect(res.body.data.map((s: { id: string }) => s.id)).toEqual([
+      visible.id,
+    ]);
   });
 
   it("filters a space's list by externalRef", async () => {

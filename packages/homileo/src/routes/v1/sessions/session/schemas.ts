@@ -1,7 +1,8 @@
 import { metadataSchema } from "../../../../utils/metadata.js";
+import { IdSchema } from "../../../../utils/idSchema.js";
 import { z } from "zod";
 
-export const SessionParamsSchema = z.object({ sessionId: z.guid() });
+export const SessionParamsSchema = z.object({ sessionId: IdSchema });
 
 export const UpdateSessionBodySchema = z
   .strictObject({

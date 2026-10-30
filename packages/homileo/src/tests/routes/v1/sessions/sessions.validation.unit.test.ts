@@ -22,6 +22,10 @@ describe("POST /v1/sessions body", () => {
     ],
     ["a participant that is not a UUID", { participantIds: ["nope"] }],
     ["duplicate participants", { participantIds: [ID, ID] }],
+    [
+      "participants differing only in case",
+      { participantIds: [ID, ID.toUpperCase()] },
+    ],
     ["a state over 64 characters", { state: "s".repeat(65) }],
     ["an empty externalRef", { externalRef: "" }],
     ["an externalRef over 255 characters", { externalRef: "r".repeat(256) }],
@@ -51,6 +55,19 @@ describe("POST /v1/sessions body", () => {
     ],
   ])("accepts %s", (_name, body) => {
     expect(CreateSessionBodySchema.safeParse(body).success).toBe(true);
+  });
+});
+
+describe("ids", () => {
+  it("are lower-cased at parse time", () => {
+    const parsed = CreateSessionBodySchema.parse({
+      spaceId: ID.toUpperCase(),
+      participantIds: [ID.toUpperCase()],
+    });
+    expect(parsed).toEqual({ spaceId: ID, participantIds: [ID] });
+    expect(
+      ListSessionsQuerySchema.parse({ spaceId: ID.toUpperCase() }).spaceId
+    ).toBe(ID);
   });
 });
 
