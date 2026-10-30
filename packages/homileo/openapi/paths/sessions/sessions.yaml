@@ -1,0 +1,85 @@
+/v1/sessions:
+  get:
+    tags: [Sessions]
+    summary: List sessions
+    description: |
+      Without `spaceId`, the sessions the caller is a participant of. With `spaceId`, the sessions
+      of that space the caller can read: every `access: space` session, and the `members` ones they
+      participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
+      every one). The space itself must be readable, else `404`.
+
+      With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
+      reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+
+      Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
+      first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
+      caller's own `participant`, or `null`.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: listSessions
+    parameters:
+      - name: spaceId
+        in: query
+        required: false
+        schema: { type: string, format: uuid }
+      - name: type
+        in: query
+        required: false
+        schema: { type: string, enum: [direct, group] }
+      - name: externalRef
+        in: query
+        required: false
+        schema: { type: string, minLength: 1, maxLength: 255 }
+      - name: includeArchived
+        in: query
+        required: false
+        schema: { type: boolean, default: false }
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+    responses:
+      '200':
+        description: A page of sessions
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/ListSessionsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  post:
+    tags: [Sessions]
+    summary: Create a session
+    description: |
+      **In a space** (`spaceId`): the caller must be a member of the space (or able to moderate
+      it), the space must not be archived, and when its `postPolicy` is `moderators` the caller
+      must be able to moderate it (`403 posting_restricted`). `access` defaults to `space`. The
+      caller joins as a `member`, together with `participantIds` (all members of the space) and
+      the kind's declared `bots`, which first become members of the space if they are not.
+
+      **Without a space**: a group of the caller's own. The caller is its `owner`,
+      `participantIds` are `member`s, and `access` is stored as `members` whatever was sent.
+
+      Records `session.created` and one `session.participant_added` per participant.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: createSession
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/sessions/schemas.yaml#/CreateSessionRequest'
+    responses:
+      '201':
+        description: The new session
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/SessionResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

@@ -57,6 +57,8 @@ tags:
     description: Health and the caller's own identity
   - name: Principals
     description: Users, bots and external identities that take part in chat
+  - name: Sessions
+    description: Conversations, in a space or on their own, and direct messages
 paths:
   /health:
     get:
@@ -356,6 +358,274 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions:
+    get:
+      tags:
+        - Sessions
+      summary: List sessions
+      description: |
+        Without `spaceId`, the sessions the caller is a participant of. With `spaceId`, the sessions
+        of that space the caller can read: every `access: space` session, and the `members` ones they
+        participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
+        every one). The space itself must be readable, else `404`.
+
+        With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
+        reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+
+        Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
+        first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
+        caller's own `participant`, or `null`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSessions
+      parameters:
+        - name: spaceId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - direct
+              - group
+        - name: externalRef
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSessionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    post:
+      tags:
+        - Sessions
+      summary: Create a session
+      description: |
+        **In a space** (`spaceId`): the caller must be a member of the space (or able to moderate
+        it), the space must not be archived, and when its `postPolicy` is `moderators` the caller
+        must be able to moderate it (`403 posting_restricted`). `access` defaults to `space`. The
+        caller joins as a `member`, together with `participantIds` (all members of the space) and
+        the kind's declared `bots`, which first become members of the space if they are not.
+
+        **Without a space**: a group of the caller's own. The caller is its `owner`,
+        `participantIds` are `member`s, and `access` is stored as `members` whatever was sent.
+
+        Records `session.created` and one `session.participant_added` per participant.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: The new session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/direct:
+    post:
+      tags:
+        - Sessions
+      summary: Find or create a direct session
+      description: |
+        The one DM between the caller and `principalId` in the caller's organization. Answers `200`
+        with the existing session, or `201` when this request created it (concurrent calls for the
+        same pair create one session). Both participants are `member`s. A DM with oneself is
+        `400 cannot_dm_self`; an unknown principal is `404`.
+
+        Only `homileo.chat.admin` can archive a DM, and an admin who is not one of its two
+        participants cannot read it.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: createDirectSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectSessionRequest'
+      responses:
+        '200':
+          description: The DM that already existed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '201':
+          description: The DM this request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}:
+    get:
+      tags:
+        - Sessions
+      summary: Get a session
+      description: |
+        The session and the caller's own participation (`null` when they can read it without being a
+        participant). A session the caller cannot read is `404`, and so is one in another
+        organization.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    patch:
+      tags:
+        - Sessions
+      summary: Update a session
+      description: |
+        Changes `name`, `state`, `externalRef` or `metadata` (replaced whole). In a space it needs
+        the right to moderate the space; in a group without a space, the participant `owner`. A DM has
+        nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
+        changes nothing records no event. Records `session.updated`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: updateSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSessionRequest'
+      responses:
+        '200':
+          description: The updated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/archive:
+    post:
+      tags:
+        - Sessions
+      summary: Archive a session
+      description: |
+        Archives the session. In a space it needs the right to moderate the space; in a group without
+        a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`
+        (who must be one of its participants to reach it). Archiving an archived session is
+        `409 already_archived`. Records `session.archived`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: archiveSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The archived session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -454,6 +724,102 @@ webhooks:
                       const: space
                     data:
                       $ref: '#/components/schemas/SpaceMemberAddedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.created:
+    post:
+      tags:
+        - Sessions
+      summary: Session created
+      operationId: webhookSessionCreated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.created
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.updated:
+    post:
+      tags:
+        - Sessions
+      summary: Session updated
+      operationId: webhookSessionUpdated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.updated
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.archived:
+    post:
+      tags:
+        - Sessions
+      summary: Session archived
+      operationId: webhookSessionArchived
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.archived
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.participant_added:
+    post:
+      tags:
+        - Sessions
+      summary: Participant added to a session
+      operationId: webhookSessionParticipantAdded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.participant_added
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantAddedEventData'
       responses:
         2XX:
           description: Any 2xx response acknowledges the delivery; anything else is retried.
@@ -802,7 +1168,7 @@ components:
           maxLength: 255
           description: The app's own id for the space; unique within the organization and kind
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/Metadata-2'
         createdBy:
           type: string
           format: uuid
@@ -920,7 +1286,7 @@ components:
           maxLength: 255
           description: Unique per organization and kind, else `409 external_ref_taken`
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/Metadata-2'
       examples:
         - kind: support:case
           name: Case 4821
@@ -982,7 +1348,7 @@ components:
           minLength: 1
           maxLength: 255
         metadata:
-          $ref: '#/components/schemas/Metadata'
+          $ref: '#/components/schemas/Metadata-2'
       examples:
         - name: Case 4821 (resolved)
           state: resolved
@@ -1031,6 +1397,291 @@ components:
           format: uuid
         member:
           $ref: '#/components/schemas/SpaceMember'
+    Metadata:
+      type: object
+      description: |
+        A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+      additionalProperties: true
+      propertyNames:
+        pattern: ^[A-Za-z][A-Za-z0-9_.-]{0,63}$
+      maxProperties: 50
+    Session:
+      type: object
+      description: A conversation, in a space or on its own (a DM or an ad-hoc group)
+      required:
+        - id
+        - organizationId
+        - spaceId
+        - type
+        - access
+        - name
+        - state
+        - lastSeq
+        - lastMessageAt
+        - externalRef
+        - metadata
+        - createdBy
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        spaceId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The space it belongs to; null for a DM or a group without a space
+        type:
+          type: string
+          enum:
+            - direct
+            - group
+        access:
+          type: string
+          enum:
+            - space
+            - members
+          description: |
+            `space`: whoever can read the space can read the session. `members`: its participants, a
+            holder of one of the space's kind grants, and `homileo.chat.admin` (in a space). A session
+            without a space is always `members`.
+        name:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        state:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+          description: One of the kind's `states`
+        lastSeq:
+          type: integer
+          description: The `seq` of the latest message; 0 for none
+        lastMessageAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        externalRef:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        createdBy:
+          type: string
+          format: uuid
+          description: The principal that created it
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    Participant:
+      type: object
+      description: A principal's current participation in a session
+      required:
+        - sessionId
+        - principalId
+        - role
+        - lastReadSeq
+        - notify
+        - joinedAt
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+            - owner
+            - member
+        lastReadSeq:
+          type: integer
+          description: The `seq` of the last message they have read
+        notify:
+          type: string
+          enum:
+            - all
+            - mentions
+            - none
+        joinedAt:
+          type: string
+          format: date-time
+    SessionWithParticipant:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required:
+            - participant
+          properties:
+            participant:
+              description: The caller's own participation; null when they are not a participant
+              oneOf:
+                - $ref: '#/components/schemas/Participant'
+                - type: 'null'
+    ListSessionsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionWithParticipant'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    SessionResponse:
+      type: object
+      required:
+        - session
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+    GetSessionResponse:
+      type: object
+      required:
+        - session
+        - participant
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        participant:
+          description: The caller's own participation; null when they are not a participant
+          oneOf:
+            - $ref: '#/components/schemas/Participant'
+            - type: 'null'
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        spaceId:
+          type: string
+          format: uuid
+          description: Create the session in this space; omit it for a group of its own
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        access:
+          type: string
+          enum:
+            - space
+            - members
+          description: Defaults to `space`. Ignored without a space, where it is always `members`.
+        participantIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          description: |
+            Principals to add besides the creator. In a space every one must be a member of it; a
+            stranger or an unknown id is `400 invalid_request`, naming it at `participantIds.<index>`.
+          items:
+            type: string
+            format: uuid
+        state:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: One of the space kind's `states`; `400 invalid_state` otherwise
+        externalRef:
+          type: string
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - spaceId: 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+          name: Order 1042
+          externalRef: order-1042
+    DirectSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - principalId
+      properties:
+        principalId:
+          type: string
+          format: uuid
+          description: The other principal
+      examples:
+        - principalId: 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+    UpdateSessionRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields given change; `null` clears `name`, `state` and `externalRef`.
+      properties:
+        name:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - name: Order 1042 (shipped)
+          state: closed
+    SessionEventData:
+      type: object
+      description: The data of `session.created`, `session.updated` and `session.archived`
+      required:
+        - session
+        - eventId
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        eventId:
+          type: string
+    SessionParticipantAddedEventData:
+      type: object
+      required:
+        - sessionId
+        - participant
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        participant:
+          $ref: '#/components/schemas/Participant'
+        eventId:
+          type: string
     WebhookEvent:
       type: object
       description: |
@@ -1111,7 +1762,7 @@ components:
           type:
             - string
             - 'null'
-    Metadata:
+    Metadata-2:
       type: object
       description: |
         A flat object of the caller's choosing: at most 50 keys, each matching
@@ -1124,6 +1775,9 @@ x-tagGroups:
   - name: Spaces
     tags:
       - Spaces
+  - name: Sessions
+    tags:
+      - Sessions
   - name: Principals
     tags:
       - Principals

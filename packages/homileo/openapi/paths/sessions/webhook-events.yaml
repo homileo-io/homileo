@@ -1,0 +1,80 @@
+homileo.session.created:
+  post:
+    tags: [Sessions]
+    summary: Session created
+    operationId: webhookSessionCreated
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.session.created }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.session.updated:
+  post:
+    tags: [Sessions]
+    summary: Session updated
+    operationId: webhookSessionUpdated
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.session.updated }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.session.archived:
+  post:
+    tags: [Sessions]
+    summary: Session archived
+    operationId: webhookSessionArchived
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.session.archived }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.session.participant_added:
+  post:
+    tags: [Sessions]
+    summary: Participant added to a session
+    operationId: webhookSessionParticipantAdded
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.session.participant_added }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionParticipantAddedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

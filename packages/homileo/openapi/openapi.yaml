@@ -63,9 +63,14 @@ tags:
   - name: Principals
     description: Users, bots and external identities that take part in chat
 
+  - name: Sessions
+    description: Conversations, in a space or on their own, and direct messages
+
 x-tagGroups:
   - name: Spaces
     tags: [Spaces]
+  - name: Sessions
+    tags: [Sessions]
   - name: Principals
     tags: [Principals]
   - name: Platform
@@ -86,6 +91,15 @@ paths:
     $ref: './paths/principals/resolve.yaml#/~1v1~1principals~1resolve'
   /v1/principals/{principalId}:
     $ref: './paths/principals/principal.yaml#/~1v1~1principals~1{principalId}'
+
+  /v1/sessions:
+    $ref: './paths/sessions/sessions.yaml#/~1v1~1sessions'
+  /v1/sessions/direct:
+    $ref: './paths/sessions/direct.yaml#/~1v1~1sessions~1direct'
+  /v1/sessions/{sessionId}:
+    $ref: './paths/sessions/session.yaml#/~1v1~1sessions~1{sessionId}'
+  /v1/sessions/{sessionId}/archive:
+    $ref: './paths/sessions/archive.yaml#/~1v1~1sessions~1{sessionId}~1archive'
 
 components:
   securitySchemes:
@@ -150,6 +164,30 @@ components:
       $ref: './components/spaces/schemas.yaml#/SpaceEventData'
     SpaceMemberAddedEventData:
       $ref: './components/spaces/schemas.yaml#/SpaceMemberAddedEventData'
+    Metadata:
+      $ref: './components/sessions/schemas.yaml#/Metadata'
+    Session:
+      $ref: './components/sessions/schemas.yaml#/Session'
+    Participant:
+      $ref: './components/sessions/schemas.yaml#/Participant'
+    SessionWithParticipant:
+      $ref: './components/sessions/schemas.yaml#/SessionWithParticipant'
+    ListSessionsResponse:
+      $ref: './components/sessions/schemas.yaml#/ListSessionsResponse'
+    SessionResponse:
+      $ref: './components/sessions/schemas.yaml#/SessionResponse'
+    GetSessionResponse:
+      $ref: './components/sessions/schemas.yaml#/GetSessionResponse'
+    CreateSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/CreateSessionRequest'
+    DirectSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/DirectSessionRequest'
+    UpdateSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/UpdateSessionRequest'
+    SessionEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionEventData'
+    SessionParticipantAddedEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionParticipantAddedEventData'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 
@@ -163,3 +201,11 @@ webhooks:
     $ref: './paths/spaces/webhook-events.yaml#/homileo.space.archived'
   homileo.space.member_added:
     $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_added'
+  homileo.session.created:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.created'
+  homileo.session.updated:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.updated'
+  homileo.session.archived:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.archived'
+  homileo.session.participant_added:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_added'
