@@ -54,6 +54,8 @@ const MessageTypeDeclarationSchema = z.strictObject({
 /** One Homileo provisioning document. The prefix rules need the whole document, so they live here. */
 export const provisioningDocumentSchema = z
   .strictObject({
+    // Lets an editor validate the file against provisioning.schema.json.
+    $schema: z.string().optional(),
     version: z.string().regex(SEMVER, "version must be semver"),
     app: z.string().regex(APP),
     spaceKinds: z.array(SpaceKindDeclarationSchema).optional(),
@@ -84,3 +86,12 @@ export type SpaceKindDeclaration = z.infer<typeof SpaceKindDeclarationSchema>;
 export type MessageTypeDeclaration = z.infer<
   typeof MessageTypeDeclarationSchema
 >;
+
+/**
+ * The document's JSON Schema, for editors (`$schema`). The `<app>:` prefix
+ * rule is a cross-field check JSON Schema cannot express; the server enforces it.
+ */
+export const provisioningJsonSchema = z.toJSONSchema(
+  provisioningDocumentSchema,
+  { io: "input" }
+);

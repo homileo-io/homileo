@@ -69,3 +69,10 @@ Kinds and types missing from the set are retired (`retired_at`), except:
 
 A problem rolls the whole transaction back. Retired kinds drop out of `loadKinds()`, which returns
 the active kinds and the built-in one by name. Provisioned rows are read-only through the API.
+
+## JSON Schema for editors
+
+`@homileo-io/sdk` exports `provisioningJsonSchema`, and `packages/homileo-sdk/provisioning.schema.json`
+is the generated file (`npm run provisioning:schema -w @homileo-io/sdk`). Point a document's `"$schema"` at it for editor validation (Homileo accepts and ignores the key).
+The schema cannot express the `<app>:` name prefix, the unique `states` or the cross-document
+rules; Homileo enforces those at start.

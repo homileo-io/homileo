@@ -1,5 +1,9 @@
-import { provisioningDocumentSchema } from "../provisioning/schema.js";
 import { describe, expect, it } from "vitest";
+import { Ajv2020 } from "ajv/dist/2020.js";
+import {
+  provisioningDocumentSchema,
+  provisioningJsonSchema,
+} from "../provisioning/schema.js";
 
 const BOT = "0192f3a0-7b1c-7d2e-8f3a-123456789abc";
 
@@ -74,10 +78,34 @@ describe("provisioningDocumentSchema", () => {
     expect(provisioningDocumentSchema.safeParse(valid).success).toBe(true);
   });
 
+  it("accepts a $schema key", () => {
+    expect(
+      provisioningDocumentSchema.safeParse({ ...valid, $schema: "./x.json" })
+        .success
+    ).toBe(true);
+  });
+
   it.each(INVALID)("refuses %s", (_label, doc, path) => {
     const result = provisioningDocumentSchema.safeParse(doc);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.issues.map((i) => i.path.join("."))).toContain(path);
+  });
+});
+
+describe("provisioningJsonSchema", () => {
+  const schema = provisioningJsonSchema as Record<string, unknown>;
+
+  it("is an object schema requiring version and app, closed at the root", () => {
+    expect(schema.type).toBe("object");
+    expect(schema.required).toEqual(expect.arrayContaining(["version", "app"]));
+    expect(schema.additionalProperties).toBe(false);
+  });
+
+  it("compiles with Ajv, accepts the example and refuses an unknown root key", () => {
+    const validate = new Ajv2020({ strict: false }).compile(schema);
+
+    expect(validate(valid)).toBe(true);
+    expect(validate({ ...valid, extra: 1 })).toBe(false);
   });
 });

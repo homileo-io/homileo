@@ -16,11 +16,13 @@
     "src",
     "!dist/tests",
     "!src/tests",
+    "provisioning.schema.json",
     "!**/*.tsbuildinfo"
   ],
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
+    "provisioning:schema": "tsc && node scripts/provisioningSchema.mjs",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "test": "vitest run",
     "test:unit": "vitest run",
@@ -33,6 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.9",
+    "ajv": "^8.17.1",
     "typescript": "^6.0.3",
     "vitest": "^5.0.4"
   }
