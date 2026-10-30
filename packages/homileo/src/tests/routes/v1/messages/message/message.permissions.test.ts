@@ -71,8 +71,8 @@ describe("message permissions", () => {
   });
 
   it.each([
-    ["session", { sessionArchived: true }],
-    ["space", { spaceArchived: true }],
+    ["session", { sessionArchived: true, spaceArchived: false }],
+    ["space", { sessionArchived: false, spaceArchived: true }],
   ])(
     "answers 409 resource_archived for edit and delete in an archived %s",
     async (_n, o) => {
