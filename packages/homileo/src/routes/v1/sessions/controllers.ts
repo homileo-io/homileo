@@ -188,7 +188,11 @@ export const createSession = async (req: Request, res: Response) => {
 
     const botIds: string[] = [];
     if (space && kind.bots.length > 0) {
-      const bots = await db.principals.ensureBotPrincipals(kind.bots);
+      // In the transaction, sorted, so creates take the principals' rows in one order.
+      const bots = await db.principals.ensureBotPrincipals(
+        [...kind.bots].sort(),
+        tx
+      );
       const members = new Set(
         (
           await tx.spaceMember.findMany({
