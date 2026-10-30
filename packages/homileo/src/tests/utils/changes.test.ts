@@ -75,6 +75,28 @@ describe("recordChange", () => {
     });
   });
 
+  it("keeps the real eventId when the payload has one", async () => {
+    const actor = await fixtures.principal();
+    const organizationId = orgId();
+    const spaceId = uuidv7();
+
+    const event = await prisma.$transaction((tx) =>
+      recordChange(tx, {
+        type: "space.created",
+        organizationId,
+        spaceId,
+        actorId: actor.id,
+        entity: { type: "Space", id: spaceId },
+        payload: { eventId: "forged", name: "General" },
+      })
+    );
+
+    const rows = await outboxRows(organizationId);
+    expect(rows[0].payload).toMatchObject({
+      data: { eventId: String(event.id), name: "General" },
+    });
+  });
+
   it("writes neither when the transaction rolls back", async () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();
