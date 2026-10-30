@@ -1,6 +1,5 @@
 // @module-tag unit
 // @module-tag access
-import { canDeleteMessage, canEditMessage } from "../../policy/index.js";
 import type { MessageFacts } from "../../policy/index.js";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +9,11 @@ import {
   space,
   OTHER_ORG,
 } from "../support/pure/policyFacts.js";
+import {
+  canDeleteMessage,
+  canEditMessage,
+  editWindowOpen,
+} from "../../policy/index.js";
 
 const NOW = new Date("2026-10-30T12:00:00Z");
 const ago = (seconds: number) => new Date(NOW.getTime() - seconds * 1000);
@@ -70,6 +74,16 @@ describe("canEditMessage", () => {
       false,
     ],
     ["sender who lost access", session({ space: space() }), message(), false],
+    [
+      "sender who left an access: space session, still readable",
+      session({
+        access: "space",
+        participantRole: null,
+        space: space({ role: "member" }),
+      }),
+      message(),
+      false,
+    ],
   ])("%s -> %s", (_n, ss, m, want) => {
     expect(canEditMessage(caller(), ss, m, NOW)).toBe(want);
   });
@@ -124,6 +138,23 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(caller(), ss, m)).toBe(want);
   });
 
+  it("refuses a removed participant their own delete, though they can still read", () => {
+    const ss = session({
+      access: "space",
+      participantRole: null,
+      space: space({ role: "member" }),
+    });
+    expect(canDeleteMessage(caller(), ss, message())).toBe(false);
+  });
+
+  it("still lets a moderator who left delete", () => {
+    const ss = session({
+      participantRole: null,
+      space: space({ role: "moderator" }),
+    });
+    expect(canDeleteMessage(caller(), ss, message())).toBe(true);
+  });
+
   it("lets a grant holder delete in a session they can read", () => {
     const k = kind({
       grants: [{ permission: "support.cases.moderate", access: "moderate" }],
@@ -164,5 +195,22 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(c, ss, message({ senderId: "someone" }))).toBe(
       false
     );
+  });
+});
+
+describe("editWindowOpen", () => {
+  it.each([
+    ["inside", inSession(60), message({ createdAt: ago(30) }), true],
+    ["at the edge", inSession(60), message({ createdAt: ago(60) }), true],
+    ["past", inSession(60), message({ createdAt: ago(61) }), false],
+    ["no limit", inSession(null), message({ createdAt: ago(9e6) }), true],
+    [
+      "space-less",
+      session({ space: null, participantRole: "member" }),
+      message({ createdAt: ago(9e6) }),
+      true,
+    ],
+  ])("%s -> %s", (_n, ss, m, want) => {
+    expect(editWindowOpen(ss, m, NOW)).toBe(want);
   });
 });

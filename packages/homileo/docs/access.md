@@ -70,7 +70,30 @@ The design does not state these.
   and posting still requires being a participant. In a space's sessions its moderator delete works without participating.
 - **Grants:** `read` gives read only; `moderate` gives read and moderate. Neither makes the holder a
   member, a participant or a poster.
-- **Editing and deleting one's own message requires still being able to read the session**, so a
-  removed participant cannot touch old messages.
+- **Editing and deleting one's own message requires being a current participant** (and able to read
+  the session). A sender removed from an `access: space` session still reads their messages but
+  cannot edit or delete them. A moderator's delete is unchanged. `editWindowOpen` answers the window
+  alone, so a route can tell `403 edit_window_closed` from other refusals.
 - **Moderator delete is by space.** A space-less session has no moderators: only the sender deletes.
 - A kind's `editWindowSeconds` of `null` means no limit; a space-less session has none.
+
+## Session and member actions
+
+- **Archive a session** (`canArchiveSession`): in a space, `canModerateSpace`; in a space-less group,
+  its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
+- **Create a session in a space** (`canCreateSessionIn`): space membership or `canModerateSpace`, an
+  unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. Space-less groups and
+  DMs are open to any caller (no function; routes need no check).
+- **Member changes** (`canChangeMember`, in `members.ts`): `canModerateSpace` adds a `member` and
+  removes a `member`. Adding a moderator or owner, any role change, and removing a moderator or
+  owner need `canManageSpace`. A member may always leave, even an archived space. Every other change
+  in an archived space is refused. The last-owner rule (`409 last_owner`) is a database check, not
+  part of the policy.
+- **Leave a session** (`canLeaveSession`): any participant of an unarchived session except a DM.
+- **React** (`canReact`): participation and an unarchived session and space; the post policy does
+  not apply.
+- **Session settings** (`canEditSessionSettings`: rename, `metadata`, `externalRef`, `state`): in a
+  space, `canModerateSpace` while neither the session nor the space is archived; in a space-less
+  group, its `owner`; never a DM. An admin does not touch space-less content.
+- **`postRefusal`** names why `canPost` is false, in order: `not_found` (cannot read), `archived`,
+  `not_a_participant`, `posting_restricted`; `null` exactly when `canPost` is true.

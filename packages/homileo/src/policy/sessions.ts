@@ -60,3 +60,63 @@ export const canRemoveParticipant = (
   if (ss.space === null) return ss.participantRole === "owner" || c.isAdmin;
   return canChangeSpaceParticipants(c, ss.space);
 };
+
+/** In a space, who moderates it; in a space-less group its `owner` or an admin; a DM, only an admin. */
+export const canArchiveSession = (c: OrgCaller, ss: SessionFacts): boolean => {
+  if (!sameOrganization(c, ss)) return false;
+  if (ss.space !== null) return canModerateSpace(c, ss.space);
+  if (ss.type === "direct") return c.isAdmin;
+  return ss.participantRole === "owner" || c.isAdmin;
+};
+
+/** Anyone in a session can leave it except in a DM, which always has its two participants. */
+export const canLeaveSession = (c: OrgCaller, ss: SessionFacts): boolean =>
+  sameOrganization(c, ss) &&
+  ss.participantRole !== null &&
+  ss.type !== "direct" &&
+  !ss.archived;
+
+/** Reacting needs participation and a writable session, but not the space's post policy. */
+export const canReact = (c: OrgCaller, ss: SessionFacts): boolean =>
+  sameOrganization(c, ss) &&
+  ss.participantRole !== null &&
+  !ss.archived &&
+  !(ss.space?.archived ?? false) &&
+  canReadSession(c, ss);
+
+/** Rename, metadata, `externalRef` and `state`. A DM has nothing to edit. */
+export const canEditSessionSettings = (
+  c: OrgCaller,
+  ss: SessionFacts
+): boolean => {
+  if (!sameOrganization(c, ss) || ss.archived || ss.type === "direct") {
+    return false;
+  }
+  if (ss.space !== null)
+    return !ss.space.archived && canModerateSpace(c, ss.space);
+  return ss.participantRole === "owner";
+};
+
+/** Starting a session in a space: members (or moderators) of an unarchived space; moderators only when posting is restricted. */
+export const canCreateSessionIn = (c: OrgCaller, s: SpaceFacts): boolean => {
+  if (c.organizationId !== s.organizationId || s.archived) return false;
+  if (s.role === null && !canModerateSpace(c, s)) return false;
+  return s.postPolicy !== "moderators" || canModerateSpace(c, s);
+};
+
+export type PostRefusal =
+  "not_found" | "archived" | "not_a_participant" | "posting_restricted";
+
+/** The first reason `canPost` would be false, or `null` when it is true. */
+export const postRefusal = (
+  c: OrgCaller,
+  ss: SessionFacts
+): PostRefusal | null => {
+  if (!canReadSession(c, ss)) return "not_found";
+  if (ss.archived || (ss.space?.archived ?? false)) return "archived";
+  if (ss.participantRole === null) return "not_a_participant";
+  if (ss.space?.postPolicy === "moderators" && !canModerateSpace(c, ss.space)) {
+    return "posting_restricted";
+  }
+  return null;
+};
