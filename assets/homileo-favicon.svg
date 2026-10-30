@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Homileo</title>
+  <defs>
+    <linearGradient id="mfill" gradientUnits="userSpaceOnUse" x1="44" y1="170" x2="212" y2="86">
+      <stop offset="0" stop-color="#0F1F4B"/>
+      <stop offset="0.3" stop-color="#2F7FD0"/>
+      <stop offset="0.52" stop-color="#2BB6C4"/>
+      <stop offset="0.75" stop-color="#5AD89A"/>
+      <stop offset="1" stop-color="#5AD89A"/>
+    </linearGradient>
+    <filter id="mglow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <linearGradient id="mbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF0F8"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#mbg)"/>
+  <g transform="translate(8 8) scale(0.9375)">
+    <polygon points="128.00,24.00 218.07,76.00 218.07,180.00 128.00,232.00 37.93,180.00 37.93,76.00" fill="none" stroke="#0F1F4B" stroke-width="9" stroke-linejoin="round"/>
+    <mask id="mfillgap" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><rect width="256" height="256" fill="#FFF"/><path d="M85,112 H141 Q163,112 163,134 V156 Q163,178 141,178 H99 L71,192 Q69,174 63,156 V134 Q63,112 85,112 Z" transform="translate(256 0) scale(-1 1)" fill="#000" stroke="#000" stroke-width="14" stroke-linejoin="round"/></mask>
+    <path d="M81,62 H137 Q159,62 159,84 V106 Q159,128 137,128 H95 L67,142 Q65,124 59,106 V84 Q59,62 81,62 Z" fill="url(#mfill)" mask="url(#mfillgap)"/>
+    <path d="M85,112 H141 Q163,112 163,134 V156 Q163,178 141,178 H99 L71,192 Q69,174 63,156 V134 Q63,112 85,112 Z" transform="translate(256 0) scale(-1 1)" fill="#0F1F4B"/>
+    <circle cx="123" cy="145" r="7" fill="url(#mfill)"/>
+    <circle cx="143" cy="145" r="7" fill="url(#mfill)"/>
+    <circle cx="163" cy="145" r="7" fill="url(#mfill)"/>
+    <circle cx="128.00" cy="24.00" r="14.5" fill="#46CAAC" stroke="#0F1F4B" stroke-width="5"/>
+    <circle cx="218.07" cy="76.00" r="14.5" fill="#55D59E" stroke="#0F1F4B" stroke-width="5"/>
+    <circle cx="218.07" cy="180.00" r="14.5" fill="#52D2A1" stroke="#0F1F4B" stroke-width="5"/>
+    <circle cx="128.00" cy="232.00" r="14.5" fill="#2CAEC6" stroke="#0F1F4B" stroke-width="5"/>
+    <circle cx="37.93" cy="180.00" r="14.5" fill="#2E89CE" stroke="#0F1F4B" stroke-width="5"/>
+    <circle cx="37.93" cy="76.00" r="14.5" fill="#2E92CC" stroke="#0F1F4B" stroke-width="5"/>
+  </g>
+</svg>

@@ -1,0 +1,45 @@
+{
+  "name": "@homileo-io/sdk",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/homileo-sdk/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "command": "tsc",
+        "cwd": "packages/homileo-sdk"
+      },
+      "outputs": [
+        "{projectRoot}/dist"
+      ]
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "^build"
+      ],
+      "options": {
+        "command": "tsc --noEmit",
+        "cwd": "packages/homileo-sdk"
+      }
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run",
+        "cwd": "packages/homileo-sdk"
+      }
+    },
+    "clean": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "rm -rf dist tsconfig.tsbuildinfo",
+        "cwd": "packages/homileo-sdk"
+      }
+    }
+  }
+}

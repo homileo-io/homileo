@@ -1,0 +1,149 @@
+{
+  "version": "0.0.0",
+  "service": {
+    "slug": "homileo",
+    "name": "Homileo",
+    "secretFrom": "TEREO_CLIENT_SECRET",
+    "access": {
+      "roles": [
+        "audit_writer",
+        "webhook_publisher",
+        "notification_sender"
+      ]
+    },
+    "permissions": [
+      {
+        "name": "homileo.spaces.read",
+        "displayName": "Read spaces",
+        "description": "Read spaces, sessions and messages, and their events",
+        "orgAssignable": true
+      },
+      {
+        "name": "homileo.spaces.write",
+        "displayName": "Use spaces",
+        "description": "Create spaces and sessions, and post messages",
+        "orgAssignable": true
+      },
+      {
+        "name": "homileo.chat.admin",
+        "displayName": "Administer chat",
+        "description": "Administer every space and session of the organization",
+        "orgAssignable": true
+      }
+    ],
+    "systemRoles": [
+      {
+        "name": "homileo_user",
+        "displayName": "Homileo user",
+        "description": "Takes part in chat",
+        "permissions": [
+          "homileo.spaces.write"
+        ]
+      }
+    ],
+    "buckets": [
+      {
+        "bucketName": "homileo-attachments",
+        "description": "Message attachments",
+        "policy": "private"
+      }
+    ],
+    "eventTypes": [
+      {
+        "eventType": "homileo.space.created",
+        "description": "homileo.space.created",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.updated",
+        "description": "homileo.space.updated",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.archived",
+        "description": "homileo.space.archived",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.member_added",
+        "description": "homileo.space.member_added",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.member_removed",
+        "description": "homileo.space.member_removed",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.member_role_changed",
+        "description": "homileo.space.member_role_changed",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.join_requested",
+        "description": "homileo.space.join_requested",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.space.join_decided",
+        "description": "homileo.space.join_decided",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.session.created",
+        "description": "homileo.session.created",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.session.updated",
+        "description": "homileo.session.updated",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.session.archived",
+        "description": "homileo.session.archived",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.session.participant_added",
+        "description": "homileo.session.participant_added",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.session.participant_removed",
+        "description": "homileo.session.participant_removed",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.message.created",
+        "description": "homileo.message.created",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.message.edited",
+        "description": "homileo.message.edited",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.message.deleted",
+        "description": "homileo.message.deleted",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.reaction.added",
+        "description": "homileo.reaction.added",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.reaction.removed",
+        "description": "homileo.reaction.removed",
+        "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.thread.updated",
+        "description": "homileo.thread.updated",
+        "readPermission": "homileo.spaces.read"
+      }
+    ]
+  }
+}
