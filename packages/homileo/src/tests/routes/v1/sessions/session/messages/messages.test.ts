@@ -464,4 +464,63 @@ describe("mentions", () => {
     ).toEqual([member.id]);
     expect(await notificationsTo(member.tereoUserId!)).toHaveLength(1);
   });
+
+  it("stores and notifies nobody for a non-member of a public space, even in another organization", async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const space = await fixtures.space({ org, visibility: "public" });
+    const s = await fixtures.session({ org, space, access: "space" });
+    await fixtures.member(space, { id: me.principalId });
+    await fixtures.participant(s, { id: me.principalId });
+    const stranger = await named("Stranger");
+
+    const sent = await sendMessage(s.id, me.token, {
+      body: `<@${stranger.id}>`,
+    });
+
+    expect(sent.status).toBe(201);
+    expect(await mentionRows(sent.body.message.id)).toEqual([]);
+    expect(await notificationsTo(stranger.tereoUserId!)).toEqual([]);
+  });
+
+  it("leaves a mention token that is not a UUID as text", async () => {
+    const { me, session } = await room();
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: `hi <@${"a".repeat(36)}> and <@${"-".repeat(36)}>`,
+    });
+
+    expect(sent.status).toBe(201);
+    expect(await mentionRows(sent.body.message.id)).toEqual([]);
+  });
+
+  it("mentions at most the first 100 distinct principals and still names the rest", async () => {
+    const { me, session } = await room();
+    const people = [];
+    for (let i = 0; i < 101; i++) {
+      const p = await named(`P${i}`);
+      await fixtures.participant(session, p);
+      people.push(p);
+    }
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: people.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(sent.status).toBe(201);
+    const rows = await mentionRows(sent.body.message.id);
+    expect(rows.map((r) => r.userId).sort()).toEqual(
+      people
+        .slice(0, 100)
+        .map((p) => p.id)
+        .sort()
+    );
+    expect(await notificationsTo(people[100].tereoUserId!)).toEqual([]);
+    expect(await notificationsTo(people[99].tereoUserId!)).toHaveLength(1);
+    const row = await prisma.message.findUniqueOrThrow({
+      where: { id: sent.body.message.id },
+    });
+    expect(row.bodyText).toMatch(/@P100$/);
+  });
 });

@@ -7,6 +7,8 @@ import type { Prisma } from "../../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../../utils/db/index.js";
 import { plainText } from "../../../../../utils/markdown.js";
 import { postRefusal } from "../../../../../policy/index.js";
+import { IdSchema } from "../../../../../utils/idSchema.js";
+import { warmKinds } from "../../../../../utils/kinds.js";
 import { getTereo } from "../../../../../utils/tereo.js";
 import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
@@ -32,6 +34,9 @@ import {
 
 /** How much of `body_text` a mention's email carries. */
 const NOTIFICATION_TEXT_MAX = 500;
+
+/** Distinct user mentions per message, in order of appearance; later ones stay text. */
+const USER_MENTIONS_MAX = 100;
 
 const refusalError = {
   not_found: () => new NotFoundError("Session not found"),
@@ -68,6 +73,12 @@ export const sendMessage = async (req: Request, res: Response) => {
     body.body === undefined
       ? { users: [], here: false, session: false }
       : parseMentions(body.body);
+  // A token of 36 hex digits and hyphens in the wrong places is not an id: it stays text.
+  const mentionIds = mentions.users.filter(
+    (id) => IdSchema.safeParse(id).success
+  );
+  const mentionable = new Set(mentionIds.slice(0, USER_MENTIONS_MAX));
+  await warmKinds();
 
   const outcome = await withChanges(
     async (tx, record): Promise<{ created: boolean; message: Message }> => {
@@ -116,7 +127,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       const mentioned = await db.messages.mentionedPrincipals(
         tx,
         session,
-        mentions.users
+        mentionIds
       );
       const names = new Map(mentioned.map((p) => [p.id, p.displayName]));
       const bodyText =
@@ -136,7 +147,10 @@ export const sendMessage = async (req: Request, res: Response) => {
         createdAt: now,
       });
 
-      const readers = mentionReaders(context, mentioned);
+      const readers = mentionReaders(
+        context,
+        mentioned.filter((p) => mentionable.has(p.id))
+      );
       await db.messages.insertMentions(
         tx,
         row,
@@ -170,6 +184,15 @@ export const sendMessage = async (req: Request, res: Response) => {
         sessionId,
         actorId: caller.principalId,
       };
+      const [message] = await db.messages.loadViews(tx, [row]);
+      // Before `thread.updated`, so no one sees a reply counted before the reply itself.
+      await record({
+        ...change,
+        type: "message.created",
+        entity: { type: "message", id: row.id },
+        payload: { message },
+      });
+
       if (root) {
         const thread = await db.messages.countReply(tx, root.id, now);
         await db.messages.followOnReply(
@@ -194,13 +217,6 @@ export const sendMessage = async (req: Request, res: Response) => {
         await db.messages.markRead(tx, sessionId, caller.principalId, seq);
       }
 
-      const [message] = await db.messages.loadViews(tx, [row]);
-      await record({
-        ...change,
-        type: "message.created",
-        entity: { type: "message", id: row.id },
-        payload: { message },
-      });
       return { created: true, message };
     }
   );

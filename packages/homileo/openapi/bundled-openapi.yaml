@@ -1167,9 +1167,9 @@ paths:
           `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
           The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
           thread.
-        - `<@principal-id>` mentions are stored for principals who can read the session (current
-          participants and, in an `access: space` session, members of the space or anyone when it
-          is `public`); the others stay plain text. Each mentioned reader is emailed through tereo
+        - `<@principal-id>` mentions are stored for current participants and, in an
+          `access: space` session, members of the space; the others stay plain text, as do tokens
+          that are not UUIDs and any distinct ids past the first 100. Each mentioned reader is emailed through tereo
           unless their `notify` is `none`, they are the sender, or they are a bot. `<!here>` and
           `<!session>` are stored but send no email.
         - A top-level message moves the session's `lastMessageAt` and the sender's `lastReadSeq`

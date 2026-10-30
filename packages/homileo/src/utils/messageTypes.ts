@@ -15,6 +15,8 @@ interface Compiled {
 }
 
 const cache = new Map<string, Compiled>();
+// Bumped by `invalidateMessageTypes`, so a load that began before it is not stored.
+let generation = 0;
 
 const issuesOf = (errors: ErrorObject[] | null | undefined) =>
   (errors ?? []).map((e) => ({
@@ -36,18 +38,21 @@ const validatorFor = async (
   if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
     return cached.validate;
   }
+  const started = generation;
   const row = await client.provisionedMessageType.findUnique({
     where: { name: type },
     select: { payloadSchema: true, retiredAt: true },
   });
   if (!row || row.retiredAt !== null) {
-    cache.delete(type);
+    if (started === generation) cache.delete(type);
     return null;
   }
   // An instance per schema: one Ajv would keep every version it compiled, and
   // refuse a changed schema that kept its `$id`.
   const validate = createPayloadAjv().compile(row.payloadSchema as object);
-  cache.set(type, { validate, loadedAt: Date.now() });
+  if (started === generation) {
+    cache.set(type, { validate, loadedAt: Date.now() });
+  }
   return validate;
 };
 
@@ -87,5 +92,6 @@ export const validatePayload = async (
 
 /** Drops the compiled schemas: provisioning changed the message types. */
 export const invalidateMessageTypes = (): void => {
+  generation++;
   cache.clear();
 };

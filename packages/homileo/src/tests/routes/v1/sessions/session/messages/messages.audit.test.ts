@@ -62,7 +62,7 @@ describe("POST /v1/sessions/:sessionId/messages events", () => {
     });
   });
 
-  it("records thread.updated, then message.created, for a reply", async () => {
+  it("records message.created, then thread.updated, for a reply", async () => {
     const { me, session } = await room();
     const root = await sendMessage(session.id, me.token, { body: "root" });
 
@@ -77,11 +77,11 @@ describe("POST /v1/sessions/:sessionId/messages events", () => {
     });
     expect(events.map((e) => e.type)).toEqual([
       "message.created",
-      "thread.updated",
       "message.created",
+      "thread.updated",
     ]);
     expect(
-      EVENT_TYPES["thread.updated"].payload.parse(events[1].payload)
+      EVENT_TYPES["thread.updated"].payload.parse(events[2].payload)
     ).toEqual({
       sessionId: session.id,
       rootId: root.body.message.id,

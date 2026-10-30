@@ -2,12 +2,15 @@
 // @module-tag provisioning
 // @module-tag messages
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { validatePayload } from "../../utils/messageTypes.js";
 import { provision } from "../../utils/provisioning/index.js";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { prisma } from "../../utils/db/prisma.js";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  invalidateMessageTypes,
+  validatePayload,
+} from "../../utils/messageTypes.js";
 
 const TYPE = "types-test:card";
 let dir: string;
@@ -68,6 +71,26 @@ describe("validatePayload", () => {
     await provisionWith(null);
 
     expect(await codeOf({})).toBe("message_type_not_found");
+  });
+
+  it("does not keep a schema whose load began before an invalidation", async () => {
+    await provisionWith({ type: "object" });
+    invalidateMessageTypes();
+
+    const loading = codeOf({ amount: "three" });
+    invalidateMessageTypes();
+    await prisma.provisionedMessageType.update({
+      where: { name: TYPE },
+      data: {
+        payloadSchema: {
+          type: "object",
+          properties: { amount: { type: "number" } },
+        },
+      },
+    });
+    await loading;
+
+    expect(await codeOf({ amount: "three" })).toBe("invalid_payload");
   });
 
   it("refuses a payload on the built-in text type", async () => {

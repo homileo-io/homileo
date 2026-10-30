@@ -1,5 +1,4 @@
 import type { SessionFacts, SpaceFacts, SpaceRole } from "../policy/index.js";
-import { canReadSession, canReadSpace } from "../policy/index.js";
 import type { MentionedPrincipal } from "./db/messages.js";
 import { BUILTIN_KIND } from "../definitions/builtins.js";
 import { prisma, type Prisma } from "./db/prisma.js";
@@ -13,6 +12,11 @@ import type {
   SessionParticipant,
   Space,
 } from "../../prisma/generated/client/index.js";
+import {
+  canReadSession,
+  canReadSpace,
+  isMentionReader,
+} from "../policy/index.js";
 
 type Tx = Prisma.TransactionClient;
 
@@ -190,31 +194,9 @@ export const readableMessage = async (
   return { ...context, message };
 };
 
-/**
- * The mentioned principals who can read the session. Only what the database
- * holds counts — participation, space membership, visibility — since their
- * permissions (kind grants, `homileo.chat.admin`) are not known here.
- */
+/** The mentioned principals the policy counts as readers of the session (`isMentionReader`). */
 export const mentionReaders = (
   context: SessionContext,
   principals: MentionedPrincipal[]
 ): MentionedPrincipal[] =>
-  principals.filter((p) => {
-    const asCaller: Caller = {
-      principalId: p.id,
-      tereoUserId: p.tereoUserId ?? "",
-      isBot: p.isBot,
-      permissions: [],
-      isAdmin: false,
-      organizationId: context.session.organizationId,
-    };
-    const facts: SessionFacts = {
-      ...context.facts,
-      participantRole: p.participantRole,
-      space: context.facts.space && {
-        ...context.facts.space,
-        role: p.spaceRole,
-      },
-    };
-    return canReadSession(asCaller, facts);
-  });
+  principals.filter((p) => isMentionReader(context.facts, p));

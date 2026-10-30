@@ -123,11 +123,14 @@ The design does not state these.
 - **List**: anyone who can read the session, participant or not.
 - **Read position on send:** a top-level message moves the sender's `last_read_seq` to its `seq`,
   and a reply moves the sender's thread `last_read_seq`. Your own messages are never unread.
-- **Mentions:** a `<@id>` is stored in `message_mentions` only when that principal can read the
-  session as far as the database shows: a current participant, or, in an `access: space` session,
-  a member of the space or anyone when the space is `public` (`mentionReaders` in
-  `utils/access.ts`, which asks `canReadSession`). Their permissions are not known to the sender's
-  request, so a reader only through a kind grant is not mentioned. Each stored reader is emailed
+- **Mentions:** a `<@id>` is stored in `message_mentions` only when that principal is a current
+  participant of the session or, in an `access: space` session, a member of its space
+  (`isMentionReader`, through `mentionReaders` in `utils/access.ts`). Visibility does not count:
+  principals are not organization-scoped, so a `public` space would admit any id, even one from
+  another organization. Permissions are not known to the sender's request, so a reader only
+  through a kind grant or `homileo.chat.admin` is not mentioned. A token that is not a UUID stays
+  text, and only the first 100 distinct ids of a message count (later ones are still rendered by
+  name in `body_text`). Each stored reader is emailed
   through `core.outbox.notify` (recipient `userId` = their tereo user id) unless their `notify` is
   `none` (a reader who is not a participant counts as `all`), they are the sender, or they are a
   bot. `<!here>` and `<!session>` are stored and send no email.

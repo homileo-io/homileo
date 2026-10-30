@@ -46,6 +46,11 @@ const kinds = async (): Promise<Map<string, ResolvedSpaceKind>> => {
   return (await (loading ?? load())).kinds;
 };
 
+/** Loads the cache if it is cold or stale, so a transaction holding a lock never waits on a second connection for it. */
+export const warmKinds = async (): Promise<void> => {
+  await kinds();
+};
+
 /** A kind by name, retired ones included (a space keeps its kind), or `null`. */
 export const getKind = async (
   name: string

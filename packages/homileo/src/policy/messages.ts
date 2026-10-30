@@ -48,3 +48,15 @@ export const canDeleteMessage = (
   if (isCurrentSender(c, ss, m)) return true;
   return ss.space !== null && canModerateSpace(c, ss.space);
 };
+
+/**
+ * Whether a mentioned principal is stored as mentioned: a current participant, or, in an
+ * `access: space` session, a member of its space. Visibility and permissions do not count:
+ * principals are not organization-scoped, so a public space would admit any id.
+ */
+export const isMentionReader = (
+  ss: SessionFacts,
+  p: { participantRole: string | null; spaceRole: string | null }
+): boolean =>
+  p.participantRole !== null ||
+  (ss.space !== null && ss.access === "space" && p.spaceRole !== null);

@@ -13,6 +13,7 @@ import {
   canDeleteMessage,
   canEditMessage,
   editWindowOpen,
+  isMentionReader,
 } from "../../policy/index.js";
 
 const NOW = new Date("2026-10-30T12:00:00Z");
@@ -212,5 +213,57 @@ describe("editWindowOpen", () => {
     ],
   ])("%s -> %s", (_n, ss, m, want) => {
     expect(editWindowOpen(ss, m, NOW)).toBe(want);
+  });
+});
+
+describe("isMentionReader", () => {
+  const spaceSession = (access: "space" | "members", visibility = "public") =>
+    session({ access, space: space({ visibility }) });
+
+  it.each([
+    [
+      "a participant of a space-less session",
+      session({ space: null }),
+      "member",
+      null,
+      true,
+    ],
+    [
+      "a non-participant of a space-less session",
+      session({ space: null }),
+      null,
+      null,
+      false,
+    ],
+    [
+      "a space member in an access: space session",
+      spaceSession("space"),
+      null,
+      "member",
+      true,
+    ],
+    [
+      "a non-member of a public space's access: space session",
+      spaceSession("space"),
+      null,
+      null,
+      false,
+    ],
+    [
+      "a space member in an access: members session",
+      spaceSession("members"),
+      null,
+      "member",
+      false,
+    ],
+    [
+      "a participant of an access: members session",
+      spaceSession("members"),
+      "member",
+      null,
+      true,
+    ],
+  ] as const)("%s → %s", (_name, ss, participantRole, spaceRole, expected) => {
+    expect(isMentionReader(ss, { participantRole, spaceRole })).toBe(expected);
   });
 });
