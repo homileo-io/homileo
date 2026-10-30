@@ -421,7 +421,7 @@ model ProvisionedSpaceKind {
   name            String    @id @db.VarChar(64)
   app             String    @db.VarChar(100)
   definition      Json
-  documentVersion Int       @map("document_version")
+  documentVersion String    @db.VarChar(64) @map("document_version")
   sourceFile      String    @map("source_file") @db.VarChar(512)
   retiredAt       DateTime? @map("retired_at") @db.Timestamp(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)
@@ -435,7 +435,7 @@ model ProvisionedMessageType {
   name            String    @id @db.VarChar(64)
   app             String    @db.VarChar(100)
   payloadSchema   Json      @map("payload_schema")
-  documentVersion Int       @map("document_version")
+  documentVersion String    @db.VarChar(64) @map("document_version")
   sourceFile      String    @map("source_file") @db.VarChar(512)
   retiredAt       DateTime? @map("retired_at") @db.Timestamp(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)

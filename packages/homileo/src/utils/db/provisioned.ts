@@ -7,7 +7,7 @@ export interface KindRow {
   name: string;
   app: string;
   definition: ResolvedSpaceKind;
-  documentVersion: number;
+  documentVersion: string;
   sourceFile: string;
   retired: boolean;
 }
@@ -16,7 +16,7 @@ export interface TypeRow {
   name: string;
   app: string;
   payloadSchema: object;
-  documentVersion: number;
+  documentVersion: string;
   sourceFile: string;
   retired: boolean;
 }

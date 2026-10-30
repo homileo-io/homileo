@@ -24,10 +24,6 @@ const canonical = (value: unknown): string =>
       : v
   );
 
-// The row stores the major version only: a document's minor and patch
-// changes are not a different declaration.
-const majorOf = (version: string): number => Number(version.split(".")[0]);
-
 /**
  * Validates the set and writes it in one transaction: declared kinds and
  * message types are created, changed or re-activated, and every active one the
@@ -56,7 +52,7 @@ export const applyDocuments = async (
     const declaredTypes = new Set<string>();
 
     for (const { file, document } of documents) {
-      const documentVersion = majorOf(document.version);
+      const documentVersion = document.version;
 
       for (const declaration of document.spaceKinds ?? []) {
         declaredKinds.add(declaration.name);

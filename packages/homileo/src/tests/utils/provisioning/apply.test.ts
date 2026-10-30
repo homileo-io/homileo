@@ -35,7 +35,7 @@ const provisioningDir = async (docs: Record<string, unknown>) => {
 };
 
 const supportDoc = (extra: object = {}) => ({
-  version: "1.0.0",
+  version: "1.4.0",
   app: "support",
   spaceKinds: [kind("support:case", { states: ["open", "resolved"] })],
   messageTypes: [{ name: "support:card", payloadSchema: { type: "object" } }],
@@ -80,6 +80,27 @@ describe("provision", () => {
       sourceFile: "support.json",
       retiredAt: null,
     });
+  });
+
+  it("stores the document's full version", async () => {
+    await provision({
+      path: await provisioningDir({ "support.json": supportDoc() }),
+    });
+
+    expect(
+      (
+        await prisma.provisionedSpaceKind.findUniqueOrThrow({
+          where: { name: "support:case" },
+        })
+      ).documentVersion
+    ).toBe("1.4.0");
+    expect(
+      (
+        await prisma.provisionedMessageType.findUniqueOrThrow({
+          where: { name: "support:card" },
+        })
+      ).documentVersion
+    ).toBe("1.4.0");
   });
 
   it("is idempotent", async () => {

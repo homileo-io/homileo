@@ -60,7 +60,7 @@ be declared.
 
 One transaction. Declared kinds and types are created, changed or re-activated (a retired name
 that returns); unchanged rows are not written, so a second run changes nothing. `document_version`
-holds the document's major version.
+holds the document's version string.
 
 Kinds and types missing from the set are retired (`retired_at`), except:
 
