@@ -50,6 +50,20 @@ export const canDeleteMessage = (
 };
 
 /**
+ * A message's revisions: its sender, and whoever moderates its space. A deleted message's earlier
+ * text stays out of everyone else's reach, a space-less session's too.
+ */
+export const canReadRevisions = (
+  c: OrgCaller,
+  ss: SessionFacts,
+  m: MessageFacts
+): boolean => {
+  if (!canReadSession(c, ss)) return false;
+  if (isOwnMessage(c, m)) return true;
+  return ss.space !== null && canModerateSpace(c, ss.space);
+};
+
+/**
  * Whether a mentioned principal is stored as mentioned: a current participant, or, in an
  * `access: space` session, a member of its space. Visibility and permissions do not count:
  * principals are not organization-scoped, so a public space would admit any id.

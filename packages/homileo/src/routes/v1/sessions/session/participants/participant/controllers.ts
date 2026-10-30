@@ -2,11 +2,15 @@ import { participantView, memberView } from "../../../../../../views/index.js";
 import { validateParams } from "../../../../../../utils/validateReq.js";
 import type { SessionFacts } from "../../../../../../policy/index.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
-import { readableSession } from "../../../../../../utils/access.js";
 import { callerOf } from "../../../../../../middleware/auth.js";
 import { db } from "../../../../../../utils/db/index.js";
 import { ParticipantParamsSchema } from "./schemas.js";
 import type { Request, Response } from "express";
+import {
+  judgedAs,
+  readableSession,
+  sessionFactsFor,
+} from "../../../../../../utils/access.js";
 import {
   canAddParticipant,
   canJoinSession,
@@ -175,20 +179,29 @@ export const removeParticipant = async (req: Request, res: Response) => {
       }),
     });
 
-    let revoked: boolean;
-    if (leaving) {
-      revoked = !canReadSession(caller, { ...facts, participantRole: null });
-    } else if (facts.space === null || session.access === "members") {
-      revoked = true;
-    } else {
-      const member = await tx.spaceMember.findUnique({
-        where: {
-          spaceId_userId: { spaceId: session.spaceId!, userId: principalId },
-        },
-      });
-      revoked = member === null && facts.space.visibility !== "public";
-    }
-    if (revoked) {
+    // The removed principal, in their own space role, no longer participating.
+    const space =
+      facts.space && !leaving
+        ? {
+            ...facts.space,
+            role:
+              (
+                await tx.spaceMember.findUnique({
+                  where: {
+                    spaceId_userId: {
+                      spaceId: session.spaceId!,
+                      userId: principalId,
+                    },
+                  },
+                })
+              )?.role ?? null,
+          }
+        : facts.space;
+    const stillReads = canReadSession(
+      judgedAs(caller, principalId),
+      sessionFactsFor(session, space, null)
+    );
+    if (!stillReads) {
       await record({
         ...base,
         type: "session.access_revoked",

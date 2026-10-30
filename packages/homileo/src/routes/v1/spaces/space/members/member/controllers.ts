@@ -3,7 +3,6 @@ import { callerOf, type Caller } from "../../../../../../middleware/auth.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
 import { MemberParamsSchema, PutMemberSchema } from "./schemas.js";
 import type { Prisma } from "../../../../../../utils/db/prisma.js";
-import { readableSpace } from "../../../../../../utils/access.js";
 import { memberView } from "../../../../../../views/space.js";
 import { db } from "../../../../../../utils/db/index.js";
 import type { Request, Response } from "express";
@@ -11,6 +10,11 @@ import {
   validateBody,
   validateParams,
 } from "../../../../../../utils/validateReq.js";
+import {
+  judgedAs,
+  readableSpace,
+  sessionFactsFor,
+} from "../../../../../../utils/access.js";
 import {
   canChangeMember,
   canReadSession,
@@ -37,22 +41,6 @@ const assertOwnerRemains = async (
   const owners = await db.members.lockOwners(tx, spaceId);
   if (owners.length === 1 && owners[0] === principalId) throw lastOwner();
 };
-
-/**
- * The caller is judged with their own permissions. Someone else is judged from membership and
- * visibility alone: their kind grants and admin role are not known here, so they count for nothing.
- */
-const judgedAs = (caller: Caller, principalId: string): Caller =>
-  principalId === caller.principalId
-    ? caller
-    : {
-        principalId,
-        tereoUserId: "",
-        isBot: false,
-        permissions: [],
-        isAdmin: false,
-        organizationId: caller.organizationId,
-      };
 
 export const putMember = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -215,14 +203,10 @@ export const removeMember = async (req: Request, res: Response) => {
       orderBy: { id: "asc" },
     });
     for (const session of sessions) {
-      const readable = canReadSession(judged, {
-        organizationId: session.organizationId,
-        type: session.type,
-        space: { ...facts, role: null },
-        access: session.access,
-        archived: session.archivedAt !== null,
-        participantRole: null,
-      });
+      const readable = canReadSession(
+        judged,
+        sessionFactsFor(session, { ...facts, role: null }, null)
+      );
       if (readable) continue;
       await record({
         ...base,

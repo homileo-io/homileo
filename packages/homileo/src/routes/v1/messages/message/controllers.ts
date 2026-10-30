@@ -1,14 +1,13 @@
 import { validateBody, validateParams } from "../../../../utils/validateReq.js";
+import { lockedMessage, messageFactsOf, refuseIfArchived } from "./utils.js";
 import { EditMessageBodySchema, MessageParamsSchema } from "../schemas.js";
 import { callerOf, principalOf } from "../../../../middleware/auth.js";
 import { resolveMentions } from "../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../utils/messageTypes.js";
-import type { MessageContext } from "../../../../utils/access.js";
 import { withChanges } from "../../../../utils/transaction.js";
 import { readableMessage } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
-import { lockedMessage, refuseIfArchived } from "./utils.js";
 import { db, prisma } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
@@ -22,12 +21,6 @@ import {
   EditWindowClosedError,
   ForbiddenError,
 } from "../../../../utils/errors.js";
-
-const factsOf = (m: MessageContext["message"]) => ({
-  senderId: m.senderId,
-  createdAt: m.createdAt,
-  deleted: m.deletedAt !== null,
-});
 
 export const getMessage = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -52,7 +45,7 @@ export const editMessage = async (req: Request, res: Response) => {
     }
     refuseIfArchived(facts);
     const now = new Date();
-    const messageFacts = factsOf(row);
+    const messageFacts = messageFactsOf(row);
     if (!canEditMessage(caller, facts, messageFacts, now)) {
       // Only the window failed: the same call at the message's creation passes.
       if (
@@ -153,7 +146,7 @@ export const deleteMessage = async (req: Request, res: Response) => {
       throw new ArchivedError("The message was already deleted");
     }
     refuseIfArchived(facts);
-    if (!canDeleteMessage(caller, facts, factsOf(row))) {
+    if (!canDeleteMessage(caller, facts, messageFactsOf(row))) {
       throw new ForbiddenError("You may not delete this message");
     }
 

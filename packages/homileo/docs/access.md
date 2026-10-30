@@ -118,7 +118,9 @@ The design does not state these.
 - **`session.access_revoked`** follows a removal. When someone else is removed, only membership and
   visibility are judged (the removed principal's kind grants are unknown): a members-only or
   space-less session is revoked; a space session only for a non-member of a non-public space. When
-  one leaves, their own facts decide.
+  one leaves, their own facts decide. Both removal routes ask `canReadSession` with the facts
+  after the change and a stand-in caller, `judgedAs` in `utils/access.ts` (the caller themselves
+  when they leave; otherwise the principal with no permissions and no admin role).
 - **React** (`canReact`): participation and an unarchived session and space; the post policy does
   not apply.
 - **Session settings** (`canEditSessionSettings`: rename, `metadata`, `externalRef`, `state`): in a
@@ -134,6 +136,9 @@ The design does not state these.
   `clientMessageId` by a reader is answered (`409 duplicate_client_message`) before the other
   three, since it changes nothing. Bots post through the same route with their own token.
 - **List**: anyone who can read the session, participant or not.
+- **Revisions** (`canReadRevisions`): the sender, or whoever moderates the message's space, among
+  those who can read the session; a space-less session's only to its sender. A deleted message's
+  revisions too.
 - **Read position on send:** a top-level message moves the sender's `last_read_seq` to its `seq`,
   and a reply moves the sender's thread `last_read_seq`. Your own messages are never unread.
 - **Mentions:** a `<@id>` is stored in `message_mentions` only when that principal is a current

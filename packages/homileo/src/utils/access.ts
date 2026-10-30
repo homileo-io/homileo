@@ -93,6 +93,40 @@ export const spaceFactsFor = async (
   };
 };
 
+/**
+ * The facts of `session` for a principal: `space` is its space's facts for them (`null` for a
+ * space-less session), `participant` their current participant row (`null` for none).
+ */
+export const sessionFactsFor = (
+  session: SessionRow,
+  space: SpaceFacts | null,
+  participant: Pick<SessionParticipant, "role"> | null
+): SessionFacts => ({
+  organizationId: session.organizationId,
+  type: session.type,
+  space,
+  access: session.access,
+  archived: session.archivedAt !== null,
+  participantRole: participant?.role ?? null,
+});
+
+/**
+ * Whom to judge a change to `principalId`'s access as. The caller is judged with their own
+ * permissions. Someone else is judged from membership and visibility alone: their kind grants
+ * and admin role are not known here, so they count for nothing.
+ */
+export const judgedAs = (caller: Caller, principalId: string): Caller =>
+  principalId === caller.principalId
+    ? caller
+    : {
+        principalId,
+        tereoUserId: "",
+        isBot: false,
+        permissions: [],
+        isAdmin: false,
+        organizationId: caller.organizationId,
+      };
+
 const roleIn = async (
   client: Tx | typeof prisma,
   spaceId: string,
@@ -152,14 +186,7 @@ const sessionContext = async (
   });
   // A participant who left is, to the policy, no participant.
   const participant = row && row.leftAt === null ? row : null;
-  const facts: SessionFacts = {
-    organizationId: session.organizationId,
-    type: session.type,
-    space: spaceFacts,
-    access: session.access,
-    archived: session.archivedAt !== null,
-    participantRole: participant?.role ?? null,
-  };
+  const facts = sessionFactsFor(session, spaceFacts, participant);
   if (!canReadSession(c, facts) && !(adminManage && c.isAdmin)) return null;
   return { session, space, facts, participant };
 };
@@ -255,14 +282,11 @@ export const readableSessions = async (
   }
   for (const session of sessions) {
     if (session.spaceId && !spaceOf.has(session.spaceId)) continue;
-    const facts: SessionFacts = {
-      organizationId: session.organizationId,
-      type: session.type,
-      space: session.spaceId ? (spaceFacts.get(session.spaceId) ?? null) : null,
-      access: session.access,
-      archived: session.archivedAt !== null,
-      participantRole: participantOf.get(session.id)?.role ?? null,
-    };
+    const facts = sessionFactsFor(
+      session,
+      session.spaceId ? (spaceFacts.get(session.spaceId) ?? null) : null,
+      participantOf.get(session.id) ?? null
+    );
     if (canReadSession(c, facts)) readable.set(session.id, session);
   }
   return readable;

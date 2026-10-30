@@ -1,4 +1,5 @@
 import type { MessageContext } from "../../../../utils/access.js";
+import type { MessageFacts } from "../../../../policy/index.js";
 import type { callerOf } from "../../../../middleware/auth.js";
 import { readableMessage } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
@@ -15,6 +16,13 @@ export const lockedMessage = async (
   if (sessionId) await db.sessions.lockSpaceOf(tx, sessionId, "share");
   return readableMessage(caller, messageId, { tx, lock: true });
 };
+
+/** What the policy needs to know about a message. */
+export const messageFactsOf = (m: MessageContext["message"]): MessageFacts => ({
+  senderId: m.senderId,
+  createdAt: m.createdAt,
+  deleted: m.deletedAt !== null,
+});
 
 /** A session or space that is archived takes no edits, as with sending. */
 export const refuseIfArchived = (facts: MessageContext["facts"]): void => {

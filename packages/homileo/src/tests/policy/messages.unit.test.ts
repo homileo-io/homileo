@@ -12,6 +12,7 @@ import {
 import {
   canDeleteMessage,
   canEditMessage,
+  canReadRevisions,
   editWindowOpen,
   isMentionReader,
 } from "../../policy/index.js";
@@ -196,6 +197,98 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(c, ss, message({ senderId: "someone" }))).toBe(
       false
     );
+  });
+});
+
+describe("canReadRevisions", () => {
+  const other = message({ senderId: "someone" });
+  it.each([
+    ["sender", inSession(null), message(), caller(), true],
+    [
+      "deleted message, sender",
+      inSession(null),
+      message({ deleted: true }),
+      caller(),
+      true,
+    ],
+    ["non-sender member", inSession(null), other, caller(), false],
+    [
+      "moderator, any message",
+      inSession(null, "moderator"),
+      other,
+      caller(),
+      true,
+    ],
+    [
+      "moderator, deleted message",
+      inSession(null, "moderator"),
+      message({ senderId: "someone", deleted: true }),
+      caller(),
+      true,
+    ],
+    [
+      "sender who left, still readable",
+      session({ participantRole: null, space: space({ role: "member" }) }),
+      message(),
+      caller(),
+      true,
+    ],
+    [
+      "sender who cannot read",
+      session({ space: space() }),
+      message(),
+      caller(),
+      false,
+    ],
+    [
+      "grant moderator",
+      session({
+        space: space({
+          kind: kind({
+            grants: [
+              { permission: "support.cases.moderate", access: "moderate" },
+            ],
+          }),
+        }),
+      }),
+      other,
+      caller({ permissions: ["support.cases.moderate"] }),
+      true,
+    ],
+    [
+      "admin in a space's session",
+      session({ access: "members", space: space() }),
+      other,
+      caller({ isAdmin: true }),
+      true,
+    ],
+    [
+      "space-less owner, not the sender",
+      session({ space: null, participantRole: "owner" }),
+      other,
+      caller(),
+      false,
+    ],
+    [
+      "space-less admin participant, not the sender",
+      session({ space: null, participantRole: "member" }),
+      other,
+      caller({ isAdmin: true }),
+      false,
+    ],
+    [
+      "another organization",
+      session({
+        organizationId: OTHER_ORG,
+        participantRole: "member",
+        space: space({ role: "moderator", organizationId: OTHER_ORG }),
+      }),
+      message(),
+      caller(),
+      false,
+    ],
+  ])("%s -> %s", (_n, ss, m, c, want) => {
+    expect(canReadRevisions(c, ss, m)).toBe(want);
   });
 });
 
