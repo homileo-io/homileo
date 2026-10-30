@@ -16,7 +16,7 @@ checked in review.
 `routes/index.ts` is the root: `/health`, then `/v1`. `routes/v1/index.ts` mounts Homileo's API areas
 (`me/` today; `spaces/`, `sessions/`, `messages/`, `events/` as the plans add them), each with its
 body limit. **A new API route goes under `routes/v1/`.** Authentication (`authenticate`, then
-`requireOrganization` for organization-scoped areas) goes on the area router, not on each route.
+`requireOrganization`) goes once on the `/v1` router, not on each area or route.
 
 ## Files in a Folder
 

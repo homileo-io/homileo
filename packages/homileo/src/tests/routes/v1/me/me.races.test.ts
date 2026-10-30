@@ -10,10 +10,15 @@ import { v7 as uuidv7 } from "uuid";
 describe("GET /v1/me races", () => {
   it("creates one principal when a new user's first requests arrive together", async () => {
     const userId = uuidv7();
+    const org = uuidv7();
 
     const responses = await Promise.all(
       Array.from({ length: 10 }, () =>
-        fetchJson("GET", `${env.PUBLIC_URL}/v1/me`, `test-token-${userId}`)
+        fetchJson(
+          "GET",
+          `${env.PUBLIC_URL}/v1/me`,
+          `test-token-${userId}|org=${org}`
+        )
       )
     );
 

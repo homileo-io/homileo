@@ -1,17 +1,9 @@
-import type { AuthServiceOrganization } from "@tereo-io/sdk";
 import type { Principal } from "../utils/db/principals.js";
-import { validateHeaders } from "../utils/validateReq.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
+import { AppError } from "../utils/errors.js";
 import { getTereo } from "../utils/tereo.js";
-import { logger } from "../utils/logger.js";
 import { db } from "../utils/db/index.js";
-import { z } from "zod";
-import {
-  AppError,
-  NotFoundError,
-  ServiceUnavailableError,
-} from "../utils/errors.js";
 
 export interface Caller {
   principalId: string;
@@ -20,11 +12,11 @@ export interface Caller {
   permissions: string[];
   /** `homileo.chat.admin`. */
   isAdmin: boolean;
-  organizationId: string | null;
-}
-export interface OrgCaller extends Caller {
+  /** From the token's `org_id`: every `/v1` request has one. */
   organizationId: string;
 }
+/** What `src/policy` takes; every caller has an organization. */
+export type OrgCaller = Caller;
 
 declare global {
   namespace Express {
@@ -36,59 +28,11 @@ declare global {
   }
 }
 
-type OrganizationLookup = (
-  id: string
-) => Promise<AuthServiceOrganization | null>;
-
-let lookupOrganization: OrganizationLookup = (id) =>
-  getTereo().auth.getOrganization(id);
-
-/** Replaces tereo's organization lookup; `null` restores it. Only tests call this. */
-export const setOrganizationLookup = (lookup: OrganizationLookup | null) => {
-  lookupOrganization = lookup ?? ((id) => getTereo().auth.getOrganization(id));
-};
-
-// `z.guid()`, not `z.uuid()`, as tereo checks it: any hex UUID is a valid
-// organization id to Postgres, including ones without an RFC 9562 variant.
-const headersSchema = z.object({
-  "x-organization-id": z.guid().optional(),
-});
-
-/** Unknown, archived and inactive organizations all answer 404; an outage, 503. */
-const assertLiveOrganization = async (id: string): Promise<void> => {
-  let org: AuthServiceOrganization | null;
-  try {
-    org = await lookupOrganization(id);
-  } catch (err) {
-    logger.error({ err, organizationId: id }, "organization lookup failed");
-    throw new ServiceUnavailableError(
-      "Cannot reach tereo to check the organization"
-    );
-  }
-  if (!org || !org.isActive || org.archivedAt) {
-    throw new NotFoundError("Organization not found");
-  }
-};
-
-/**
- * Only a service account without an organization in its token names one per
- * request; everyone else's header is ignored, not validated.
- */
-const resolveOrganization = async (req: Request): Promise<string | null> => {
-  const auth = req.auth!;
-  if (auth.organizationId) return auth.organizationId;
-  if (auth.userType !== "service_account") return null;
-
-  const named = validateHeaders(headersSchema, req)["x-organization-id"];
-  if (!named) return null;
-  await assertLiveOrganization(named);
-  return named;
-};
-
 const authenticateAfterTereo: RequestHandler = async (req, _res, next) => {
   try {
     const auth = req.auth!;
-    const organizationId = await resolveOrganization(req);
+    // No principal for a token `requireOrganization` is about to refuse.
+    if (!auth.organizationId) return next();
     const principal = await db.principals.findOrCreateUser({
       tereoUserId: auth.userId,
       isBot: auth.userType === "service_account",
@@ -102,7 +46,7 @@ const authenticateAfterTereo: RequestHandler = async (req, _res, next) => {
       isBot: principal.isBot,
       permissions: auth.permissions,
       isAdmin: hasPermission(auth.permissions, "homileo.chat.admin"),
-      organizationId,
+      organizationId: auth.organizationId,
     };
     next();
   } catch (err) {
@@ -118,12 +62,13 @@ export const authenticate: RequestHandler = (req, res, next) => {
   });
 };
 
+/** Refuses a token without an organization; goes right after `authenticate`. */
 export const requireOrganization: RequestHandler = (req, _res, next) => {
-  if (!callerOf(req).organizationId) {
+  if (!req.auth?.organizationId) {
     throw new AppError(
       400,
       "organization_required",
-      "This request needs an organization: use a token with one, or send X-Organization-ID"
+      "This request needs an organization: use a token that has one"
     );
   }
   next();
@@ -137,12 +82,4 @@ export const callerOf = (req: Request): Caller => {
 export const principalOf = (req: Request): Principal => {
   if (!req.principal) throw new Error("principalOf used before authenticate");
   return req.principal;
-};
-
-export const orgCallerOf = (req: Request): OrgCaller => {
-  const caller = callerOf(req);
-  if (!caller.organizationId) {
-    throw new Error("orgCallerOf used without requireOrganization");
-  }
-  return { ...caller, organizationId: caller.organizationId };
 };

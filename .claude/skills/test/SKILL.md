@@ -91,14 +91,13 @@ test-token-<uuid>|org=<uuid>|perms=homileo.spaces.write,homileo.chat.admin   # a
 test-token-<uuid>|client=<uuid>                                               # a service account (same UUID twice)
 ```
 
-- A person's tokens carry the organization (`|org=`) and permissions (`|perms=`). A service account
-  has none and names its organization with `X-Organization-ID`.
+- Every `/v1` token needs an organization (`|org=<uuid>`), person or service account
+  (`test-token-<uuid>|client=<uuid>|org=<uuid>`); without one the answer is 400
+  `organization_required`. Permissions go in `|perms=`. `X-Organization-ID` is not read.
 - Use a fresh UUID for a fresh principal; the same UUID is the same principal across tests.
 - `homileo.chat.admin` covers administration but never reads DMs or space-less sessions — test it.
 - Permissions a test needs that Homileo does not declare are made up in the token; the SDK's test
   mode does not check them against a registry.
-- In test mode `getOrganization` stubs any id. A test of "tereo does not know this organization"
-  injects a lookup through the setter `me.test.ts` uses.
 
 Route auth: a new route needs no generic 401 test if `routes/routes.permissions.test.ts` walks the
 mounted route table, but it does need a `.permissions` test for its own rules (visibility, join,

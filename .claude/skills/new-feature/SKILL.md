@@ -63,12 +63,12 @@ the layout.
 - [ ] `schemas.ts` — Zod schemas: bodies, `:id` params, queries
 - [ ] `controllers.ts` — handlers
   - `validateBody/validateParams/validateQuery` from `utils/validateReq.ts`
-  - `orgCallerOf(req)` from `middleware/auth.ts` for the caller
+  - `callerOf(req)` from `middleware/auth.ts` for the caller
   - Call `db.<resource>.*` and the policy, not Prisma or an inline check
   - Throw the error classes from `utils/errors.ts`; a session the caller cannot read is a 404
 - [ ] `index.ts` — the router. Item routes go in a singular subfolder
       (`Router({ mergeParams: true })`) mounted with `router.use("/:id", …)`
-  - `authenticate` and `requireOrganization` on the area router
+  - nothing to add: `authenticate` and `requireOrganization` are on the `/v1` router
 - [ ] Mount the router in its parent `index.ts`
 - [ ] ESM: `.js` on every relative import, directory imports included
 - [ ] Imports sorted by the repo rule — `npm run sort-imports`

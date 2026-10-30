@@ -59,7 +59,7 @@ One ordinary package, shared by every area:
 | `src/index.ts` / `app.ts` / `worker.ts` | Entry point, Express app, background work. `ROLE` = `all` / `api` / `worker` |
 | `src/env.ts` | The one env schema. `src/preload.ts` must be the first import of every entry point |
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
-| `src/middleware/auth.ts` | `authenticate`, `requireOrganization`, `callerOf`, `orgCallerOf` |
+| `src/middleware/auth.ts` | `authenticate`, `requireOrganization`, `callerOf` |
 | `src/policy/` | The access policy: `spaces.ts`, `sessions.ts`, `messages.ts`, and the "readable sessions" SQL condition |
 | `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, then `spaces/`, `sessions/`, `messages/`, `events/`) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
@@ -86,8 +86,9 @@ One ordinary package, shared by every area:
 - **Errors**: `AppError` subclasses from `utils/errors.ts` — never `res.status(400).json(...)`
   directly. The body is `{ error: <code>, error_description, ...details }`. A resource the caller
   may not see is a 404.
-- **Auth**: `authenticate` (tereo's `requireAuth`, then the organization rule, then the principal)
-  on the area router, `requireOrganization` where data is organization-scoped. Permissions are
+- **Auth**: `authenticate` (tereo's `requireAuth`, then the principal) and `requireOrganization` sit once on the `/v1`
+  router: the organization is the token's `org_id` only, and a token without one (person or service
+  account) gets 400 `organization_required`. Permissions are
   tereo's dotted, hierarchical form (`utils/permissions.ts`): `write` includes `read`, `admin`
   includes all. There is no test-mode shortcut in the service: tests use `@tereo-io/sdk` test
   tokens (`test-token-<uuid>|org=<uuid>|perms=a,b`; a service account is

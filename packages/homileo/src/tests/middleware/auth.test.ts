@@ -1,9 +1,9 @@
 // @module-tag int
 // @module-tag auth
-import type { AuthServiceOrganization, AuthServiceUser } from "@tereo-io/sdk";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setProfileLookup } from "../../utils/db/principals.js";
 import { initializeTereo } from "../../utils/tereo.js";
+import type { AuthServiceUser } from "@tereo-io/sdk";
 import { errorHandler } from "../../utils/errors.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { fetchJson } from "../support/http.js";
@@ -11,7 +11,6 @@ import { v7 as uuidv7 } from "uuid";
 import type { Server } from "http";
 import express from "express";
 import {
-  setOrganizationLookup,
   authenticate,
   requireOrganization,
   callerOf,
@@ -33,7 +32,6 @@ describe("auth middleware", () => {
     await initializeTereo();
   });
   afterEach(() => {
-    setOrganizationLookup(null);
     setProfileLookup(null);
     server?.close();
     server = null;
@@ -76,88 +74,12 @@ describe("auth middleware", () => {
 
     expect(res.body).toEqual({ org });
   });
-
-  it("answers 404 for an X-Organization-ID tereo does not know", async () => {
-    setOrganizationLookup(async () => null);
-    const userId = uuidv7();
-    const app = express();
-    app.get("/x", authenticate, (_req, res) => {
-      res.json({});
-    });
-    app.use(errorHandler);
-    const started = await serve(app);
-    server = started.server;
-
-    const res = await fetchJson(
-      "GET",
-      `${started.url}/x`,
-      `test-token-${userId}|client=${userId}`,
-      undefined,
-      { "X-Organization-ID": uuidv7() }
-    );
-
-    expect(res.status).toBe(404);
-  });
-  const organization = (
-    o: Partial<AuthServiceOrganization> = {}
-  ): AuthServiceOrganization =>
-    ({ isActive: true, archivedAt: null, ...o }) as AuthServiceOrganization;
-
-  /** A service account naming `orgId`; answers the caller's organization. */
-  const nameOrganization = async (orgId: string) => {
-    const userId = uuidv7();
-    const app = express();
-    app.get("/x", authenticate, (req, res) => {
-      res.json({ org: callerOf(req).organizationId });
-    });
-    app.use(errorHandler);
-    const started = await serve(app);
-    server = started.server;
-    return fetchJson(
-      "GET",
-      `${started.url}/x`,
-      `test-token-${userId}|client=${userId}`,
-      undefined,
-      { "X-Organization-ID": orgId }
-    );
-  };
-
-  it.each([
-    ["archived", { archivedAt: "2026-10-01T00:00:00.000Z" }],
-    ["inactive", { isActive: false }],
-  ])("answers 404 for an %s organization", async (_n, o) => {
-    setOrganizationLookup(async (id) => organization({ id, ...o }));
-
-    const res = await nameOrganization(uuidv7());
-
-    expect(res.status).toBe(404);
-  });
-
-  it("answers 503 when tereo cannot be reached for the organization", async () => {
-    setOrganizationLookup(async () => {
-      throw new Error("connect ECONNREFUSED");
-    });
-
-    const res = await nameOrganization(uuidv7());
-
-    expect(res.status).toBe(503);
-    expect(res.body.error).toBe("temporarily_unavailable");
-  });
-
-  it("accepts an organization id without an RFC 9562 variant, as tereo does", async () => {
-    const org = "00000000-0000-0000-0000-000000000001";
-    setOrganizationLookup(async (id) => organization({ id }));
-
-    const res = await nameOrganization(org);
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ org });
-  });
 });
 
 describe("principal loading", () => {
   let server: Server | null = null;
   let url = "";
+  const org = uuidv7();
   beforeAll(async () => {
     await initializeTereo();
   });
@@ -205,11 +127,11 @@ describe("principal loading", () => {
   it("writes nothing on a second request for an existing principal", async () => {
     await start();
     const userId = uuidv7();
-    await fetchJson("GET", url, `test-token-${userId}`);
+    await fetchJson("GET", url, `test-token-${userId}|org=${org}`);
     await waitFor(async () => (await row(userId))?.display_name != null);
     const before = await row(userId);
 
-    const res = await fetchJson("GET", url, `test-token-${userId}`);
+    const res = await fetchJson("GET", url, `test-token-${userId}|org=${org}`);
     await pause(200);
 
     expect(res.status).toBe(200);
@@ -225,11 +147,19 @@ describe("principal loading", () => {
     await start();
     const userId = uuidv7();
 
-    const first = await fetchJson("GET", url, `test-token-${userId}`);
+    const first = await fetchJson(
+      "GET",
+      url,
+      `test-token-${userId}|org=${org}`
+    );
     await waitFor(
       async () => (await row(userId))?.profile_refreshed_at != null
     );
-    const second = await fetchJson("GET", url, `test-token-${userId}`);
+    const second = await fetchJson(
+      "GET",
+      url,
+      `test-token-${userId}|org=${org}`
+    );
     await pause(200);
 
     expect(first.status).toBe(200);
@@ -253,7 +183,7 @@ describe("principal loading", () => {
 
     await Promise.all(
       Array.from({ length: 5 }, () =>
-        fetchJson("GET", url, `test-token-${userId}`)
+        fetchJson("GET", url, `test-token-${userId}|org=${org}`)
       )
     );
     await waitFor(async () => (await row(userId))?.display_name === "Ada");

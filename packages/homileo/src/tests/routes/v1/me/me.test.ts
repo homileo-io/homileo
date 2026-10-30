@@ -6,10 +6,10 @@ import env from "../../../../env.js";
 import { v7 as uuidv7 } from "uuid";
 
 const ME = `${env.PUBLIC_URL}/v1/me`;
-const personToken = (userId = uuidv7(), org?: string) =>
+const personToken = (userId = uuidv7(), org: string | null = uuidv7()) =>
   `test-token-${userId}${org ? `|org=${org}` : ""}`;
-const serviceToken = (userId = uuidv7()) =>
-  `test-token-${userId}|client=${userId}`;
+const serviceToken = (userId = uuidv7(), org: string | null = null) =>
+  `test-token-${userId}|client=${userId}${org ? `|org=${org}` : ""}`;
 
 describe("GET /v1/me", () => {
   it("returns 401 without a token", async () => {
@@ -34,7 +34,7 @@ describe("GET /v1/me", () => {
   });
 
   it("marks a service account as a bot", async () => {
-    const res = await fetchJson("GET", ME, serviceToken());
+    const res = await fetchJson("GET", ME, serviceToken(uuidv7(), uuidv7()));
 
     expect(res.status).toBe(200);
     expect(res.body.principal.isBot).toBe(true);
@@ -72,34 +72,23 @@ describe("GET /v1/me", () => {
       { "X-Organization-ID": uuidv7() }
     );
 
+    expect(res.status).toBe(200);
     expect(res.body.organizationId).toBe(tokenOrg);
   });
 
-  it("uses X-Organization-ID for a service account without one", async () => {
-    const org = uuidv7();
+  it("answers 400 organization_required for a person without an organization", async () => {
+    const res = await fetchJson("GET", ME, personToken(uuidv7(), null));
 
-    const res = await fetchJson("GET", ME, serviceToken(), undefined, {
-      "X-Organization-ID": org,
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.body.organizationId).toBe(org);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("organization_required");
   });
 
-  it("ignores X-Organization-ID from a person without an organization", async () => {
-    const res = await fetchJson("GET", ME, personToken(), undefined, {
+  it("answers 400 organization_required for a service account without an organization, even with X-Organization-ID", async () => {
+    const res = await fetchJson("GET", ME, serviceToken(), undefined, {
       "X-Organization-ID": uuidv7(),
     });
 
-    expect(res.body.organizationId).toBeNull();
-  });
-
-  it("answers 400 invalid_request for a malformed X-Organization-ID", async () => {
-    const res = await fetchJson("GET", ME, serviceToken(), undefined, {
-      "X-Organization-ID": "not-a-uuid",
-    });
-
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("invalid_request");
+    expect(res.body.error).toBe("organization_required");
   });
 });

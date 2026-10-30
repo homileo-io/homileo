@@ -2,7 +2,7 @@
 
 Every access check goes through one module of pure functions, `src/policy/` (`canReadSpace`,
 `canReadSession`, `canPost`, …). REST routes, socket subscriptions and `/sync` call it with facts the
-caller loaded (`SpaceFacts`, `SessionFacts`, `MessageFacts`) and the `OrgCaller`; it does no I/O.
+caller loaded (`SpaceFacts`, `SessionFacts`, `MessageFacts`) and the `OrgCaller` (always has an organization: the token's `org_id`); it does no I/O.
 The tests are `src/tests/policy/*.unit.test.ts`, tag `access`.
 
 ## Organizations

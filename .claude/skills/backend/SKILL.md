@@ -27,7 +27,7 @@ packages/homileo/
     ├── preload.ts                       # First import of every entry point (loads .env)
     ├── env.ts                           # The one Zod env schema — `import env from "./env.js"`
     ├── definitions/                     # tereoDeclaration.ts (what tereo is told), builtins.ts (the `default` kind)
-    ├── middleware/auth.ts               # authenticate, requireOrganization, callerOf, orgCallerOf
+    ├── middleware/auth.ts               # authenticate, requireOrganization, callerOf
     ├── policy/                          # The only place access is decided: spaces, sessions, messages
     ├── routes/                          # Mirrors the URL (see below)
     │   └── v1/{area}/…/{resource}/
@@ -84,10 +84,11 @@ adding or moving a route.
 ## Authentication, Organizations and Access
 
 - `authenticate` (`middleware/auth.ts`) wraps tereo's `requireAuth` (introspection, cached, or test
-  tokens in test mode), resolves the organization (token first; for a service account without one,
-  `X-Organization-ID`), upserts the caller's principal, and sets `req.caller`.
-- `authenticate` goes on the **area router**; `requireOrganization` after it on every area whose
-  data is organization-scoped. Controllers read the caller with `callerOf(req)` / `orgCallerOf(req)`.
+  tokens in test mode), upserts the caller's principal, and sets `req.caller`. The organization is only the
+  token's `org_id`; no header names one.
+- `authenticate` then `requireOrganization` go once on the `/v1` router, so every `/v1` request has
+  an organization (a token without one gets 400 `organization_required`). Controllers read the
+  caller with `callerOf(req)`; `organizationId` is always a string.
 - **Every space and session belongs to one tereo organization**; every read, write, event and
   search is limited to the caller's current organization. Lists put `organizationId` in the base
   `where`. Principals themselves are not organization-scoped.
