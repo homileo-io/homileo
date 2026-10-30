@@ -16,6 +16,29 @@ in Homileo and `homileo.<area>.<verb>` in tereo.
 | `session` | `session.created`, `session.updated`, `session.archived`, `session.participant_added`, `session.participant_removed`, `message.created`, `message.edited`, `message.deleted`, `reaction.added`, `reaction.removed`, `thread.updated` | yes |
 | `user` | `read.updated`, `space.access_revoked`, `session.access_revoked` | no |
 
+Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionSchema`,
+`MessageSchema`, `SpaceMemberSchema`, `ParticipantSchema` and `JoinRequestSchema`):
+
+| Type | Payload |
+|---|---|
+| `space.created`, `space.updated`, `space.archived` | `{ space }` |
+| `space.member_added` | `{ spaceId, member }` |
+| `space.member_removed` | `{ spaceId, principalId }` |
+| `space.member_role_changed` | `{ spaceId, member, previousRole }` |
+| `space.join_requested`, `space.join_decided` | `{ request }` |
+| `session.created`, `session.updated`, `session.archived` | `{ session }` |
+| `session.participant_added` | `{ sessionId, participant }` |
+| `session.participant_removed` | `{ sessionId, principalId }` |
+| `message.created`, `message.edited`, `message.deleted` | `{ message }` |
+| `reaction.added`, `reaction.removed` | `{ sessionId, messageId, principalId, emoji }` |
+| `thread.updated` | `{ sessionId, rootId, replyCount, lastReplyAt }` |
+| `read.updated` | `{ principalId, sessionId, threadRootId, lastReadSeq }` |
+| `space.access_revoked` | `{ principalId, spaceId }` |
+| `session.access_revoked` | `{ principalId, sessionId }` |
+
+`message.created` and `message.deleted` of a reply are recorded before the reply's `thread.updated`,
+so a consumer never sees a `replyCount` for a reply it has not received.
+
 The channel says whose realtime channel receives the event. The webhook types are declared to tereo
 (`tereo-provisioning.json`), readable with `homileo.spaces.read`.
 
@@ -53,6 +76,13 @@ they increase in allocation order, which is not always commit order: an event ca
 after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,
 so `/sync` (plan 2) must hold its cursor back across ids whose transactions may still commit — a
 gap-aware cursor. Ids are `bigint` inside Homileo and leave the process as strings.
+
+After the transaction commits, `withChanges` puts the committed events on `changeBus`
+(`src/utils/changeBus.ts`) in record order; a rollback publishes none. Plan 3's realtime layer
+subscribes to it and pushes to sockets. Plan 3 must treat `message.created` as advancing its sender's
+read position (the move on send records no `read.updated`) and `space.access_revoked` as revoking
+every session subscription in that space (`session.access_revoked` is sent only for sessions the
+principal participated in).
 
 tereo's reaper sends the outbox rows to tereo after commit, deduplicated by row id.
 

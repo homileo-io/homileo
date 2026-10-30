@@ -100,3 +100,107 @@ nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, rea
 (views show the last two as empty), and lowers a reply's root `reply_count`.
 `GET /v1/messages/:id/revisions` is for the sender and for whoever can moderate the message's space: any other reader gets `403`, so a
 deleted message's text does not reach everyone in the session.
+
+## Routes
+
+Every route is under `/v1`. "Policy" is the `src/policy/` function that decides the action, after
+`readableX` has answered `404` for what the caller cannot read. Besides the codes listed, any
+route can answer `400 invalid_request`, `400 organization_required`, `401`, `413` (body over the
+area's limit) and `404 not_found`. Events are recorded in the request's transaction.
+
+### Platform and principals
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /me` | none | | |
+| `GET /me/unread` | readable sessions only | | |
+| `GET /me/mentions` | readable sessions only; `<!here>`/`<!session>` only where the caller participates | | |
+| `GET /principals/:principalId` | none | | |
+| `POST /principals/resolve` | none; 1 to 100 unique tereo user ids | | |
+
+### Spaces
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /spaces` | `canReadSpace`; `membership` = `member` (default) or `readable` | | |
+| `POST /spaces` | needs tereo `homileo.spaces.write` | `403 forbidden`, `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.created`, `space.member_added` (creator as owner, plus kind bots) |
+| `GET /spaces/:spaceId` | `canReadSpace` | | |
+| `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
+| `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
+| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`) | `space.member_added`, or `space.join_requested` for `request` |
+| `GET /spaces/:spaceId/members` | `canReadSpace` | | |
+| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` or `space.member_role_changed` |
+| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave) | `403`, `404`, `409 last_owner` | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
+| `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
+| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409` already decided, `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+
+`description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
+kind; `externalRef` is unique per kind within the organization.
+
+### Sessions
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /sessions` | `canReadSession` per row; filters `spaceId`, `type`, `externalRef`, … | | |
+| `POST /sessions` | `canCreateSessionIn` in a space; open for a space-less group | `403 forbidden`, `409 resource_archived`, `400 invalid_state` (a `state` on a space-less group, or one the kind does not declare) | `session.created`, `space.member_added` for kind bots missing from the space |
+| `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal | `session.created` (once; a repeat records nothing) |
+| `GET /sessions/:sessionId` | `canReadSession` | | |
+| `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `409 external_ref_taken`, `400 invalid_state` | `session.updated` |
+| `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
+| `GET /sessions/:sessionId/participants` | `canReadSession` | | |
+| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space | `session.participant_added`, `space.member_added` when joining through an open space |
+| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self) or `canRemoveParticipant` | `403`, `404` | `session.participant_removed`, `session.access_revoked` |
+| `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
+| `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` | |
+| `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
+| `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
+| `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
+
+A DM is created with `type: "direct"` and a deterministic `direct_key`, so two concurrent requests
+for the same pair produce one session.
+
+### Messages and threads
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /messages/:messageId` | `canReadSession` | | |
+| `PATCH /messages/:messageId` | `canEditMessage` | `403`, `403 edit_window_closed`, `409 resource_archived` (deleted message, archived session or space), `400 invalid_payload` | `message.edited` |
+| `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
+| `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
+| `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
+| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived` | `reaction.added` (a repeat records nothing) |
+| `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
+| `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
+| `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
+| `PUT /threads/:rootId/follow` | `canReadSession` | `400 reply_to_reply` | |
+
+## Decisions the routes fix
+
+- **9. Read position on send.** Sending a top-level message moves the sender's `last_read_seq` to it;
+  a reply moves the sender's thread `last_read_seq`. Your own messages are never unread. This
+  records no `read.updated`.
+- **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session (see
+  [access.md](access.md)) and emailed through `core.outbox.notify` unless their `notify` is `none`
+  or they are the sender or a bot. A reply makes its sender a follower and creates a following row
+  for the root's sender if none exists; an existing row (an unfollow) is left alone.
+  `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
+  no email.
+- **11. Attachments.** `POST /v1/sessions/:id/attachments` creates an empty placeholder object in
+  `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
+  24 h, and returns a presigned write URL for the object's id. A message names the object id. The
+  send fetches the objects from tereo before its transaction, then checks inside it the key prefix
+  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit.
+  Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
+  returns a presigned read URL. A tereo failure on these routes, other than a 404, is
+  `503 temporarily_unavailable`.
+- **12. Unknown resources.** An id that does not parse as a UUID is `400 invalid_request`; a
+  well-formed id the caller cannot read is `404`. Ids from a request are lower-cased at parse time.
+
+## Details
+
+- **Body limits.** JSON bodies are parsed per area in `routes/v1/index.ts`: 256 KiB on `/sessions`
+  and `/messages`, 64 KiB on `/principals`, `/spaces` and `/threads`. A larger body is `413`.
+- **Listing sessions by `externalRef` without `spaceId`** fetches up to 1,000 matches in the
+  organization, keeps those the caller can read, returns the first `limit` and `nextCursor: null`.
+- **Lock order** in every mutation: the space row, then the session row, then other rows (see
+  [access.md](access.md)).

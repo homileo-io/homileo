@@ -10,9 +10,8 @@ paths:
 
 # OpenAPI Specification Management
 
-The spec is created in plan 2 (*Core chat API*); until then `packages/homileo/openapi/` does not
-exist. This skill is the structure it follows (the same as tereo's): one service, **one spec**,
-split by area into files.
+The spec lives in `packages/homileo/openapi/`. This skill is the structure it follows (the same as
+tereo's): one service, **one spec**, split by area into files.
 
 ## Directory Structure
 
@@ -266,7 +265,7 @@ The event type must exist in the SDK's `EVENT_TYPES` and in Homileo's tereo decl
 From `packages/homileo` (`@redocly/cli` is a dev dependency; both read `redocly.yaml`):
 
 ```bash
-npm run openapi:lint    # lint the spec — CI runs this (from plan 2)
+npm run openapi:lint    # lint the spec — CI runs this
 npm run openapi:build   # lint, then regenerate openapi/bundled-openapi.yaml
 ```
 

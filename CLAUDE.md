@@ -61,12 +61,12 @@ One ordinary package, shared by every area:
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
 | `src/middleware/auth.ts` | `authenticate`, `callerOf` |
 | `src/policy/` | The access policy: `spaces.ts`, `sessions.ts`, `messages.ts`, and the "readable sessions" SQL condition |
-| `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, then `spaces/`, `sessions/`, `messages/`, `events/`) |
+| `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`; `events/` and `/sync` arrive in plan 3) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
 | `src/cli/` | Operator commands, `npm run cli -- <command>` |
 | `src/tests/` | Mirrors `src/`: `<base>[.<aspect>][.unit].test.ts`, `flows/`, `conventions/`; `setup/`, `support/`, `fixtures/` are not tests. Two projects, `unit` (no server) and `int` (one real server). Rules: [src/tests/README.md](packages/homileo/src/tests/README.md) |
 | `prisma/` | The one schema and migrations |
-| `docs/` | Per-area reference notes (`provisioning`, `events`, `access`) |
+| `docs/` | Per-area reference notes (`api`, `provisioning`, `events`, `access`) |
 
 ## Key conventions
 

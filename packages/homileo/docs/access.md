@@ -100,6 +100,14 @@ The design does not state these.
 - **Leave a session** (`canLeaveSession`): any participant of an unarchived session except a DM.
   When the last `owner` of a space-less group leaves or is removed, ownership passes to the
   remaining participant who joined first (no event records the role change).
+- **Kind bots** (decision 4): a kind's `bots` become `member`s of every new space of the kind and
+  participants of every new session in those spaces; unseen ones are created as bot principals. A
+  bot missing from an existing space is added as a member when a session is created there, so it can
+  read an `access: space` session of a members-only space.
+- **Metadata** is a flat object of the caller's choosing, scoped by the kind's app, and a `PATCH`
+  replaces it whole (it is not merged). Changing a space's or session's `metadata`, `externalRef` or
+  `state` needs `canModerateSpace`, or the participant `owner` in a space-less group. A space-less
+  group has no kind, so its `state` is `400 invalid_state`.
 - **Joining through an open space** also makes a non-member a space `member`
   (`space.member_added`). Adding someone else to a space's session needs them to be a space member.
 - **`session.access_revoked`** follows a removal. When someone else is removed, only membership and
@@ -135,3 +143,12 @@ The design does not state these.
   `none` (a reader who is not a participant counts as `all`), they are the sender, or they are a
   bot. `<!here>` and `<!session>` are stored and send no email.
 
+
+## Lock order
+
+Every mutation takes locks in one order, so two mutations cannot wait on each other: the space row,
+then the session row, then any other row (owner rows, participants, messages).
+`readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
+needs both; a route that starts from a session id locks its space first
+(`db.sessions.lockSpaceOf`). Removing a member locks the space, then the owner rows, then the
+member's active sessions in id order, and only then changes participants.
