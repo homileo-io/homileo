@@ -34,3 +34,10 @@ ReactionEmojiParam:
   required: true
   description: URL-encoded. One emoji sequence (a skin tone or a ZWJ sequence counts as one), or a `:shortcode:` of 1-62 lower-case letters, digits, `_`, `+` or `-`; 64 characters at most.
   schema: { type: string, minLength: 1, maxLength: 64 }
+
+ThreadIdParam:
+  name: rootId
+  in: path
+  required: true
+  description: The thread's root message, a top-level message
+  schema: { type: string, format: uuid }

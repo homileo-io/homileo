@@ -1499,6 +1499,118 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/thread:
+    get:
+      tags:
+        - Messages
+      summary: Read a thread
+      description: |
+        The thread's root and its replies from `after` (a reply `seq`; default 0), ascending, with the
+        caller's follower row. The message must be a top-level message: a reply is `400
+        reply_to_reply`. A deleted root is still viewable, with its content cleared. Deleted replies
+        stay in the list, cleared.
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: getThread
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - name: after
+          in: query
+          required: false
+          description: Return replies with a `seq` above this
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: The thread
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/threads/{rootId}/read:
+    put:
+      tags:
+        - Messages
+      summary: Set the caller's thread read position
+      description: |
+        Moves the caller's read position in the thread to `seq`, never backwards and never past the
+        thread's newest reply (the root's `seq` when it has none). A caller with no follower row gets
+        one with `following: false`. Records `read.updated` with `threadRootId` only when the position
+        moved. The message must be a top-level message (`400 reply_to_reply`). Any reader of the
+        session may track a thread; participation is not required.
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: putThreadRead
+      parameters:
+        - $ref: '#/components/parameters/ThreadIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadReadRequest'
+      responses:
+        '200':
+          description: The position after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadReadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/threads/{rootId}/follow:
+    put:
+      tags:
+        - Messages
+      summary: Follow or unfollow a thread
+      description: |
+        Sets whether the caller follows the thread; only followed threads count in `GET /v1/me/unread`.
+        A caller with no row gets one that starts unread. An unfollow stands until the caller replies
+        in the thread. Records no event. The message must be a top-level message (`400
+        reply_to_reply`).
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: putThreadFollow
+      parameters:
+        - $ref: '#/components/parameters/ThreadIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadFollowRequest'
+      responses:
+        '200':
+          description: The state after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadFollowResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -2128,6 +2240,14 @@ components:
         type: string
         minLength: 1
         maxLength: 64
+    ThreadIdParam:
+      name: rootId
+      in: path
+      required: true
+      description: The thread's root message, a top-level message
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequestResponse:
       description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
@@ -3553,6 +3673,77 @@ components:
           description: Oldest first
           items:
             $ref: '#/components/schemas/MessageRevision'
+    ThreadFollower:
+      type: object
+      required:
+        - following
+        - lastReadSeq
+      properties:
+        following:
+          type: boolean
+        lastReadSeq:
+          type: integer
+          description: The `seq` of the last reply the caller has read
+    ThreadResponse:
+      type: object
+      required:
+        - root
+        - data
+        - hasAfter
+        - follower
+      properties:
+        root:
+          $ref: '#/components/schemas/Message'
+        data:
+          type: array
+          description: Replies, ascending by `seq`
+          items:
+            $ref: '#/components/schemas/Message'
+        hasAfter:
+          type: boolean
+          description: Newer replies exist
+        follower:
+          description: The caller's row for this thread, or `null` when they have none
+          oneOf:
+            - $ref: '#/components/schemas/ThreadFollower'
+            - type: 'null'
+    ThreadReadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - seq
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: The `seq` of the last reply read
+      examples:
+        - seq: 42
+    ThreadReadResponse:
+      type: object
+      required:
+        - lastReadSeq
+      properties:
+        lastReadSeq:
+          type: integer
+          description: The position after the request; it never moves back and never passes the thread's newest reply
+    ThreadFollowRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - following
+      properties:
+        following:
+          type: boolean
+      examples:
+        - following: false
+    ThreadFollowResponse:
+      type: object
+      required:
+        - following
+      properties:
+        following:
+          type: boolean
     MessageEventData:
       type: object
       description: The data of `message.created`

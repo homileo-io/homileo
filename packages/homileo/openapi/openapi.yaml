@@ -137,6 +137,12 @@ paths:
     $ref: './paths/messages/revisions.yaml#/~1v1~1messages~1{messageId}~1revisions'
   /v1/messages/{messageId}/reactions/{emoji}:
     $ref: './paths/messages/reaction.yaml#/~1v1~1messages~1{messageId}~1reactions~1{emoji}'
+  /v1/messages/{messageId}/thread:
+    $ref: './paths/messages/thread.yaml#/~1v1~1messages~1{messageId}~1thread'
+  /v1/threads/{rootId}/read:
+    $ref: './paths/messages/thread-read.yaml#/~1v1~1threads~1{rootId}~1read'
+  /v1/threads/{rootId}/follow:
+    $ref: './paths/messages/thread-follow.yaml#/~1v1~1threads~1{rootId}~1follow'
 
 components:
   securitySchemes:
@@ -297,6 +303,18 @@ components:
       $ref: './components/messages/schemas.yaml#/MessageRevision'
     ListMessageRevisionsResponse:
       $ref: './components/messages/schemas.yaml#/ListMessageRevisionsResponse'
+    ThreadFollower:
+      $ref: './components/messages/schemas.yaml#/ThreadFollower'
+    ThreadResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadResponse'
+    ThreadReadRequest:
+      $ref: './components/messages/schemas.yaml#/ThreadReadRequest'
+    ThreadReadResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadReadResponse'
+    ThreadFollowRequest:
+      $ref: './components/messages/schemas.yaml#/ThreadFollowRequest'
+    ThreadFollowResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadFollowResponse'
     MessageEventData:
       $ref: './components/messages/schemas.yaml#/MessageEventData'
     ThreadUpdatedEventData:

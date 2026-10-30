@@ -1,0 +1,31 @@
+/v1/messages/{messageId}/thread:
+  get:
+    tags: [Messages]
+    summary: Read a thread
+    description: |
+      The thread's root and its replies from `after` (a reply `seq`; default 0), ascending, with the
+      caller's follower row. The message must be a top-level message: a reply is `400
+      reply_to_reply`. A deleted root is still viewable, with its content cleared. Deleted replies
+      stay in the list, cleared.
+
+      **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+    operationId: getThread
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+      - name: after
+        in: query
+        required: false
+        description: Return replies with a `seq` above this
+        schema: { type: integer, minimum: 0, default: 0 }
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+    responses:
+      '200':
+        description: The thread
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ThreadResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

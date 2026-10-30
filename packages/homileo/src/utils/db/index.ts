@@ -5,6 +5,7 @@ import * as reactions from "./reactions.js";
 import * as sessions from "./sessions.js";
 import * as messages from "./messages.js";
 import * as members from "./members.js";
+import * as threads from "./threads.js";
 import * as events from "./events.js";
 import * as spaces from "./spaces.js";
 
@@ -22,6 +23,7 @@ export const db = {
   participants,
   messages,
   reactions,
+  threads,
 };
 
 export { prisma } from "./prisma.js";

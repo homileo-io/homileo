@@ -118,6 +118,61 @@ ListMessagesResponse:
     hasBefore: { type: boolean, description: Older top-level messages exist }
     hasAfter: { type: boolean, description: Newer top-level messages exist }
 
+ThreadFollower:
+  type: object
+  required: [following, lastReadSeq]
+  properties:
+    following: { type: boolean }
+    lastReadSeq: { type: integer, description: The `seq` of the last reply the caller has read }
+
+ThreadResponse:
+  type: object
+  required: [root, data, hasAfter, follower]
+  properties:
+    root: { $ref: '#/Message' }
+    data:
+      type: array
+      description: Replies, ascending by `seq`
+      items: { $ref: '#/Message' }
+    hasAfter: { type: boolean, description: Newer replies exist }
+    follower:
+      description: The caller's row for this thread, or `null` when they have none
+      oneOf:
+        - { $ref: '#/ThreadFollower' }
+        - { type: 'null' }
+
+ThreadReadRequest:
+  type: object
+  additionalProperties: false
+  required: [seq]
+  properties:
+    seq: { type: integer, minimum: 0, description: The `seq` of the last reply read }
+  examples:
+    - seq: 42
+
+ThreadReadResponse:
+  type: object
+  required: [lastReadSeq]
+  properties:
+    lastReadSeq:
+      type: integer
+      description: The position after the request; it never moves back and never passes the thread's newest reply
+
+ThreadFollowRequest:
+  type: object
+  additionalProperties: false
+  required: [following]
+  properties:
+    following: { type: boolean }
+  examples:
+    - following: false
+
+ThreadFollowResponse:
+  type: object
+  required: [following]
+  properties:
+    following: { type: boolean }
+
 MessageEventData:
   type: object
   description: The data of `message.created`
