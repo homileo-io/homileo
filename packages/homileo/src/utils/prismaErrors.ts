@@ -27,9 +27,9 @@ export function isForeignKeyConstraintError(err: unknown): boolean {
  *
  * @example
  * try {
- *   await prisma.brand.delete({ where: { id } });
+ *   await prisma.space.delete({ where: { id } });
  * } catch (err) {
- *   rethrowRestrictedAsConflict(err, "Brand is still referenced by products");
+ *   rethrowRestrictedAsConflict(err, "Space still has sessions");
  * }
  */
 export function rethrowRestrictedAsConflict(
@@ -71,7 +71,7 @@ export async function mapUniqueViolation<T>(
  * them in `meta.driverAdapterError.cause.constraint.fields`, not `meta.target`.
  * Since Prisma 7.10 the adapter names only the index; its columns come back as
  * one name, the index's minus the table prefix and `_key` suffix
- * (`user_identities_user_id_provider_id_key` → `user_id_provider_id`), since
+ * (`principals_app_external_id_key` → `app_external_id`), since
  * column names hold underscores too.
  */
 export function uniqueViolationFields(err: unknown): string[] | null {

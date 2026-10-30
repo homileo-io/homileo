@@ -71,9 +71,9 @@ export function clientIp(req: Request): string {
  * (e.g., audit logging) without explicit passing.
  */
 /**
- * A client's own X-Request-ID is kept only in this shape: it is stored in
- * columns as narrow as VarChar(64) (`access_logs.request_id`) and echoed in
- * logs and the response header. Anything else gets a generated id.
+ * A client's own X-Request-ID is kept only in this shape: it is echoed in logs
+ * and the response header, and fits a column as narrow as VarChar(64).
+ * Anything else gets a generated id.
  */
 const CLIENT_REQUEST_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 

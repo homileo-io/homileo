@@ -30,7 +30,7 @@ export class AppError extends Error {
   }
 }
 
-/** One failed check: `path` is the field, dotted (`roleIds.0`), "" for the whole value. */
+/** One failed check: `path` is the field, dotted (`grants.0.permission`), "" for the whole value. */
 export interface ValidationIssue {
   path: string;
   message: string;
