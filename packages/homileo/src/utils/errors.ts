@@ -90,6 +90,14 @@ export class PostingRestrictedError extends AppError {
   }
 }
 
+/** The kind's edit window has passed for the caller's own message. */
+export class EditWindowClosedError extends AppError {
+  constructor(message = "The edit window for this message has closed") {
+    super(403, "edit_window_closed", message);
+    this.name = "EditWindowClosedError";
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Not found") {
     super(404, "not_found", message);

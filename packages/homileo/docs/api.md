@@ -90,3 +90,13 @@ A send takes the session row `FOR UPDATE` first (`readableSession({ lock: true }
 its `clientMessageId` under that lock, so of two concurrent sends with the same id one inserts and
 the other answers `409 duplicate_client_message` without using a `seq`. `seq` comes from
 `UPDATE sessions SET last_seq = last_seq + 1 … RETURNING last_seq`, so it is gap-free.
+
+An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
+(`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
+`body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
+on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
+change makes no revision but still records `message.edited`, and an edit that changes nothing records
+nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
+(views show the last two as empty), and lowers a reply's root `reply_count`.
+`GET /v1/messages/:id/revisions` is for the sender and for whoever can moderate the message's space: any other reader gets `403`, so a
+deleted message's text does not reach everyone in the session.

@@ -21,3 +21,9 @@ MessagesAroundParam:
     (with an odd `limit`, the extra one is on the newer side). Opens a search hit in context. At
     most one of `before`, `after` and `around`.
   schema: { type: integer, minimum: 0 }
+
+MessageIdParam:
+  name: messageId
+  in: path
+  required: true
+  schema: { type: string, format: uuid }

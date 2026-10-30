@@ -135,3 +135,37 @@ ThreadUpdatedEventData:
     replyCount: { type: integer }
     lastReplyAt: { type: [string, 'null'], format: date-time }
     eventId: { type: string }
+
+EditMessageRequest:
+  type: object
+  additionalProperties: false
+  minProperties: 1
+  description: |
+    At least one field. A `text` message takes no `payload`; the `body` of a `text` message
+    cannot be removed.
+  properties:
+    body: { type: string, minLength: 1, maxLength: 40000 }
+    payload:
+      description: Any JSON value except `null`, at most 64 KiB serialized
+    metadata: { $ref: '../sessions/schemas.yaml#/Metadata' }
+  examples:
+    - body: 'Shipped today (corrected)'
+
+MessageRevision:
+  type: object
+  required: [revision, body, payload, editedBy, editedAt]
+  properties:
+    revision: { type: integer, description: '1 for the original' }
+    body: { type: [string, 'null'] }
+    payload: {}
+    editedBy: { type: string, format: uuid, description: The principal who made this revision }
+    editedAt: { type: string, format: date-time }
+
+ListMessageRevisionsResponse:
+  type: object
+  required: [data]
+  properties:
+    data:
+      type: array
+      description: Oldest first
+      items: { $ref: '#/MessageRevision' }

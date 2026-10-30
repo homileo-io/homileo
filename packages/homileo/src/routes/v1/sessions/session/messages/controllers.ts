@@ -1,15 +1,13 @@
 import { ListMessagesQuerySchema, SendMessageBodySchema } from "./schemas.js";
 import { callerOf, principalOf } from "../../../../../middleware/auth.js";
+import { notifyMentioned } from "../../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../../utils/transaction.js";
-import { parseMentions } from "../../../../../utils/mentions.js";
 import type { Prisma } from "../../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../../utils/db/index.js";
-import { plainText } from "../../../../../utils/markdown.js";
 import { postRefusal } from "../../../../../policy/index.js";
-import { IdSchema } from "../../../../../utils/idSchema.js";
+import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { warmKinds } from "../../../../../utils/kinds.js";
-import { getTereo } from "../../../../../utils/tereo.js";
 import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
 import type { Message } from "@homileo-io/sdk";
@@ -18,10 +16,7 @@ import {
   validateParams,
   validateQuery,
 } from "../../../../../utils/validateReq.js";
-import {
-  mentionReaders,
-  readableSession,
-} from "../../../../../utils/access.js";
+import { readableSession } from "../../../../../utils/access.js";
 import {
   AppError,
   ArchivedError,
@@ -31,12 +26,6 @@ import {
   PostingRestrictedError,
   ValidationError,
 } from "../../../../../utils/errors.js";
-
-/** How much of `body_text` a mention's email carries. */
-const NOTIFICATION_TEXT_MAX = 500;
-
-/** Distinct user mentions per message, in order of appearance; later ones stay text. */
-const USER_MENTIONS_MAX = 100;
 
 const refusalError = {
   not_found: () => new NotFoundError("Session not found"),
@@ -69,15 +58,6 @@ export const sendMessage = async (req: Request, res: Response) => {
   const sender = principalOf(req);
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
-  const mentions =
-    body.body === undefined
-      ? { users: [], here: false, session: false }
-      : parseMentions(body.body);
-  // A token of 36 hex digits and hyphens in the wrong places is not an id: it stays text.
-  const mentionIds = mentions.users.filter(
-    (id) => IdSchema.safeParse(id).success
-  );
-  const mentionable = new Set(mentionIds.slice(0, USER_MENTIONS_MAX));
   await warmKinds();
 
   const outcome = await withChanges(
@@ -124,14 +104,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       const now = new Date();
       const seq = await db.messages.nextSeq(tx, sessionId, now, !root);
 
-      const mentioned = await db.messages.mentionedPrincipals(
-        tx,
-        session,
-        mentionIds
-      );
-      const names = new Map(mentioned.map((p) => [p.id, p.displayName]));
-      const bodyText =
-        body.body === undefined ? null : plainText(body.body, names);
+      const mentions = await resolveMentions(tx, context, body.body);
 
       const row = await db.messages.insert(tx, {
         sessionId,
@@ -140,43 +113,26 @@ export const sendMessage = async (req: Request, res: Response) => {
         clientMessageId: body.clientMessageId,
         type: body.type,
         body: body.body ?? null,
-        bodyText,
+        bodyText: mentions.bodyText,
         payload: body.payload as Prisma.InputJsonValue | undefined,
         metadata: (body.metadata ?? {}) as Prisma.InputJsonValue,
         threadRootId: root?.id ?? null,
         createdAt: now,
       });
 
-      const readers = mentionReaders(
-        context,
-        mentioned.filter((p) => mentionable.has(p.id))
-      );
       await db.messages.insertMentions(
         tx,
         row,
-        readers.map((p) => p.id),
+        mentions.readers.map((p) => p.id),
         mentions
       );
-      const subject = `${sender.displayName ?? "Someone"} mentioned you`;
-      for (const reader of readers) {
-        if (
-          reader.id === caller.principalId ||
-          reader.isBot ||
-          reader.notify === "none" ||
-          reader.tereoUserId === null
-        ) {
-          continue;
-        }
-        await getTereo().outbox.notify(tx, {
-          channel: "email",
-          organizationId: session.organizationId,
-          recipients: [{ userId: reader.tereoUserId }],
-          content: {
-            subject,
-            text: (bodyText ?? "").slice(0, NOTIFICATION_TEXT_MAX),
-          },
-        });
-      }
+      await notifyMentioned(tx, {
+        organizationId: session.organizationId,
+        senderId: caller.principalId,
+        senderName: sender.displayName,
+        bodyText: mentions.bodyText,
+        readers: mentions.readers,
+      });
 
       const change = {
         organizationId: session.organizationId,

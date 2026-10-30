@@ -1,3 +1,4 @@
+import { Prisma as PrismaValues } from "../../../prisma/generated/client/index.js";
 import type { ReactionSummary, Message as MessageView } from "@homileo-io/sdk";
 import type { ParsedMentions } from "../mentions.js";
 import { messageView } from "../../views/message.js";
@@ -194,6 +195,55 @@ export const insertMentions = async (
   if (data.length > 0) await tx.messageMention.createMany({ data });
 };
 
+/** The session a message belongs to, to lock its space before the message is read under lock. */
+export const sessionIdOf = async (
+  client: Client,
+  id: string
+): Promise<string | null> =>
+  (
+    await client.message.findUnique({
+      where: { id },
+      select: { sessionId: true },
+    })
+  )?.sessionId ?? null;
+
+/** The principals the message's stored `<@id>` mentions name. */
+export const mentionedUserIds = async (
+  tx: Tx,
+  messageId: string
+): Promise<string[]> =>
+  (
+    await tx.messageMention.findMany({
+      where: { messageId, kind: "user" },
+      select: { userId: true },
+    })
+  ).flatMap((m) => (m.userId === null ? [] : [m.userId]));
+
+/** Clears the content; revisions, reactions and attachments stay. */
+export const markDeleted = (
+  tx: Tx,
+  id: string,
+  by: string,
+  at: Date
+): Promise<Message> =>
+  tx.message.update({
+    where: { id },
+    data: {
+      body: null,
+      bodyText: null,
+      payload: PrismaValues.DbNull,
+      deletedAt: at,
+      deletedBy: by,
+    },
+  });
+
+export const deleteMentions = async (
+  tx: Tx,
+  messageId: string
+): Promise<void> => {
+  await tx.messageMention.deleteMany({ where: { messageId } });
+};
+
 /** Counts a reply on its root; returns the root's new count and time. */
 export const countReply = async (
   tx: Tx,
@@ -205,6 +255,30 @@ export const countReply = async (
   >`
     UPDATE "chat"."messages"
     SET reply_count = reply_count + 1, last_reply_at = ${at}
+    WHERE id = ${rootId}::uuid
+    RETURNING reply_count, last_reply_at`;
+  return {
+    replyCount: rows[0].reply_count,
+    lastReplyAt: rows[0].last_reply_at,
+  };
+};
+
+/**
+ * Takes a deleted reply off its root. `lastReplyAt` falls back to the newest
+ * reply still standing, or `null` when none is.
+ */
+export const uncountReply = async (
+  tx: Tx,
+  rootId: string
+): Promise<{ replyCount: number; lastReplyAt: Date | null }> => {
+  const rows = await tx.$queryRaw<
+    Array<{ reply_count: number; last_reply_at: Date | null }>
+  >`
+    UPDATE "chat"."messages"
+    SET reply_count = GREATEST(reply_count - 1, 0),
+        last_reply_at = (
+          SELECT max(created_at) FROM "chat"."messages"
+          WHERE thread_root_id = ${rootId}::uuid AND deleted_at IS NULL)
     WHERE id = ${rootId}::uuid
     RETURNING reply_count, last_reply_at`;
   return {
