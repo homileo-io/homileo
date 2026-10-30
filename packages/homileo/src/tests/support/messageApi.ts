@@ -49,3 +49,15 @@ export const deleteMessage = (
 
 export const listRevisions = (messageId: string, token: string) =>
   fetchJson("GET", `${messageUrl(messageId)}/revisions`, token);
+
+export const reactionUrl = (messageId: string, emoji: string) =>
+  `${messageUrl(messageId)}/reactions/${encodeURIComponent(emoji)}`;
+
+export const addReaction = (messageId: string, token: string, emoji: string) =>
+  fetchJson("PUT", reactionUrl(messageId, emoji), token);
+
+export const removeReaction = (
+  messageId: string,
+  token: string,
+  emoji: string
+) => fetchJson("DELETE", reactionUrl(messageId, emoji), token);

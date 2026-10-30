@@ -1423,6 +1423,82 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/reactions/{emoji}:
+    put:
+      tags:
+        - Messages
+      summary: React to a message
+      description: |
+        Adds the caller's reaction with this emoji. `201` when it was added, `200` when the caller
+        had already reacted with it (nothing is recorded). Reacting needs participation in the
+        session but not the space's post policy.
+
+        A deleted message, or one in an archived session or space, is `409 resource_archived`. A
+        caller who can read the session but is not a participant gets `403 not_a_participant`; a
+        caller who cannot read the message gets `404`.
+
+        **Required permissions:** none; the caller must be a participant.
+      operationId: addMessageReaction
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - $ref: '#/components/parameters/ReactionEmojiParam'
+      responses:
+        '200':
+          description: The caller had already reacted with this emoji
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '201':
+          description: The reaction was added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Messages
+      summary: Remove a reaction
+      description: |
+        Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
+        it. The same checks as adding apply, including `409 resource_archived`.
+
+        **Required permissions:** none; the caller must be a participant.
+      operationId: removeMessageReaction
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - $ref: '#/components/parameters/ReactionEmojiParam'
+      responses:
+        '200':
+          description: The reaction was removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -1848,6 +1924,58 @@ webhooks:
       responses:
         2XX:
           description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.reaction.added:
+    post:
+      tags:
+        - Messages
+      summary: Reaction added
+      description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookReactionAdded
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.reaction.added
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.reaction.removed:
+    post:
+      tags:
+        - Messages
+      summary: Reaction removed
+      description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookReactionRemoved
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.reaction.removed
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
 components:
   securitySchemes:
     BearerAuth:
@@ -1991,6 +2119,15 @@ components:
       schema:
         type: string
         format: uuid
+    ReactionEmojiParam:
+      name: emoji
+      in: path
+      required: true
+      description: URL-encoded. One emoji sequence (a skin tone or a ZWJ sequence counts as one), or a `:shortcode:` of 1-62 lower-case letters, digits, `_`, `+` or `-`; 64 characters at most.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
   responses:
     BadRequestResponse:
       description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
@@ -3141,6 +3278,39 @@ components:
         position:
           type: integer
           description: Its place among the message's attachments, from 0
+    ReactionsResponse:
+      type: object
+      required:
+        - reactions
+      properties:
+        reactions:
+          type: array
+          description: The message's reactions after the change
+          items:
+            $ref: '#/components/schemas/ReactionSummary'
+    ReactionEventData:
+      type: object
+      description: The data of `reaction.added` and `reaction.removed`
+      required:
+        - sessionId
+        - messageId
+        - principalId
+        - emoji
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        emoji:
+          type: string
+        eventId:
+          type: string
     ReactionSummary:
       type: object
       required:

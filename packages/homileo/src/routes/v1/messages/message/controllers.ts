@@ -24,7 +24,7 @@ import {
 } from "../../../../utils/errors.js";
 
 /** The message under the session lock, space first, so a concurrent change to either is seen. */
-const lockedMessage = async (
+export const lockedMessage = async (
   tx: Prisma.TransactionClient,
   caller: ReturnType<typeof callerOf>,
   messageId: string
@@ -35,7 +35,7 @@ const lockedMessage = async (
 };
 
 /** A session or space that is archived takes no edits, as with sending. */
-const refuseIfArchived = (facts: MessageContext["facts"]): void => {
+export const refuseIfArchived = (facts: MessageContext["facts"]): void => {
   if (facts.archived || (facts.space?.archived ?? false)) {
     throw new ArchivedError("The session is archived");
   }

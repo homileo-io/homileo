@@ -86,3 +86,47 @@ homileo.message.deleted:
     responses:
       '2XX':
         description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.reaction.added:
+  post:
+    tags: [Messages]
+    summary: Reaction added
+    description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookReactionAdded
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.reaction.added }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.reaction.removed:
+  post:
+    tags: [Messages]
+    summary: Reaction removed
+    description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookReactionRemoved
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.reaction.removed }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

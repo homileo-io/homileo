@@ -18,6 +18,38 @@ export type { Message };
 /** How many reactors a reaction summary names. */
 const REACTION_PRINCIPALS = 50;
 
+/** Reaction summaries by message id: per emoji the count and the first reactors; a message with none is absent. */
+export const reactionSummaries = async (
+  client: Client,
+  messageIds: string[]
+): Promise<Map<string, ReactionSummary[]>> => {
+  const rows = await client.$queryRaw<
+    Array<{
+      message_id: string;
+      emoji: string;
+      count: number;
+      principal_ids: string[];
+    }>
+  >`
+    SELECT message_id::text, emoji, count(*)::int AS count,
+      (array_agg(user_id::text ORDER BY created_at, user_id))[1:${REACTION_PRINCIPALS}] AS principal_ids
+    FROM "chat"."reactions"
+    WHERE message_id = ANY(${messageIds}::uuid[])
+    GROUP BY message_id, emoji
+    ORDER BY message_id, min(created_at), emoji`;
+  const byMessage = new Map<string, ReactionSummary[]>();
+  for (const r of rows) {
+    const list = byMessage.get(r.message_id) ?? [];
+    list.push({
+      emoji: r.emoji,
+      count: r.count,
+      principalIds: r.principal_ids,
+    });
+    byMessage.set(r.message_id, list);
+  }
+  return byMessage;
+};
+
 /** Attachments (by position) and reaction summaries for a page of messages, then their views. */
 export const loadViews = async (
   client: Client,
@@ -29,20 +61,7 @@ export const loadViews = async (
     where: { messageId: { in: ids } },
     orderBy: [{ messageId: "asc" }, { position: "asc" }],
   });
-  const reactions = await client.$queryRaw<
-    Array<{
-      message_id: string;
-      emoji: string;
-      count: number;
-      principal_ids: string[];
-    }>
-  >`
-    SELECT message_id::text, emoji, count(*)::int AS count,
-      (array_agg(user_id::text ORDER BY created_at, user_id))[1:${REACTION_PRINCIPALS}] AS principal_ids
-    FROM "chat"."reactions"
-    WHERE message_id = ANY(${ids}::uuid[])
-    GROUP BY message_id, emoji
-    ORDER BY message_id, min(created_at), emoji`;
+  const reactionsOf = await reactionSummaries(client, ids);
 
   const attachmentsOf = new Map<string, typeof attachments>();
   for (const a of attachments) {
@@ -50,16 +69,6 @@ export const loadViews = async (
       ...(attachmentsOf.get(a.messageId) ?? []),
       a,
     ]);
-  }
-  const reactionsOf = new Map<string, ReactionSummary[]>();
-  for (const r of reactions) {
-    const list = reactionsOf.get(r.message_id) ?? [];
-    list.push({
-      emoji: r.emoji,
-      count: r.count,
-      principalIds: r.principal_ids,
-    });
-    reactionsOf.set(r.message_id, list);
   }
   return rows.map((row) =>
     messageView({

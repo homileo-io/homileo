@@ -169,3 +169,23 @@ ListMessageRevisionsResponse:
       type: array
       description: Oldest first
       items: { $ref: '#/MessageRevision' }
+
+ReactionsResponse:
+  type: object
+  required: [reactions]
+  properties:
+    reactions:
+      type: array
+      description: The message's reactions after the change
+      items: { $ref: '#/ReactionSummary' }
+
+ReactionEventData:
+  type: object
+  description: The data of `reaction.added` and `reaction.removed`
+  required: [sessionId, messageId, principalId, emoji, eventId]
+  properties:
+    sessionId: { type: string, format: uuid }
+    messageId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+    emoji: { type: string }
+    eventId: { type: string }

@@ -135,6 +135,8 @@ paths:
     $ref: './paths/messages/message.yaml#/~1v1~1messages~1{messageId}'
   /v1/messages/{messageId}/revisions:
     $ref: './paths/messages/revisions.yaml#/~1v1~1messages~1{messageId}~1revisions'
+  /v1/messages/{messageId}/reactions/{emoji}:
+    $ref: './paths/messages/reaction.yaml#/~1v1~1messages~1{messageId}~1reactions~1{emoji}'
 
 components:
   securitySchemes:
@@ -273,6 +275,10 @@ components:
       $ref: './components/sessions/schemas.yaml#/NotifyRequest'
     Attachment:
       $ref: './components/messages/schemas.yaml#/Attachment'
+    ReactionsResponse:
+      $ref: './components/messages/schemas.yaml#/ReactionsResponse'
+    ReactionEventData:
+      $ref: './components/messages/schemas.yaml#/ReactionEventData'
     ReactionSummary:
       $ref: './components/messages/schemas.yaml#/ReactionSummary'
     Message:
@@ -334,3 +340,7 @@ webhooks:
     $ref: './paths/messages/webhook-events.yaml#/homileo.message.edited'
   homileo.message.deleted:
     $ref: './paths/messages/webhook-events.yaml#/homileo.message.deleted'
+  homileo.reaction.added:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.added'
+  homileo.reaction.removed:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.removed'
