@@ -9,7 +9,6 @@ import { readableSession } from "../../../../../utils/access.js";
 import type { Prisma } from "../../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../../utils/db/index.js";
 import { postRefusal } from "../../../../../policy/index.js";
-import { warmKinds } from "../../../../../utils/kinds.js";
 import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
 import type { Message } from "@homileo-io/sdk";
@@ -53,7 +52,6 @@ export const sendMessage = async (req: Request, res: Response) => {
   const sender = principalOf(req);
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
-  await warmKinds();
   const attachments = await resolveAttachments(body.attachments ?? []);
 
   const outcome = await withChanges(

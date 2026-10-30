@@ -46,7 +46,7 @@ const kinds = async (): Promise<Map<string, ResolvedSpaceKind>> => {
   return (await (loading ?? load())).kinds;
 };
 
-/** Loads the cache if it is cold or stale, so a transaction holding a lock never waits on a second connection for it. */
+/** Loads the cache if it is cold or stale, so a transaction holding a lock never waits on a second connection for it (`withChanges` calls it). */
 export const warmKinds = async (): Promise<void> => {
   await kinds();
 };

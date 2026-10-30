@@ -10,7 +10,6 @@ import { readableMessage } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
 import { lockedMessage, refuseIfArchived } from "./utils.js";
 import { db, prisma } from "../../../../utils/db/index.js";
-import { warmKinds } from "../../../../utils/kinds.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -44,7 +43,6 @@ export const editMessage = async (req: Request, res: Response) => {
   const editor = principalOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
   const body = validateBody(EditMessageBodySchema, req);
-  await warmKinds();
 
   const message = await withChanges(async (tx, record) => {
     const context = await lockedMessage(tx, caller, messageId);
@@ -144,7 +142,6 @@ export const editMessage = async (req: Request, res: Response) => {
 export const deleteMessage = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
-  await warmKinds();
 
   const message = await withChanges(async (tx, record) => {
     const {

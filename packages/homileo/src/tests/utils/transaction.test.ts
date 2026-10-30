@@ -1,7 +1,7 @@
 // @module-tag int
 // @module-tag events
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
+import { getKind, invalidateKinds } from "../../utils/kinds.js";
 import { spacePayload } from "../support/eventPayloads.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import type { ChangeEvent } from "../../utils/changes.js";
@@ -10,6 +10,15 @@ import { changeBus } from "../../utils/changeBus.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { logger } from "../../utils/logger.js";
 import { v7 as uuidv7 } from "uuid";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const fixtures = chatFixtures();
 const organizationIds: string[] = [];
@@ -142,6 +151,23 @@ describe("withChanges", () => {
       ]);
     } finally {
       logger.error = original;
+    }
+  });
+
+  it("loads the kind cache before the transaction, so fn reads kinds without a query", async () => {
+    invalidateKinds();
+    const load = vi.spyOn(prisma.provisionedSpaceKind, "findMany");
+    try {
+      const queriesInside = await withChanges(async () => {
+        const before = load.mock.calls.length;
+        await getKind("default");
+        return { before, after: load.mock.calls.length };
+      });
+
+      expect(queriesInside.before).toBe(1);
+      expect(queriesInside.after).toBe(1);
+    } finally {
+      load.mockRestore();
     }
   });
 });
