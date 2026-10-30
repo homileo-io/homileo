@@ -184,7 +184,29 @@ describe("GET /v1/me/unread", () => {
     expect(thread).toMatchObject({ unread: 99, unreadCapped: true });
   });
 
-  it("omits sessions the caller has left, and their threads", async () => {
+  it("counts a followed thread in a session the caller reads without participating", async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const other = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const s = await fixtures.session({ org, space, access: "space" });
+    await fixtures.participant(s, other);
+    const root = await seed.add(s.id, other.id);
+    await prisma.threadFollower.create({
+      data: { threadRootId: root.id, userId: me.principalId },
+    });
+    await seed.add(s.id, other.id, { threadRootId: root.id });
+
+    const body = (await get(me.token)).body;
+
+    expect(sessionEntry(body, s.id)).toBeUndefined();
+    expect(body.threads).toEqual([
+      { rootId: root.id, sessionId: s.id, unread: 1, unreadCapped: false },
+    ]);
+  });
+
+  it("omits space-less sessions the caller has left, and their threads", async () => {
     const { me, other, s } = await setup();
     const root = await seed.add(s.id, other.id);
     await prisma.threadFollower.create({

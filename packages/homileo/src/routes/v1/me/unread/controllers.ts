@@ -69,6 +69,7 @@ export const getUnread = async (req: Request, res: Response) => {
       AND s.organization_id = ${org}::uuid
       AND (u.n > 0 OR m.n > 0)`;
 
+  // A followed thread counts in any session the caller can read now, participant or not.
   const threadRows = await prisma.$queryRaw<ThreadRow[]>`
     SELECT tf.thread_root_id::text AS root_id,
            r.session_id::text AS session_id,
@@ -76,8 +77,6 @@ export const getUnread = async (req: Request, res: Response) => {
     FROM "chat"."thread_followers" tf
     JOIN "chat"."messages" r ON r.id = tf.thread_root_id
     JOIN "chat"."sessions" s ON s.id = r.session_id
-    JOIN "chat"."session_participants" p
-      ON p.session_id = r.session_id AND p.user_id = ${me}::uuid AND p.left_at IS NULL
     CROSS JOIN LATERAL (
       SELECT count(*)::int AS n FROM (
         SELECT 1 FROM "chat"."messages" x

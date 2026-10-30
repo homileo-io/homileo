@@ -4,8 +4,8 @@
     summary: Get the caller's unread totals
     description: |
       Per session the caller currently participates in (and can read), the unread top-level
-      messages above their read position, and the unread mentions; per followed thread, the unread
-      replies. The caller's own messages and deleted messages never count. Counts stop at 99, with
+      messages above their read position, and the unread mentions; per followed thread in a session
+      the caller can read now (participant or not), the unread replies. The caller's own messages and deleted messages never count. Counts stop at 99, with
       `unreadCapped: true` past it. Only entries with something unread are listed.
 
       **Required permissions:** none; any signed-in caller in an organization.

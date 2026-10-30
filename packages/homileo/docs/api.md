@@ -113,7 +113,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | Route | Policy | Errors | Events |
 |---|---|---|---|
 | `GET /me` | none | | |
-| `GET /me/unread` | readable sessions only | | |
+| `GET /me/unread` | readable sessions only: `sessions` for those the caller participates in, `threads` for followed threads in any session the caller can read now, participant or not | | |
 | `GET /me/mentions` | readable sessions only; `<!here>`/`<!session>` only where the caller participates | | |
 | `GET /principals/:principalId` | none | | |
 | `POST /principals/resolve` | none; 1 to 100 unique tereo user ids | | |
