@@ -80,16 +80,24 @@ export const advanceRead = async (
   return { before, after: seq };
 };
 
-/** Sets whether the caller follows the thread; a new row starts unread. */
-export const setFollowing = (
-  client: Client,
+/**
+ * Sets whether the caller follows the thread; a new row starts unread. One statement, so a row
+ * another request creates meanwhile (a thread read) is updated rather than a unique violation.
+ */
+export const setFollowing = async (
+  tx: Tx,
   rootId: string,
   userId: string,
   following: boolean
-): Promise<Follower> =>
-  client.threadFollower.upsert({
-    where: { threadRootId_userId: { threadRootId: rootId, userId } },
-    create: { threadRootId: rootId, userId, following, lastReadSeq: 0n },
-    update: { following },
-    select: { following: true, lastReadSeq: true },
-  });
+): Promise<Follower> => {
+  const rows = await tx.$queryRaw<
+    Array<{ following: boolean; last_read_seq: bigint }>
+  >`
+    INSERT INTO "chat"."thread_followers"
+      (thread_root_id, user_id, following, last_read_seq)
+    VALUES (${rootId}::uuid, ${userId}::uuid, ${following}, 0)
+    ON CONFLICT (thread_root_id, user_id)
+    DO UPDATE SET following = EXCLUDED.following
+    RETURNING following, last_read_seq`;
+  return { following: rows[0].following, lastReadSeq: rows[0].last_read_seq };
+};
