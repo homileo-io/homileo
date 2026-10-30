@@ -10,6 +10,8 @@ import type { Request, Response } from "express";
 import {
   READ_URL_SECONDS,
   filesClient,
+  isTereoNotFound,
+  tereoUnavailable,
 } from "../../../../../../utils/attachments.js";
 
 const notFound = () => new NotFoundError("Attachment not found");
@@ -37,8 +39,8 @@ export const getAttachment = async (req: Request, res: Response) => {
     );
   } catch (err) {
     // The object expired or was removed in tereo.
-    if ((err as { statusCode?: number }).statusCode === 404) throw notFound();
-    throw err;
+    if (isTereoNotFound(err)) throw notFound();
+    throw tereoUnavailable(err);
   }
   const { attachments } = messageView({
     ...message,

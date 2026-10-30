@@ -1,6 +1,13 @@
 import type { FilesClient } from "../../utils/attachments.js";
 import type { FileServiceObject } from "@tereo-io/sdk";
+import { RequestError } from "@tereo-io/sdk";
 import { v7 as uuidv7 } from "uuid";
+
+/** What the SDK throws when core answers `httpStatus`: `statusCode` stays the app-facing 500. */
+export const requestError = (httpStatus: number) =>
+  new RequestError("FS_TEST", `core answered ${httpStatus}`, { httpStatus });
+
+type Method = keyof FilesClient;
 
 /** An in-memory stand-in for tereo's files client; what `uploadObject` stored can be inspected and resized. */
 export const fakeFiles = () => {
@@ -10,10 +17,15 @@ export const fakeFiles = () => {
     operation?: string;
     expiresInSeconds?: number;
   }> = [];
-  const failPatch = { on: false };
+  /** Methods that fail with a core 500, until `reset`. */
+  const failing = new Set<Method>();
+  const check = (m: Method) => {
+    if (failing.has(m)) throw requestError(500);
+  };
 
   const client: FilesClient = {
     uploadObject: async (_bucket, key, data) => {
+      check("uploadObject");
       const object: FileServiceObject = {
         id: uuidv7(),
         key,
@@ -28,11 +40,14 @@ export const fakeFiles = () => {
       objects.set(object.id, object);
       return object;
     },
-    getObject: async (_bucket, id) => objects.get(id) ?? null,
+    getObject: async (_bucket, id) => {
+      check("getObject");
+      return objects.get(id) ?? null;
+    },
     patchObject: async (_bucket, id, input) => {
-      if (failPatch.on) throw new Error("tereo is down");
+      check("patchObject");
       const object = objects.get(id);
-      if (!object) throw Object.assign(new Error("gone"), { statusCode: 404 });
+      if (!object) throw requestError(404);
       if (input.deleteAfter !== undefined)
         object.deleteAfter = input.deleteAfter;
       return object;
@@ -41,12 +56,8 @@ export const fakeFiles = () => {
       objects.delete(id);
     },
     presignObjectUrl: async (_bucket, id, input) => {
-      if (!objects.has(id)) {
-        throw Object.assign(new Error("gone"), {
-          statusCode: 404,
-          code: "not_found",
-        });
-      }
+      check("presignObjectUrl");
+      if (!objects.has(id)) throw requestError(404);
       presigned.push({ id, ...input });
       return {
         url: `https://files.test/${input?.operation ?? "read"}/${id}`,
@@ -62,7 +73,12 @@ export const fakeFiles = () => {
     client,
     objects,
     presigned,
-    failPatch,
+    failing,
+    reset: () => {
+      objects.clear();
+      presigned.length = 0;
+      failing.clear();
+    },
     /** Pretends the upload finished. */
     setSize: (id: string, bytes: number) => {
       objects.get(id)!.sizeBytes = String(bytes);

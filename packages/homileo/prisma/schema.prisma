@@ -370,6 +370,7 @@ model Attachment {
 
   message Message @relation(fields: [messageId], references: [id])
 
+  @@unique([tereoObjectId])
   @@index([messageId])
   @@map("attachments")
   @@schema("chat")

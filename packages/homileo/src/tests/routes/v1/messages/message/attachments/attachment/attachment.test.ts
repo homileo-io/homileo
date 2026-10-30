@@ -26,10 +26,7 @@ beforeAll(async () => {
   ({ url, close } = await startV1App());
   setFilesClient(files.client);
 });
-afterEach(() => {
-  files.objects.clear();
-  files.presigned.length = 0;
-});
+afterEach(() => files.reset());
 afterAll(async () => {
   setFilesClient(null);
   await close();
@@ -122,6 +119,16 @@ describe("GET /v1/messages/:messageId/attachments/:attachmentId", () => {
     const res = await read(message.id, attachment.id, me.token);
 
     expect(res.status).toBe(404);
+  });
+
+  it("is 503 when tereo fails to presign", async () => {
+    const { me, message, attachment } = await withAttachment();
+    files.failing.add("presignObjectUrl");
+
+    const res = await read(message.id, attachment.id, me.token);
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("temporarily_unavailable");
   });
 
   it("is 400 for an id that is not a UUID", async () => {

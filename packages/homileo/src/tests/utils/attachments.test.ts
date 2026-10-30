@@ -82,6 +82,46 @@ describe("attachMessageFiles", () => {
   });
 });
 
+describe("the unique index on tereo_object_id", () => {
+  it("turns a claim of an already-attached object into attachment_not_found", async () => {
+    const { sender, session, message } = await setup();
+    const object = files.put(`sessions/${session.id}/${sender.id}/a`);
+    const resolved = await resolveAttachments([{ objectId: object.id }]);
+    await prisma.attachment.create({
+      data: {
+        messageId: message.id,
+        tereoObjectId: object.id,
+        filename: "x",
+        contentType: "t/p",
+        size: 1n,
+      },
+    });
+
+    // The pre-check sees it too; the index alone is what a race would hit.
+    await expect(
+      prisma.attachment.create({
+        data: {
+          messageId: message.id,
+          tereoObjectId: object.id,
+          filename: "y",
+          contentType: "t/p",
+          size: 1n,
+        },
+      })
+    ).rejects.toThrow();
+    await expect(
+      prisma.$transaction((tx) =>
+        attachMessageFiles(tx, {
+          sessionId: session.id,
+          senderId: sender.id,
+          messageId: message.id,
+          attachments: resolved,
+        })
+      )
+    ).rejects.toMatchObject({ code: "attachment_not_found" });
+  });
+});
+
 describe("keepAttachments", () => {
   it("clears each object's expiry and swallows a failure", async () => {
     setFilesClient(files.client);

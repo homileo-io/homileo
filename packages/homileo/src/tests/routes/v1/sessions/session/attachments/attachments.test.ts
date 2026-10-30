@@ -22,11 +22,7 @@ beforeAll(async () => {
   ({ url, close } = await startV1App());
   setFilesClient(files.client);
 });
-afterEach(() => {
-  files.objects.clear();
-  files.presigned.length = 0;
-  files.failPatch.on = false;
-});
+afterEach(() => files.reset());
 afterAll(async () => {
   setFilesClient(null);
   await close();
@@ -154,18 +150,22 @@ describe("POST /v1/sessions/:sessionId/attachments", () => {
     expect(res.body.error).toBe("invalid_request");
   });
 
-  it("removes the placeholder if its expiry cannot be set", async () => {
-    const { me, session } = await room();
-    files.failPatch.on = true;
+  it.each(["uploadObject", "patchObject", "presignObjectUrl"] as const)(
+    "is 503 and leaves no placeholder when tereo fails at %s",
+    async (method) => {
+      const { me, session } = await room();
+      files.failing.add(method);
 
-    const res = await upload(session.id, me.token, {
-      filename: "a",
-      contentType: "t/p",
-    });
+      const res = await upload(session.id, me.token, {
+        filename: "a",
+        contentType: "t/p",
+      });
 
-    expect(res.status).toBe(500);
-    expect(files.objects.size).toBe(0);
-  });
+      expect(res.status).toBe(503);
+      expect(res.body.error).toBe("temporarily_unavailable");
+      expect(files.objects.size).toBe(0);
+    }
+  );
 });
 
 describe("sending a message with attachments", () => {
@@ -221,7 +221,7 @@ describe("sending a message with attachments", () => {
   it("still sends when clearing the expiry fails", async () => {
     const { me, session } = await room();
     const objectId = await uploaded(session.id, me.token);
-    files.failPatch.on = true;
+    files.failing.add("patchObject");
 
     const sent = await send(session.id, me.token, {
       attachments: [{ objectId }],
@@ -296,6 +296,22 @@ describe("sending a message with attachments", () => {
     expect(
       await prisma.message.count({ where: { sessionId: session.id } })
     ).toBe(1);
+  });
+
+  it("is 503 when tereo fails while looking the objects up", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token);
+    files.failing.add("getObject");
+
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId }],
+    });
+
+    expect(sent.status).toBe(503);
+    expect(sent.body.error).toBe("temporarily_unavailable");
+    expect(
+      await prisma.message.count({ where: { sessionId: session.id } })
+    ).toBe(0);
   });
 
   it("refuses 11 attachments", async () => {

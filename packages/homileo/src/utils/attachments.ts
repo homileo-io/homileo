@@ -1,7 +1,8 @@
+import { getOriginalStatus, type FileServiceObject } from "@tereo-io/sdk";
 import { ATTACHMENTS_BUCKET } from "../definitions/tereoDeclaration.js";
-import type { FileServiceObject } from "@tereo-io/sdk";
+import { BadRequestError, ServiceUnavailableError } from "./errors.js";
+import { isUniqueConstraintError } from "./prismaErrors.js";
 import type { CoreClient } from "@tereo-io/sdk";
-import { BadRequestError } from "./errors.js";
 import type { Prisma } from "./db/prisma.js";
 import { getTereo } from "./tereo.js";
 import { logger } from "./logger.js";
@@ -23,6 +24,16 @@ export const setFilesClient = (client: FilesClient | null): void => {
 };
 
 export const filesClient = (): FilesClient => override ?? getTereo().files;
+
+/** True when tereo answered 404 (`RequestError.statusCode` is the app-facing status; core's is `httpStatus`). */
+export const isTereoNotFound = (err: unknown): boolean =>
+  getOriginalStatus(err) === 404;
+
+/** A tereo failure the caller can retry: 503, the cause logged. */
+export const tereoUnavailable = (err: unknown): ServiceUnavailableError => {
+  logger.error({ err }, "tereo files call failed");
+  return new ServiceUnavailableError("File storage is temporarily unavailable");
+};
 
 export const UPLOAD_URL_SECONDS = 900;
 export const READ_URL_SECONDS = 300;
@@ -47,10 +58,17 @@ export const resolveAttachments = (
   attachments: AttachmentRef[]
 ): Promise<ResolvedAttachment[]> =>
   Promise.all(
-    attachments.map(async (a) => ({
-      ...a,
-      object: await filesClient().getObject(ATTACHMENTS_BUCKET, a.objectId),
-    }))
+    attachments.map(async (a) => {
+      try {
+        return {
+          ...a,
+          object: await filesClient().getObject(ATTACHMENTS_BUCKET, a.objectId),
+        };
+      } catch (err) {
+        if (isTereoNotFound(err)) return { ...a, object: null };
+        throw tereoUnavailable(err);
+      }
+    })
   );
 
 const notFound = () =>
@@ -108,7 +126,13 @@ export const attachMessageFiles = async (
       position,
     };
   });
-  await tx.attachment.createMany({ data: rows });
+  try {
+    await tx.attachment.createMany({ data: rows });
+  } catch (err) {
+    // A concurrent send claimed the same object; the unique index is the backstop.
+    if (isUniqueConstraintError(err)) throw notFound();
+    throw err;
+  }
 };
 
 /** Clears the placeholders' expiry once the message is committed; a failure leaves the object to expire. */
