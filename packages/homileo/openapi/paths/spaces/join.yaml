@@ -1,0 +1,33 @@
+/v1/spaces/{spaceId}/join:
+  post:
+    tags: [Spaces]
+    summary: Join a space, or ask to
+    description: |
+      Follows the space's `joinPolicy`. `open`: the caller becomes a `member` (`200`; `200`
+      again, changing nothing, if they already are one) and `space.member_added` is recorded.
+      `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
+      a repeat returns the pending request without a new event. `invite`: 403.
+
+      **Required permissions:** none; the caller must be able to read the space (a space they
+      cannot read is a 404). An archived space cannot be joined (403).
+    operationId: joinSpace
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+    responses:
+      '200':
+        description: The caller is a member
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/SpaceMemberResponse'
+      '202':
+        description: A join request is pending
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/JoinRequestResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

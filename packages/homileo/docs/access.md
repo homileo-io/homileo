@@ -88,7 +88,15 @@ The design does not state these.
   removes a `member`. Adding a moderator or owner, any role change, and removing a moderator or
   owner need `canManageSpace`. A member may always leave, even an archived space. Every other change
   in an archived space is refused. The last-owner rule (`409 last_owner`) is a database check, not
-  part of the policy.
+  part of the policy: the route locks the space row, then its owner rows, and refuses a change that
+  would leave none.
+- **Losing access by removal**: removing a member also ends their participation in the space's
+  sessions (`session.participant_removed`). A removed principal who can no longer read the space
+  gets `space.access_revoked`, and `session.access_revoked` for each session they were in and can no
+  longer read. When someone else is removed, this is judged from membership and visibility alone
+  (a `members` space is lost, a `public` one kept; `access: members` sessions are lost); their kind
+  grants and admin role are unknown to the caller and ignored. A leaving caller is judged with their
+  own permissions.
 - **Leave a session** (`canLeaveSession`): any participant of an unarchived session except a DM.
 - **React** (`canReact`): participation and an unarchived session and space; the post policy does
   not apply.

@@ -192,3 +192,98 @@ SpaceMemberAddedEventData:
     eventId: { type: string }
     spaceId: { type: string, format: uuid }
     member: { $ref: '#/SpaceMember' }
+
+SpaceMemberWithPrincipal:
+  description: A member and the principal behind them
+  allOf:
+    - $ref: '#/SpaceMember'
+    - type: object
+      required: [principal]
+      properties:
+        principal:
+          $ref: '../principals/schemas.yaml#/Principal'
+
+ListMembersResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/SpaceMemberWithPrincipal' }
+    nextCursor:
+      type: [string, 'null']
+      description: Pass it as `cursor` for the next page; null on the last page
+
+PutMemberRequest:
+  type: object
+  additionalProperties: false
+  required: [role]
+  properties:
+    role: { $ref: '#/SpaceRole' }
+  examples:
+    - { role: moderator }
+
+SpaceMemberResponse:
+  type: object
+  required: [member]
+  properties:
+    member: { $ref: '#/SpaceMember' }
+
+JoinRequestStatus:
+  type: string
+  enum: [pending, approved, denied]
+
+JoinRequest:
+  type: object
+  description: A principal's request to join a `request` space
+  required: [id, spaceId, principalId, status, createdAt, decidedBy, decidedAt]
+  properties:
+    id: { type: string, format: uuid }
+    spaceId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid, description: The applicant }
+    status: { $ref: '#/JoinRequestStatus' }
+    createdAt: { type: string, format: date-time }
+    decidedBy: { type: [string, 'null'], format: uuid, description: The moderator's principal id }
+    decidedAt: { type: [string, 'null'], format: date-time }
+
+JoinRequestResponse:
+  type: object
+  required: [request]
+  properties:
+    request: { $ref: '#/JoinRequest' }
+
+ListJoinRequestsResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/JoinRequest' }
+    nextCursor:
+      type: [string, 'null']
+      description: Pass it as `cursor` for the next page; null on the last page
+
+SpaceMemberRemovedEventData:
+  type: object
+  required: [eventId, spaceId, principalId]
+  properties:
+    eventId: { type: string }
+    spaceId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+
+SpaceMemberRoleChangedEventData:
+  type: object
+  required: [eventId, spaceId, member, previousRole]
+  properties:
+    eventId: { type: string }
+    spaceId: { type: string, format: uuid }
+    member: { $ref: '#/SpaceMember' }
+    previousRole: { $ref: '#/SpaceRole' }
+
+JoinRequestEventData:
+  type: object
+  description: The payload of `space.join_requested` and `space.join_decided`, with the event's id
+  required: [eventId, request]
+  properties:
+    eventId: { type: string }
+    request: { $ref: '#/JoinRequest' }

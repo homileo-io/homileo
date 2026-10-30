@@ -87,6 +87,18 @@ paths:
     $ref: './paths/spaces/space.yaml#/~1v1~1spaces~1{spaceId}'
   /v1/spaces/{spaceId}/archive:
     $ref: './paths/spaces/archive.yaml#/~1v1~1spaces~1{spaceId}~1archive'
+  /v1/spaces/{spaceId}/members:
+    $ref: './paths/spaces/members.yaml#/~1v1~1spaces~1{spaceId}~1members'
+  /v1/spaces/{spaceId}/members/{principalId}:
+    $ref: './paths/spaces/member.yaml#/~1v1~1spaces~1{spaceId}~1members~1{principalId}'
+  /v1/spaces/{spaceId}/join:
+    $ref: './paths/spaces/join.yaml#/~1v1~1spaces~1{spaceId}~1join'
+  /v1/spaces/{spaceId}/join-requests:
+    $ref: './paths/spaces/join-requests.yaml#/~1v1~1spaces~1{spaceId}~1join-requests'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
+    $ref: './paths/spaces/join-request-approve.yaml#/~1v1~1spaces~1{spaceId}~1join-requests~1{principalId}~1approve'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
+    $ref: './paths/spaces/join-request-deny.yaml#/~1v1~1spaces~1{spaceId}~1join-requests~1{principalId}~1deny'
   /v1/principals/resolve:
     $ref: './paths/principals/resolve.yaml#/~1v1~1principals~1resolve'
   /v1/principals/{principalId}:
@@ -188,6 +200,28 @@ components:
       $ref: './components/sessions/schemas.yaml#/SessionEventData'
     SessionParticipantAddedEventData:
       $ref: './components/sessions/schemas.yaml#/SessionParticipantAddedEventData'
+    SpaceMemberWithPrincipal:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberWithPrincipal'
+    ListMembersResponse:
+      $ref: './components/spaces/schemas.yaml#/ListMembersResponse'
+    PutMemberRequest:
+      $ref: './components/spaces/schemas.yaml#/PutMemberRequest'
+    SpaceMemberResponse:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberResponse'
+    JoinRequestStatus:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestStatus'
+    JoinRequest:
+      $ref: './components/spaces/schemas.yaml#/JoinRequest'
+    JoinRequestResponse:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestResponse'
+    ListJoinRequestsResponse:
+      $ref: './components/spaces/schemas.yaml#/ListJoinRequestsResponse'
+    SpaceMemberRemovedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberRemovedEventData'
+    SpaceMemberRoleChangedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberRoleChangedEventData'
+    JoinRequestEventData:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestEventData'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 
@@ -209,3 +243,11 @@ webhooks:
     $ref: './paths/sessions/webhook-events.yaml#/homileo.session.archived'
   homileo.session.participant_added:
     $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_added'
+  homileo.space.member_removed:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_removed'
+  homileo.space.member_role_changed:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_role_changed'
+  homileo.space.join_requested:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_requested'
+  homileo.space.join_decided:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_decided'

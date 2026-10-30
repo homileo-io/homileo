@@ -40,3 +40,27 @@ SpacesExternalRefParam:
   required: false
   description: Only the space with this external reference
   schema: { type: string, minLength: 1, maxLength: 255 }
+
+PrincipalIdParam:
+  name: principalId
+  in: path
+  required: true
+  description: The principal's id (a member's, or the applicant's of a join request). A value that is not a UUID is `400 invalid_request`.
+  schema: { type: string, format: uuid }
+
+MembersRoleParam:
+  name: role
+  in: query
+  required: false
+  description: Only members with this role
+  schema: { $ref: '../../components/spaces/schemas.yaml#/SpaceRole' }
+
+JoinRequestsStatusParam:
+  name: status
+  in: query
+  required: false
+  description: Only requests in this state
+  schema:
+    type: string
+    enum: [pending, approved, denied]
+    default: pending

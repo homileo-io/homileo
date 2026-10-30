@@ -1,0 +1,29 @@
+/v1/spaces/{spaceId}/join-requests/{principalId}/deny:
+  post:
+    tags: [Spaces]
+    summary: Deny a join request
+    description: |
+      Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
+
+      **Required permissions:** none; the caller must be able to moderate the space. A caller who
+      can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+      **Errors:** `404` when the principal has no request, `409 conflict` when their latest
+      request is already decided, `409 resource_archived` for an archived space.
+    operationId: denyJoinRequest
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+      - $ref: '../../components/spaces/parameters.yaml#/PrincipalIdParam'
+    responses:
+      '200':
+        description: The decided request
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/JoinRequestResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

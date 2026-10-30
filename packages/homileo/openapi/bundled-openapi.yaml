@@ -292,6 +292,273 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/members:
+    get:
+      tags:
+        - Spaces
+      summary: List a space's members
+      description: |
+        The members, oldest first (by join time, then principal id), each with its principal.
+        Pages with `cursor` and `limit`.
+
+        **Required permissions:** none; the caller must be able to read the space. A space the
+        caller cannot read is a 404.
+      operationId: listSpaceMembers
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/MembersRoleParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMembersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/members/{principalId}:
+    put:
+      tags:
+        - Spaces
+      summary: Add a member or change a member's role
+      description: |
+        Makes the principal a member with the given role. A new member is `201`; a role change is
+        `200`, and so is a request for the role they already have, which records nothing. An
+        addition records `space.member_added`, a change `space.member_role_changed` (with the
+        previous role); each emits its webhook and writes an audit entry.
+
+        **Required permissions:** none; the caller must be able to moderate the space to add a
+        `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
+        `homileo.chat.admin`. An archived space takes no changes. A caller who can read the space
+        but not make the change gets 403; one who cannot read it, 404.
+
+        **Errors:** `404` for a principal that does not exist, `409 last_owner` for a change that
+        would leave the space without an owner.
+      operationId: putSpaceMember
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutMemberRequest'
+      responses:
+        '200':
+          description: The member, changed or unchanged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '201':
+          description: The member that was added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Spaces
+      summary: Remove a member, or leave a space
+      description: |
+        Removes the member, or, when `principalId` is the caller, lets them leave. They also leave
+        the space's sessions: each records `session.participant_removed`. A principal who can no
+        longer read the space (a `members` space) gets `space.access_revoked`, and one who can no
+        longer read a session they were in gets `session.access_revoked`. For someone else's removal
+        this is judged from membership and visibility alone; their kind grants are not known.
+        Records `space.member_removed`, emits its webhook and writes an audit entry.
+
+        **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+        removes `member`s; removing a moderator or owner needs the `owner` or a
+        `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
+        one who cannot read it, 404.
+
+        **Errors:** `404` when the principal is not a member, `409 last_owner` for the last owner.
+      operationId: removeSpaceMember
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join:
+    post:
+      tags:
+        - Spaces
+      summary: Join a space, or ask to
+      description: |
+        Follows the space's `joinPolicy`. `open`: the caller becomes a `member` (`200`; `200`
+        again, changing nothing, if they already are one) and `space.member_added` is recorded.
+        `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
+        a repeat returns the pending request without a new event. `invite`: 403.
+
+        **Required permissions:** none; the caller must be able to read the space (a space they
+        cannot read is a 404). An archived space cannot be joined (403).
+      operationId: joinSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The caller is a member
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '202':
+          description: A join request is pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests:
+    get:
+      tags:
+        - Spaces
+      summary: List a space's join requests
+      description: |
+        The requests in one state (`pending` by default), oldest first. Pages with `cursor` and
+        `limit`.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+      operationId: listJoinRequests
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/JoinRequestsStatusParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of join requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJoinRequestsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
+    post:
+      tags:
+        - Spaces
+      summary: Approve a join request
+      description: |
+        Approves the applicant's pending request and makes them a `member` (recording `space.member_added`). Records `space.join_decided`, emits its webhook and writes an audit entry.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `404` when the principal has no request, `409 conflict` when their latest
+        request is already decided, `409 resource_archived` for an archived space.
+      operationId: approveJoinRequest
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '200':
+          description: The decided request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
+    post:
+      tags:
+        - Spaces
+      summary: Deny a join request
+      description: |
+        Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `404` when the principal has no request, `409 conflict` when their latest
+        request is already decided, `409 resource_archived` for an archived space.
+      operationId: denyJoinRequest
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '200':
+          description: The decided request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
   /v1/principals/resolve:
     post:
       tags:
@@ -823,6 +1090,106 @@ webhooks:
       responses:
         2XX:
           description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_removed:
+    post:
+      tags:
+        - Spaces
+      summary: Member removed from a space
+      operationId: webhookSpaceMemberRemoved
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_removed
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberRemovedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_role_changed:
+    post:
+      tags:
+        - Spaces
+      summary: Member role changed
+      operationId: webhookSpaceMemberRoleChanged
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_role_changed
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberRoleChangedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.join_requested:
+    post:
+      tags:
+        - Spaces
+      summary: Join requested
+      operationId: webhookSpaceJoinRequested
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.join_requested
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/JoinRequestEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.join_decided:
+    post:
+      tags:
+        - Spaces
+      summary: Join request decided
+      operationId: webhookSpaceJoinDecided
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.join_decided
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/JoinRequestEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
 components:
   securitySchemes:
     BearerAuth:
@@ -905,6 +1272,33 @@ components:
       schema:
         type: string
         format: uuid
+    MembersRoleParam:
+      name: role
+      in: query
+      required: false
+      description: Only members with this role
+      schema:
+        $ref: '#/components/schemas/SpaceRole'
+    PrincipalIdParam:
+      name: principalId
+      in: path
+      required: true
+      description: The principal's id (a member's, or the applicant's of a join request). A value that is not a UUID is `400 invalid_request`.
+      schema:
+        type: string
+        format: uuid
+    JoinRequestsStatusParam:
+      name: status
+      in: query
+      required: false
+      description: Only requests in this state
+      schema:
+        type: string
+        enum:
+          - pending
+          - approved
+          - denied
+        default: pending
   responses:
     BadRequestResponse:
       description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
@@ -1682,6 +2076,157 @@ components:
           $ref: '#/components/schemas/Participant'
         eventId:
           type: string
+    SpaceMemberWithPrincipal:
+      description: A member and the principal behind them
+      allOf:
+        - $ref: '#/components/schemas/SpaceMember'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
+    ListMembersResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpaceMemberWithPrincipal'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    PutMemberRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+      properties:
+        role:
+          $ref: '#/components/schemas/SpaceRole'
+      examples:
+        - role: moderator
+    SpaceMemberResponse:
+      type: object
+      required:
+        - member
+      properties:
+        member:
+          $ref: '#/components/schemas/SpaceMember'
+    JoinRequestStatus:
+      type: string
+      enum:
+        - pending
+        - approved
+        - denied
+    JoinRequest:
+      type: object
+      description: A principal's request to join a `request` space
+      required:
+        - id
+        - spaceId
+        - principalId
+        - status
+        - createdAt
+        - decidedBy
+        - decidedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+          description: The applicant
+        status:
+          $ref: '#/components/schemas/JoinRequestStatus'
+        createdAt:
+          type: string
+          format: date-time
+        decidedBy:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The moderator's principal id
+        decidedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    JoinRequestResponse:
+      type: object
+      required:
+        - request
+      properties:
+        request:
+          $ref: '#/components/schemas/JoinRequest'
+    ListJoinRequestsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/JoinRequest'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    SpaceMemberRemovedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - principalId
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+    SpaceMemberRoleChangedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - member
+        - previousRole
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        member:
+          $ref: '#/components/schemas/SpaceMember'
+        previousRole:
+          $ref: '#/components/schemas/SpaceRole'
+    JoinRequestEventData:
+      type: object
+      description: The payload of `space.join_requested` and `space.join_decided`, with the event's id
+      required:
+        - eventId
+        - request
+      properties:
+        eventId:
+          type: string
+        request:
+          $ref: '#/components/schemas/JoinRequest'
     WebhookEvent:
       type: object
       description: |

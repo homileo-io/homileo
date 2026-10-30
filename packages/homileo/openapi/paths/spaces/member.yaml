@@ -1,0 +1,75 @@
+/v1/spaces/{spaceId}/members/{principalId}:
+  put:
+    tags: [Spaces]
+    summary: Add a member or change a member's role
+    description: |
+      Makes the principal a member with the given role. A new member is `201`; a role change is
+      `200`, and so is a request for the role they already have, which records nothing. An
+      addition records `space.member_added`, a change `space.member_role_changed` (with the
+      previous role); each emits its webhook and writes an audit entry.
+
+      **Required permissions:** none; the caller must be able to moderate the space to add a
+      `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
+      `homileo.chat.admin`. An archived space takes no changes. A caller who can read the space
+      but not make the change gets 403; one who cannot read it, 404.
+
+      **Errors:** `404` for a principal that does not exist, `409 last_owner` for a change that
+      would leave the space without an owner.
+    operationId: putSpaceMember
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+      - $ref: '../../components/spaces/parameters.yaml#/PrincipalIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/spaces/schemas.yaml#/PutMemberRequest'
+    responses:
+      '200':
+        description: The member, changed or unchanged
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/SpaceMemberResponse'
+      '201':
+        description: The member that was added
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/SpaceMemberResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  delete:
+    tags: [Spaces]
+    summary: Remove a member, or leave a space
+    description: |
+      Removes the member, or, when `principalId` is the caller, lets them leave. They also leave
+      the space's sessions: each records `session.participant_removed`. A principal who can no
+      longer read the space (a `members` space) gets `space.access_revoked`, and one who can no
+      longer read a session they were in gets `session.access_revoked`. For someone else's removal
+      this is judged from membership and visibility alone; their kind grants are not known.
+      Records `space.member_removed`, emits its webhook and writes an audit entry.
+
+      **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+      removes `member`s; removing a moderator or owner needs the `owner` or a
+      `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
+      one who cannot read it, 404.
+
+      **Errors:** `404` when the principal is not a member, `409 last_owner` for the last owner.
+    operationId: removeSpaceMember
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+      - $ref: '../../components/spaces/parameters.yaml#/PrincipalIdParam'
+    responses:
+      '204': { $ref: '../../components/responses.yaml#/NoContentResponse' }
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
