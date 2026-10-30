@@ -47,6 +47,15 @@ export interface LoadOptions {
   lock?: boolean;
 }
 
+export interface SessionLoadOptions extends LoadOptions {
+  /**
+   * Lets a `homileo.chat.admin` of the session's organization load it without reading it: an
+   * admin archives any session and removes participants of space-less ones it cannot read.
+   * Only for those routes; the policy still decides the action.
+   */
+  adminManage?: boolean;
+}
+
 // One message for every refusal, so a caller learns nothing from which it was.
 const spaceNotFound = () => new NotFoundError("Space not found");
 const sessionNotFound = () => new NotFoundError("Session not found");
@@ -122,7 +131,8 @@ export const readableSpace = async (
 const sessionContext = async (
   c: Caller,
   session: SessionRow,
-  client: Tx | typeof prisma
+  client: Tx | typeof prisma,
+  adminManage = false
 ): Promise<SessionContext | null> => {
   if (session.organizationId !== c.organizationId) return null;
   const space = session.spaceId
@@ -150,7 +160,7 @@ const sessionContext = async (
     archived: session.archivedAt !== null,
     participantRole: participant?.role ?? null,
   };
-  if (!canReadSession(c, facts)) return null;
+  if (!canReadSession(c, facts) && !(adminManage && c.isAdmin)) return null;
   return { session, space, facts, participant };
 };
 
@@ -162,12 +172,14 @@ const lockSession = async (tx: Tx, sessionId: string): Promise<void> => {
 export const readableSession = async (
   c: Caller,
   sessionId: string,
-  opts: LoadOptions = {}
+  opts: SessionLoadOptions = {}
 ): Promise<SessionContext> => {
   const client = clientOf(opts);
   if (opts.lock) await lockSession(client as Tx, sessionId);
   const session = await client.session.findUnique({ where: { id: sessionId } });
-  const context = session ? await sessionContext(c, session, client) : null;
+  const context = session
+    ? await sessionContext(c, session, client, opts.adminManage)
+    : null;
   if (!context) throw sessionNotFound();
   return context;
 };

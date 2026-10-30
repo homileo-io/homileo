@@ -53,7 +53,9 @@ Participants are added with `canAddParticipant` and removed with `canRemoveParti
 - In a space-less group the participant `owner` adds and removes participants and renames it.
   `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
   delete its messages: admins archive DMs and remove people, not touch their content. An admin who
-  could add would add themselves and then read it.
+  could add would add themselves and then read it. For archiving and removing, the routes load a
+  space-less session for an admin of its organization without the read check
+  (`readableSession(…, { adminManage: true })`); every other route still answers `404`.
 - In a space's session, whoever can moderate the space adds and removes participants, grant
   `moderate` holders included (moderators remove members).
 
@@ -82,7 +84,8 @@ The design does not state these.
 ## Session and member actions
 
 - **Archive a session** (`canArchiveSession`): in a space, `canModerateSpace`; in a space-less group,
-  its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
+  its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`. The admin need
+  not be a participant.
 - **Create a session in a space** (`canCreateSessionIn`): space membership or `canModerateSpace`, an
   unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. Space-less groups and
   DMs are open to any caller (no function; routes need no check).

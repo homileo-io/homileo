@@ -21,6 +21,7 @@ export const archiveSession = async (req: Request, res: Response) => {
     const { facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
+      adminManage: true,
     });
     if (!canArchiveSession(caller, facts)) {
       throw new ForbiddenError("You may not archive this session");

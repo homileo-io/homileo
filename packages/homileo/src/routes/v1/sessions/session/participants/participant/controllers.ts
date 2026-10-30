@@ -127,6 +127,7 @@ export const removeParticipant = async (req: Request, res: Response) => {
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
+      adminManage: true,
     });
     const leaving = principalId === caller.principalId;
     // Leaving is the one change an archived session or space still takes.

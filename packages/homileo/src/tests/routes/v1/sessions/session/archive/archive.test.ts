@@ -68,12 +68,11 @@ describe("POST /v1/sessions/:sessionId/archive", () => {
     expect((await archive(mine.id, moderator.token)).status).toBe(200);
   });
 
-  it("in a space-less group, lets the owner or an admin participant archive, not a member", async () => {
+  it("in a space-less group, lets the owner or an admin archive, not a member", async () => {
     const org = newOrg();
     const owner = await signIn(org);
     const member = await signIn(org);
     const admin = await signIn(org, ["homileo.chat.admin"]);
-    const outsiderAdmin = await signIn(org, ["homileo.chat.admin"]);
     const a = await fixtures.session({ org });
     const b = await fixtures.session({ org });
     for (const s of [a, b]) {
@@ -83,7 +82,6 @@ describe("POST /v1/sessions/:sessionId/archive", () => {
     await fixtures.participant(b, { id: admin.principalId });
 
     expect((await archive(a.id, member.token)).status).toBe(403);
-    expect((await archive(a.id, outsiderAdmin.token)).status).toBe(404);
     expect((await archive(a.id, owner.token)).status).toBe(200);
     expect((await archive(b.id, admin.token)).status).toBe(200);
   });
@@ -98,6 +96,27 @@ describe("POST /v1/sessions/:sessionId/archive", () => {
 
     expect((await archive(dm.body.session.id, a.token)).status).toBe(403);
     expect((await archive(dm.body.session.id, admin.token)).status).toBe(200);
+  });
+
+  it("lets an admin who is not in a DM archive it, still without reading it", async () => {
+    const org = newOrg();
+    const a = await signIn(org);
+    const b = await signIn(org);
+    const admin = await signIn(org, ["homileo.chat.admin"]);
+    const foreignAdmin = await signIn(newOrg(), ["homileo.chat.admin"]);
+    const dm = await fetchJson("POST", `${URL}/direct`, a.token, {
+      principalId: b.principalId,
+    });
+    const id = dm.body.session.id;
+
+    expect((await archive(id, foreignAdmin.token)).status).toBe(404);
+    expect((await archive(id, admin.token)).status).toBe(200);
+    expect((await fetchJson("GET", `${URL}/${id}`, admin.token)).status).toBe(
+      404
+    );
+    expect(
+      (await fetchJson("GET", `${URL}/${id}/messages`, admin.token)).status
+    ).toBe(404);
   });
 
   it("answers 404 for a session in another organization or one the caller cannot read", async () => {

@@ -112,6 +112,26 @@ describe("participant permissions", () => {
     ).toBe(204);
   });
 
+  it("lets an admin who is not a participant remove from a space-less group, still without reading it", async () => {
+    const org = newOrg();
+    const s = await fixtures.session({ org });
+    const admin = await signIn(org, ["homileo.chat.admin"]);
+    const victim = await fixtures.principal();
+    await fixtures.participant(s, victim);
+    const sessionUrl = `${env.PUBLIC_URL}/v1/sessions/${s.id}`;
+
+    expect(
+      (await fetchJson("PUT", url(s.id, admin.principalId), admin.token)).status
+    ).toBe(404);
+    expect(
+      (await fetchJson("DELETE", url(s.id, victim.id), admin.token)).status
+    ).toBe(204);
+    expect((await fetchJson("GET", sessionUrl, admin.token)).status).toBe(404);
+    expect(
+      (await fetchJson("GET", `${sessionUrl}/messages`, admin.token)).status
+    ).toBe(404);
+  });
+
   it("lets a space moderator remove from a space session and refuses a plain member", async () => {
     const org = newOrg();
     const space = await fixtures.space({ org, visibility: "public" });

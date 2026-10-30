@@ -4,8 +4,9 @@
     summary: Archive a session
     description: |
       Archives the session. In a space it needs the right to moderate the space; in a group without
-      a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`
-      (who must be one of its participants to reach it). Archiving an archived session is
+      a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
+      An admin of the session's organization reaches it without being a participant, though it
+      still cannot read a space-less session. Archiving an archived session is
       `409 already_archived`. Records `session.archived`.
 
       **Required permissions:** none; any signed-in caller in an organization.

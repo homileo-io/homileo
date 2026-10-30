@@ -52,8 +52,8 @@
       even from an archived session or space. Removing someone else from an archived session, or
       one in an archived space, is `409 resource_archived`.
       Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
-      without a space, its `owner` or `homileo.chat.admin` (who must be a participant to reach
-      it). A principal who is not a current participant is `404`. When the last `owner` of a group
+      without a space, its `owner` or `homileo.chat.admin` (who reaches it without being a
+      participant, though it still cannot read it). A principal who is not a current participant is `404`. When the last `owner` of a group
       without a space leaves or is removed, ownership passes to the remaining participant who
       joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
       removed principal can no longer read the session. Removing someone else is audited.
