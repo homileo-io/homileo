@@ -175,6 +175,7 @@ model Space {
   sessions     Session[]
 
   @@unique([organizationId, kind, externalRef])
+  @@unique([id, organizationId])
   @@index([organizationId])
   @@map("spaces")
   @@schema("chat")
@@ -206,7 +207,7 @@ model SpaceJoinRequest {
 
   space   Space      @relation(fields: [spaceId], references: [id])
   user    Principal  @relation("JoinRequestUser", fields: [userId], references: [id])
-  decider Principal? @relation("JoinRequestDecidedBy", fields: [decidedBy], references: [id])
+  decider Principal? @relation("JoinRequestDecidedBy", fields: [decidedBy], references: [id], onDelete: Restrict)
 
   @@index([spaceId, status])
   @@map("space_join_requests")
@@ -235,7 +236,8 @@ model Session {
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamp(3)
   archivedAt     DateTime?     @map("archived_at") @db.Timestamp(3)
 
-  space        Space?               @relation(fields: [spaceId], references: [id])
+  // Composite, so a session's organization is its space's.
+  space        Space?               @relation(fields: [spaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
   creator      Principal            @relation("SessionCreatedBy", fields: [createdBy], references: [id])
   participants SessionParticipant[]
   messages     Message[]
@@ -292,8 +294,8 @@ model Message {
 
   session     Session           @relation(fields: [sessionId], references: [id])
   sender      Principal         @relation("MessageSender", fields: [senderId], references: [id])
-  deleter     Principal?        @relation("MessageDeletedBy", fields: [deletedBy], references: [id])
-  threadRoot  Message?          @relation("Thread", fields: [threadRootId], references: [id])
+  deleter     Principal?        @relation("MessageDeletedBy", fields: [deletedBy], references: [id], onDelete: Restrict)
+  threadRoot  Message?          @relation("Thread", fields: [threadRootId], references: [id], onDelete: Restrict)
   replies     Message[]         @relation("Thread")
   revisions   MessageRevision[]
   mentions    MessageMention[]
@@ -334,7 +336,7 @@ model MessageMention {
 
   message Message    @relation(fields: [messageId], references: [id])
   session Session    @relation(fields: [sessionId], references: [id])
-  user    Principal? @relation(fields: [userId], references: [id])
+  user    Principal? @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@index([messageId])
   @@index([userId, messageId])
@@ -402,7 +404,7 @@ model Event {
   actorId        String?  @map("actor_id") @db.Uuid
   payload        Json
 
-  actor Principal? @relation(fields: [actorId], references: [id])
+  actor Principal? @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@id([id, createdAt])
   @@index([organizationId, id])

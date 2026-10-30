@@ -286,6 +286,9 @@ CREATE INDEX "spaces_organization_id_idx" ON "chat"."spaces"("organization_id");
 CREATE UNIQUE INDEX "spaces_organization_id_kind_external_ref_key" ON "chat"."spaces"("organization_id", "kind", "external_ref");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "spaces_id_organization_id_key" ON "chat"."spaces"("id", "organization_id");
+
+-- CreateIndex
 CREATE INDEX "space_members_user_id_idx" ON "chat"."space_members"("user_id");
 
 -- CreateIndex
@@ -346,10 +349,10 @@ ALTER TABLE "chat"."space_join_requests" ADD CONSTRAINT "space_join_requests_spa
 ALTER TABLE "chat"."space_join_requests" ADD CONSTRAINT "space_join_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."space_join_requests" ADD CONSTRAINT "space_join_requests_decided_by_fkey" FOREIGN KEY ("decided_by") REFERENCES "chat"."principals"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."space_join_requests" ADD CONSTRAINT "space_join_requests_decided_by_fkey" FOREIGN KEY ("decided_by") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."sessions" ADD CONSTRAINT "sessions_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "chat"."spaces"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."sessions" ADD CONSTRAINT "sessions_space_id_organization_id_fkey" FOREIGN KEY ("space_id", "organization_id") REFERENCES "chat"."spaces"("id", "organization_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "chat"."sessions" ADD CONSTRAINT "sessions_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -367,10 +370,10 @@ ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_session_id_fkey" FOREIGN 
 ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_sender_id_fkey" FOREIGN KEY ("sender_id") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_deleted_by_fkey" FOREIGN KEY ("deleted_by") REFERENCES "chat"."principals"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_deleted_by_fkey" FOREIGN KEY ("deleted_by") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_thread_root_id_fkey" FOREIGN KEY ("thread_root_id") REFERENCES "chat"."messages"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."messages" ADD CONSTRAINT "messages_thread_root_id_fkey" FOREIGN KEY ("thread_root_id") REFERENCES "chat"."messages"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "chat"."message_revisions" ADD CONSTRAINT "message_revisions_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "chat"."messages"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -385,7 +388,7 @@ ALTER TABLE "chat"."message_mentions" ADD CONSTRAINT "message_mentions_message_i
 ALTER TABLE "chat"."message_mentions" ADD CONSTRAINT "message_mentions_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "chat"."sessions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."message_mentions" ADD CONSTRAINT "message_mentions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "chat"."principals"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."message_mentions" ADD CONSTRAINT "message_mentions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "chat"."reactions" ADD CONSTRAINT "reactions_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "chat"."messages"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -403,7 +406,7 @@ ALTER TABLE "chat"."thread_followers" ADD CONSTRAINT "thread_followers_thread_ro
 ALTER TABLE "chat"."thread_followers" ADD CONSTRAINT "thread_followers_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat"."events" ADD CONSTRAINT "events_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "chat"."principals"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "chat"."events" ADD CONSTRAINT "events_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "chat"."principals"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Raw SQL Prisma cannot express.
 
@@ -419,10 +422,17 @@ CREATE UNIQUE INDEX "sessions_organization_id_direct_key_key"
     ON "chat"."sessions" ("organization_id", "direct_key")
     WHERE "direct_key" IS NOT NULL;
 
--- A direct session has no space and always has a direct key.
+-- A direct key is set exactly on direct sessions, which have no space.
 ALTER TABLE "chat"."sessions"
     ADD CONSTRAINT "sessions_direct_check" CHECK (
-        type <> 'direct' OR (space_id IS NULL AND direct_key IS NOT NULL)
+        (type = 'direct') = (direct_key IS NOT NULL)
+        AND (type <> 'direct' OR space_id IS NULL)
+    );
+
+-- A mention names a user exactly when its kind is user.
+ALTER TABLE "chat"."message_mentions"
+    ADD CONSTRAINT "message_mentions_user_check" CHECK (
+        (kind = 'user') = (user_id IS NOT NULL)
     );
 
 -- One pending request per user and space.
