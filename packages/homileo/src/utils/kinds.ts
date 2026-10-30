@@ -1,3 +1,4 @@
+import { invalidateMessageTypes } from "./messageTypes.js";
 import { hasPermission } from "./permissions.js";
 import { type Prisma } from "./db/prisma.js";
 import { db } from "./db/index.js";
@@ -76,9 +77,10 @@ export const kindsGrantingRead = async (
     )
     .map((kind) => kind.name);
 
-/** Drops the cache: provisioning changed the kinds. */
+/** Drops the cache, and the message types' too: provisioning changed them. */
 export const invalidateKinds = (): void => {
   generation++;
   cache = null;
   loading = null;
+  invalidateMessageTypes();
 };

@@ -1,0 +1,137 @@
+Attachment:
+  type: object
+  required: [id, filename, contentType, size, position]
+  properties:
+    id: { type: string, format: uuid }
+    filename: { type: string }
+    contentType: { type: string }
+    size: { type: integer, description: Bytes }
+    position: { type: integer, description: "Its place among the message's attachments, from 0" }
+
+ReactionSummary:
+  type: object
+  required: [emoji, count, principalIds]
+  properties:
+    emoji: { type: string }
+    count: { type: integer }
+    principalIds:
+      type: array
+      maxItems: 50
+      description: The first 50 to react, oldest first
+      items: { type: string, format: uuid }
+
+Message:
+  type: object
+  description: |
+    A message in a session. A reply has `threadRootId`; a deleted message has an empty `body`,
+    `deletedAt` set, and no attachments or reactions.
+  required:
+    [id, sessionId, seq, senderId, clientMessageId, type, body, payload, metadata, threadRootId, replyCount, lastReplyAt, revision, createdAt, editedAt, deletedAt, deletedBy, attachments, reactions]
+  properties:
+    id: { type: string, format: uuid }
+    sessionId: { type: string, format: uuid }
+    seq:
+      type: integer
+      description: Its place in the session, from 1, gap-free; replies take a `seq` too
+    senderId: { type: string, format: uuid }
+    clientMessageId: { type: string, maxLength: 128 }
+    type:
+      type: string
+      description: '`text`, or a message type an app provisioned'
+    body:
+      type: [string, 'null']
+      description: Markdown (CommonMark with GFM strikethrough, task lists and autolinks), with mentions as `<@principal-id>`, `<!here>` and `<!session>`
+    payload:
+      description: A provisioned type's data, valid against its schema; `null` for `text`
+    metadata: { $ref: '../sessions/schemas.yaml#/Metadata' }
+    threadRootId:
+      type: [string, 'null']
+      format: uuid
+      description: The root message, for a reply
+    replyCount: { type: integer, description: "How many replies the message has, as a thread's root" }
+    lastReplyAt: { type: [string, 'null'], format: date-time }
+    revision: { type: integer, description: '1, plus one per edit' }
+    createdAt: { type: string, format: date-time }
+    editedAt: { type: [string, 'null'], format: date-time }
+    deletedAt: { type: [string, 'null'], format: date-time }
+    deletedBy: { type: [string, 'null'], format: uuid }
+    attachments:
+      type: array
+      items: { $ref: '#/Attachment' }
+    reactions:
+      type: array
+      items: { $ref: '#/ReactionSummary' }
+
+SendMessageRequest:
+  type: object
+  additionalProperties: false
+  required: [clientMessageId]
+  description: |
+    A `text` message (the default type) needs `body` and takes no `payload`. A message of a
+    provisioned type needs `payload`; its `body`, if given, is the fallback rendering.
+  properties:
+    clientMessageId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: The client's own id for the message; a repeat in the same session from the same sender is `409 duplicate_client_message`
+    type: { type: string, minLength: 1, maxLength: 64, default: text }
+    body: { type: string, minLength: 1, maxLength: 40000 }
+    payload:
+      description: Any JSON value except `null`, at most 64 KiB serialized
+    metadata: { $ref: '../sessions/schemas.yaml#/Metadata' }
+    threadRootId:
+      type: string
+      format: uuid
+      description: Send as a reply to this top-level, undeleted message of the same session
+  examples:
+    - clientMessageId: 7f1c2a9e-local-1
+      body: 'Shipped today, <@0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b>'
+    - clientMessageId: 7f1c2a9e-local-2
+      type: 'support:order-card'
+      payload: { orderId: '1042', status: shipped }
+      body: Order 1042 shipped
+
+MessageResponse:
+  type: object
+  required: [message]
+  properties:
+    message: { $ref: '#/Message' }
+
+DuplicateClientMessageError:
+  allOf:
+    - $ref: '../responses.yaml#/Error'
+    - type: object
+      required: [message]
+      properties:
+        error: { const: duplicate_client_message }
+        message: { $ref: '#/Message' }
+
+ListMessagesResponse:
+  type: object
+  required: [data, hasBefore, hasAfter]
+  properties:
+    data:
+      type: array
+      description: Top-level messages, ascending by `seq`
+      items: { $ref: '#/Message' }
+    hasBefore: { type: boolean, description: Older top-level messages exist }
+    hasAfter: { type: boolean, description: Newer top-level messages exist }
+
+MessageEventData:
+  type: object
+  description: The data of `message.created`
+  required: [message, eventId]
+  properties:
+    message: { $ref: '#/Message' }
+    eventId: { type: string }
+
+ThreadUpdatedEventData:
+  type: object
+  required: [sessionId, rootId, replyCount, lastReplyAt, eventId]
+  properties:
+    sessionId: { type: string, format: uuid }
+    rootId: { type: string, format: uuid }
+    replyCount: { type: integer }
+    lastReplyAt: { type: [string, 'null'], format: date-time }
+    eventId: { type: string }

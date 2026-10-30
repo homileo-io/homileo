@@ -82,6 +82,14 @@ export class NotAParticipantError extends AppError {
   }
 }
 
+/** A participant of a space whose post policy is `moderators`, without the right to moderate it. */
+export class PostingRestrictedError extends AppError {
+  constructor(message = "Only the space's moderators can post here") {
+    super(403, "posting_restricted", message);
+    this.name = "PostingRestrictedError";
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Not found") {
     super(404, "not_found", message);

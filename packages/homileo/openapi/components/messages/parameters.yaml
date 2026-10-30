@@ -1,0 +1,23 @@
+MessagesBeforeParam:
+  name: before
+  in: query
+  required: false
+  description: The `limit` top-level messages just below this `seq`. At most one of `before`, `after` and `around`.
+  schema: { type: integer, minimum: 0 }
+
+MessagesAfterParam:
+  name: after
+  in: query
+  required: false
+  description: The `limit` top-level messages just above this `seq`. At most one of `before`, `after` and `around`.
+  schema: { type: integer, minimum: 0 }
+
+MessagesAroundParam:
+  name: around
+  in: query
+  required: false
+  description: |
+    Up to `limit / 2` top-level messages on each side of this `seq`, the message at `seq` included
+    (with an odd `limit`, the extra one is on the newer side). Opens a search hit in context. At
+    most one of `before`, `after` and `around`.
+  schema: { type: integer, minimum: 0 }

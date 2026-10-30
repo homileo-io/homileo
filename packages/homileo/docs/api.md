@@ -45,7 +45,12 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
 `{ data, nextCursor }`; `nextCursor` is `null` on the last page. The cursor is the base64url of a
 JSON array of the sort key's values (`utils/cursor.ts`); one that does not decode, or has the wrong
-number of values, is `400 invalid_request`. Messages page by `seq` instead.
+number of values, is `400 invalid_request`.
+
+Messages page by `seq` instead: `GET /v1/sessions/:id/messages` takes at most one of `before`,
+`after` and `around` (integers ≥ 0) and answers `{ data, hasBefore, hasAfter }`, top-level messages
+ascending. `around=n` returns up to `limit / 2` on each side of `n`, `n` included (an odd `limit`'s
+extra one on the newer side).
 
 ## Limits
 
@@ -78,4 +83,10 @@ before it counts the unarchived spaces of a kind it retires, so a space is never
 as it retires.
 
 Kinds are cached in the process for 60 seconds and dropped when provisioning applies
-(`invalidateKinds`).
+(`invalidateKinds`). So are message types' compiled payload schemas (`utils/messageTypes.ts`); a
+type not in the cache is read from the database when a message uses it.
+
+A send takes the session row `FOR UPDATE` first (`readableSession({ lock: true })`) and looks up
+its `clientMessageId` under that lock, so of two concurrent sends with the same id one inserts and
+the other answers `409 duplicate_client_message` without using a `seq`. `seq` comes from
+`UPDATE sessions SET last_seq = last_seq + 1 … RETURNING last_seq`, so it is gap-free.

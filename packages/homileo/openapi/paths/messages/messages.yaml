@@ -1,0 +1,95 @@
+/v1/sessions/{sessionId}/messages:
+  get:
+    tags: [Messages]
+    summary: List a session's messages
+    description: |
+      Top-level messages (replies are left out), ascending by `seq`. With none of `before`,
+      `after` and `around`, the latest `limit`. `hasBefore` and `hasAfter` say whether more lie
+      on either side. Giving more than one of the three is `400 invalid_request`.
+
+      **Required permissions:** none; the caller must be able to read the session. A reader who
+      is not a participant may list.
+    operationId: listMessages
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '../../components/messages/parameters.yaml#/MessagesBeforeParam'
+      - $ref: '../../components/messages/parameters.yaml#/MessagesAfterParam'
+      - $ref: '../../components/messages/parameters.yaml#/MessagesAroundParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+    responses:
+      '200':
+        description: A page of messages
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ListMessagesResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  post:
+    tags: [Messages]
+    summary: Send a message
+    description: |
+      Sends a message, or a reply with `threadRootId`. The session assigns the next `seq`;
+      concurrent sends get distinct, gap-free values.
+
+      - A repeat of `clientMessageId` by the same sender in the session is
+        `409 duplicate_client_message`, whose body carries the existing `message`; nothing is
+        recorded and no `seq` is used.
+      - The caller must be a participant (`403 not_a_participant`) and, in a space whose
+        `postPolicy` is `moderators`, able to moderate it (`403 posting_restricted`). An archived
+        session or space is `409 resource_archived`.
+      - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
+        its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
+      - A reply's root must be a top-level, undeleted message of the same session:
+        `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
+        The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
+        thread.
+      - `<@principal-id>` mentions are stored for principals who can read the session (current
+        participants and, in an `access: space` session, members of the space or anyone when it
+        is `public`); the others stay plain text. Each mentioned reader is emailed through tereo
+        unless their `notify` is `none`, they are the sender, or they are a bot. `<!here>` and
+        `<!session>` are stored but send no email.
+      - A top-level message moves the session's `lastMessageAt` and the sender's `lastReadSeq`
+        to it; a reply moves the sender's read position in the thread instead.
+
+      Records `message.created` (and `thread.updated` for a reply), emitting
+      `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
+
+      **Required permissions:** none; the caller must be able to read the session.
+    operationId: sendMessage
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/messages/schemas.yaml#/SendMessageRequest'
+    responses:
+      '201':
+        description: The new message
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409':
+        description: '`duplicate_client_message` with the existing message, or `resource_archived`'
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '../../components/messages/schemas.yaml#/DuplicateClientMessageError'
+                - $ref: '../../components/responses.yaml#/Error'
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

@@ -66,11 +66,16 @@ tags:
   - name: Sessions
     description: Conversations, in a space or on their own, and direct messages
 
+  - name: Messages
+    description: Messages, thread replies and mentions
+
 x-tagGroups:
   - name: Spaces
     tags: [Spaces]
   - name: Sessions
     tags: [Sessions]
+  - name: Messages
+    tags: [Messages]
   - name: Principals
     tags: [Principals]
   - name: Platform
@@ -120,6 +125,8 @@ paths:
     $ref: './paths/sessions/read.yaml#/~1v1~1sessions~1{sessionId}~1read'
   /v1/sessions/{sessionId}/notify:
     $ref: './paths/sessions/notify.yaml#/~1v1~1sessions~1{sessionId}~1notify'
+  /v1/sessions/{sessionId}/messages:
+    $ref: './paths/messages/messages.yaml#/~1v1~1sessions~1{sessionId}~1messages'
 
 components:
   securitySchemes:
@@ -246,6 +253,24 @@ components:
       $ref: './components/sessions/schemas.yaml#/ReadPositionResponse'
     NotifyRequest:
       $ref: './components/sessions/schemas.yaml#/NotifyRequest'
+    Attachment:
+      $ref: './components/messages/schemas.yaml#/Attachment'
+    ReactionSummary:
+      $ref: './components/messages/schemas.yaml#/ReactionSummary'
+    Message:
+      $ref: './components/messages/schemas.yaml#/Message'
+    SendMessageRequest:
+      $ref: './components/messages/schemas.yaml#/SendMessageRequest'
+    MessageResponse:
+      $ref: './components/messages/schemas.yaml#/MessageResponse'
+    DuplicateClientMessageError:
+      $ref: './components/messages/schemas.yaml#/DuplicateClientMessageError'
+    ListMessagesResponse:
+      $ref: './components/messages/schemas.yaml#/ListMessagesResponse'
+    MessageEventData:
+      $ref: './components/messages/schemas.yaml#/MessageEventData'
+    ThreadUpdatedEventData:
+      $ref: './components/messages/schemas.yaml#/ThreadUpdatedEventData'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 
@@ -277,3 +302,7 @@ webhooks:
     $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_decided'
   homileo.session.participant_removed:
     $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_removed'
+  homileo.message.created:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.message.created'
+  homileo.thread.updated:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.thread.updated'

@@ -113,3 +113,22 @@ The design does not state these.
   group, its `owner`; never a DM. An admin does not touch space-less content.
 - **`postRefusal`** names why `canPost` is false, in order: `not_found` (cannot read), `archived`,
   `not_a_participant`, `posting_restricted`; `null` exactly when `canPost` is true.
+
+## Messages
+
+- **Post** (`postRefusal`): `404` when the caller cannot read the session, `409 resource_archived`,
+  `403 not_a_participant`, `403 posting_restricted`, in that order. A repeat of a
+  `clientMessageId` by a reader is answered (`409 duplicate_client_message`) before the other
+  three, since it changes nothing. Bots post through the same route with their own token.
+- **List**: anyone who can read the session, participant or not.
+- **Read position on send:** a top-level message moves the sender's `last_read_seq` to its `seq`,
+  and a reply moves the sender's thread `last_read_seq`. Your own messages are never unread.
+- **Mentions:** a `<@id>` is stored in `message_mentions` only when that principal can read the
+  session as far as the database shows: a current participant, or, in an `access: space` session,
+  a member of the space or anyone when the space is `public` (`mentionReaders` in
+  `utils/access.ts`, which asks `canReadSession`). Their permissions are not known to the sender's
+  request, so a reader only through a kind grant is not mentioned. Each stored reader is emailed
+  through `core.outbox.notify` (recipient `userId` = their tereo user id) unless their `notify` is
+  `none` (a reader who is not a participant counts as `all`), they are the sender, or they are a
+  bot. `<!here>` and `<!session>` are stored and send no email.
+
