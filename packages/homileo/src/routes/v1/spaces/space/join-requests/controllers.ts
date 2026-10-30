@@ -1,5 +1,6 @@
 import { decodeCursor, encodeCursor } from "../../../../../utils/cursor.js";
 import { canModerateSpace } from "../../../../../policy/index.js";
+import { principalView } from "../../../../../views/principal.js";
 import { joinRequestView } from "../../../../../views/space.js";
 import { readableSpace } from "../../../../../utils/access.js";
 import { callerOf } from "../../../../../middleware/auth.js";
@@ -47,13 +48,17 @@ export const listJoinRequests = async (req: Request, res: Response) => {
         ],
       }),
     },
+    include: { user: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: query.limit + 1,
   });
   const rows = found.slice(0, query.limit);
   const last = rows.at(-1);
   res.status(200).json({
-    data: rows.map(joinRequestView),
+    data: rows.map((row) => ({
+      ...joinRequestView(row),
+      principal: principalView(row.user),
+    })),
     nextCursor:
       found.length > query.limit && last
         ? encodeCursor([last.createdAt.toISOString(), last.id])

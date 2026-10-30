@@ -212,6 +212,8 @@ components:
       $ref: './components/spaces/schemas.yaml#/JoinRequestStatus'
     JoinRequest:
       $ref: './components/spaces/schemas.yaml#/JoinRequest'
+    JoinRequestWithPrincipal:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestWithPrincipal'
     JoinRequestResponse:
       $ref: './components/spaces/schemas.yaml#/JoinRequestResponse'
     ListJoinRequestsResponse:

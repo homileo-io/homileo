@@ -70,6 +70,10 @@ export const putMember = async (req: Request, res: Response) => {
     const current = await tx.spaceMember.findUnique({
       where: { spaceId_userId: { spaceId, userId: principalId } },
     });
+    // Already so: nothing to change, whoever asks, as long as they can read the space.
+    if (current && current.role === role) {
+      return { status: 200, member: current };
+    }
     const from: SpaceRole | null = current?.role ?? null;
     if (
       !canChangeMember(caller, facts, {
@@ -101,8 +105,6 @@ export const putMember = async (req: Request, res: Response) => {
       });
       return { status: 201, member: row };
     }
-    if (current.role === role) return { status: 200, member: current };
-
     if (current.role === "owner") {
       await assertOwnerRemains(tx, spaceId, principalId);
     }

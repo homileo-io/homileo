@@ -99,6 +99,27 @@ describe("/v1/spaces/:spaceId/members/:principalId", () => {
       );
     });
 
+    it("answers 200 unchanged to a moderator or member repeating a role, and records nothing", async () => {
+      const { org, space } = await setup();
+      const target = await api.actor(org);
+      const moderator = await api.actor(org);
+      const plain = await api.actor(org);
+      await fixtures.member(space, target.principal, "member");
+      await fixtures.member(space, moderator.principal, "moderator");
+      await fixtures.member(space, plain.principal, "member");
+
+      for (const caller of [moderator, plain]) {
+        const res = await put(caller.token, space.id, target.principal.id, {
+          role: "member",
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.member.role).toBe("member");
+      }
+      expect(await prisma.event.count({ where: { organizationId: org } })).toBe(
+        0
+      );
+    });
+
     it("answers 404 to an unknown principal and 400 to bad input", async () => {
       const { owner, space } = await setup();
 

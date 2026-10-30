@@ -252,13 +252,23 @@ JoinRequestResponse:
   properties:
     request: { $ref: '#/JoinRequest' }
 
+JoinRequestWithPrincipal:
+  description: A join request and the applicant's principal
+  allOf:
+    - $ref: '#/JoinRequest'
+    - type: object
+      required: [principal]
+      properties:
+        principal:
+          $ref: '../principals/schemas.yaml#/Principal'
+
 ListJoinRequestsResponse:
   type: object
   required: [data, nextCursor]
   properties:
     data:
       type: array
-      items: { $ref: '#/JoinRequest' }
+      items: { $ref: '#/JoinRequestWithPrincipal' }
     nextCursor:
       type: [string, 'null']
       description: Pass it as `cursor` for the next page; null on the last page

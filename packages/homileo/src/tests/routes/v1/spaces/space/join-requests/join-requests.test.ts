@@ -65,6 +65,7 @@ describe("GET /v1/spaces/:spaceId/join-requests", () => {
       spaceId: space.id,
       principalId: a.principal.id,
       status: "pending",
+      principal: { id: a.principal.id, isBot: false },
     });
   });
 
@@ -95,6 +96,33 @@ describe("GET /v1/spaces/:spaceId/join-requests", () => {
     expect(first.body.data).toHaveLength(2);
     expect(second.body.data).toHaveLength(1);
     expect(second.body.nextCursor).toBeNull();
+  });
+
+  it("walks every request one at a time with the cursor", async () => {
+    const { org, moderator, space } = await setup();
+    const made: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      made.push(
+        (await request(space.id, (await api.actor(org)).principal.id)).id
+      );
+    }
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const res: {
+        body: { data: Array<{ id: string }>; nextCursor: string | null };
+      } = await list(
+        moderator.token,
+        space.id,
+        `?limit=1${cursor ? `&cursor=${cursor}` : ""}`
+      );
+      expect(res.body.data).toHaveLength(1);
+      seen.push(res.body.data[0].id);
+      cursor = res.body.nextCursor;
+    } while (cursor);
+
+    expect(seen).toEqual(made);
   });
 
   it("answers 403 to a reader who cannot moderate and 404 to one who cannot read", async () => {

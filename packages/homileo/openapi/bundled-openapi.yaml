@@ -2162,6 +2162,16 @@ components:
             - string
             - 'null'
           format: date-time
+    JoinRequestWithPrincipal:
+      description: A join request and the applicant's principal
+      allOf:
+        - $ref: '#/components/schemas/JoinRequest'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
     JoinRequestResponse:
       type: object
       required:
@@ -2178,7 +2188,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/JoinRequest'
+            $ref: '#/components/schemas/JoinRequestWithPrincipal'
         nextCursor:
           type:
             - string
