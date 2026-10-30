@@ -1,0 +1,69 @@
+{
+  "name": "homileo",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "packages/homileo/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
+      "options": {
+        "command": "tsc",
+        "cwd": "packages/homileo"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
+      "options": {
+        "command": "tsc --noEmit",
+        "cwd": "packages/homileo"
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsx watch ./src/index.ts",
+        "cwd": "packages/homileo"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run",
+        "cwd": "packages/homileo"
+      }
+    },
+    "test:unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --project unit",
+        "cwd": "packages/homileo"
+      }
+    },
+    "test:docker": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "./docker/test/run.sh",
+        "cwd": "."
+      }
+    },
+    "clean": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "rm -rf dist tsconfig.tsbuildinfo",
+        "cwd": "packages/homileo"
+      }
+    },
+    "docker": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "inputs": ["production", "^production", "{workspaceRoot}/docker/**/*"],
+      "options": {
+        "command": "docker build -f docker/Dockerfile -t homileo .",
+        "cwd": "."
+      }
+    }
+  }
+}
