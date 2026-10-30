@@ -1,9 +1,15 @@
 // @module-tag unit
 // @module-tag access
-import { caller, kind, session, space } from "../support/pure/policyFacts.js";
 import { canDeleteMessage, canEditMessage } from "../../policy/index.js";
 import type { MessageFacts } from "../../policy/index.js";
 import { describe, expect, it } from "vitest";
+import {
+  caller,
+  kind,
+  session,
+  space,
+  OTHER_ORG,
+} from "../support/pure/policyFacts.js";
 
 const NOW = new Date("2026-10-30T12:00:00Z");
 const ago = (seconds: number) => new Date(NOW.getTime() - seconds * 1000);
@@ -127,6 +133,29 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(c, ss, message({ senderId: "someone" }))).toBe(
       true
     );
+  });
+
+  it("lets an admin delete in a members-access session without participating", () => {
+    const ss = session({ access: "members", space: space() });
+    const c = caller({ isAdmin: true });
+    expect(canDeleteMessage(c, ss, message({ senderId: "someone" }))).toBe(
+      true
+    );
+  });
+
+  it("refuses edit and delete in another organization", () => {
+    const ss = {
+      ...inSession(null, "moderator"),
+      organizationId: OTHER_ORG,
+      space: space({ role: "moderator", organizationId: OTHER_ORG }),
+    };
+    expect(canEditMessage(caller(), ss, message(), NOW)).toBe(false);
+    expect(canDeleteMessage(caller(), ss, message())).toBe(false);
+  });
+
+  it("lets a bot sender edit its own message", () => {
+    const bot = caller({ isBot: true });
+    expect(canEditMessage(bot, inSession(60), message(), NOW)).toBe(true);
   });
 
   it("gives a space-less non-sender no delete, even an admin", () => {

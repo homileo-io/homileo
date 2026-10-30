@@ -27,11 +27,11 @@ export const canJoinSession = (c: OrgCaller, ss: SessionFacts): boolean => {
 
 export const canPost = (c: OrgCaller, ss: SessionFacts): boolean => {
   if (!sameOrganization(c, ss) || ss.archived) return false;
-  if (ss.participantRole === null) return false;
+  if (ss.participantRole === null || !canReadSession(c, ss)) return false;
   if (ss.space === null) return true;
   if (ss.space.archived) return false;
   if (ss.space.postPolicy === "moderators") {
-    return ss.space.role === "owner" || ss.space.role === "moderator";
+    return canModerateSpace(c, ss.space);
   }
   return true;
 };
@@ -41,6 +41,6 @@ export const canManageParticipants = (
   ss: SessionFacts
 ): boolean => {
   if (!sameOrganization(c, ss) || ss.archived) return false;
-  if (ss.space === null) return ss.participantRole === "owner";
+  if (ss.space === null) return ss.participantRole === "owner" || c.isAdmin;
   return !ss.space.archived && canModerateSpace(c, ss.space);
 };

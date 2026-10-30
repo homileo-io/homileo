@@ -64,12 +64,6 @@ describe("canReadSession", () => {
     ],
     ["members access, admin", admin, { access: "members" }, true],
     [
-      "members access, participant without space access",
-      {},
-      { access: "members", participantRole: "member" },
-      true,
-    ],
-    [
       "space-less, participant",
       {},
       { space: null, participantRole: "member" },
@@ -96,6 +90,18 @@ describe("canReadSession", () => {
       false,
     ],
     ["archived stays readable", {}, { archived: true, space: inSpace() }, true],
+    [
+      "grant holder, other organization",
+      grantHolder,
+      { organizationId: OTHER_ORG, space: space({ kind: grants }) },
+      false,
+    ],
+    [
+      "space in another organization than the session",
+      admin,
+      { space: space({ organizationId: OTHER_ORG, role: "owner" }) },
+      false,
+    ],
   ])("%s -> %s", (_n, c, ss, want) => {
     expect(canReadSession(caller(c), session(ss))).toBe(want);
   });
@@ -146,6 +152,40 @@ describe("canPost", () => {
     ["not a participant", {}, { space: inSpace() }, false],
     ["not a participant, admin", admin, { space: inSpace() }, false],
     [
+      "public space, not a member, not a participant",
+      {},
+      { space: space({ visibility: "public" }) },
+      false,
+    ],
+    [
+      "participant who lost read access (members-visibility space, no role)",
+      {},
+      { participantRole: "member", space: space() },
+      false,
+    ],
+    [
+      "moderators policy, grant moderate holder participant",
+      { permissions: ["support.cases.moderate"] },
+      {
+        participantRole: "member",
+        space: space({
+          postPolicy: "moderators",
+          kind: kind({
+            grants: [
+              { permission: "support.cases.moderate", access: "moderate" },
+            ],
+          }),
+        }),
+      },
+      true,
+    ],
+    [
+      "moderators policy, moderator who is not a participant",
+      {},
+      { space: inSpace({ postPolicy: "moderators", role: "moderator" }) },
+      false,
+    ],
+    [
       "moderators policy, member",
       {},
       {
@@ -179,7 +219,7 @@ describe("canPost", () => {
         participantRole: "member",
         space: inSpace({ postPolicy: "moderators" }),
       },
-      false,
+      true,
     ],
     [
       "archived session",
@@ -228,7 +268,34 @@ describe("canManageParticipants", () => {
       { space: null, participantRole: "member" },
       false,
     ],
-    ["space-less admin", admin, { space: null }, false],
+    ["space-less admin, not a participant", admin, { space: null }, true],
+    [
+      "space-less admin, other organization",
+      admin,
+      { space: null, organizationId: OTHER_ORG },
+      false,
+    ],
+    [
+      "space-less admin, archived",
+      admin,
+      { space: null, archived: true },
+      false,
+    ],
+    [
+      "grant moderate (moderators remove members)",
+      { permissions: ["support.cases.moderate"] },
+      {
+        space: space({
+          kind: kind({
+            grants: [
+              { permission: "support.cases.moderate", access: "moderate" },
+            ],
+          }),
+        }),
+      },
+      true,
+    ],
+    ["grant read", grantHolder, { space: space({ kind: grants }) }, false],
     ["space moderator", {}, { space: inSpace({ role: "moderator" }) }, true],
     ["space member", {}, { space: inSpace() }, false],
     ["space admin", admin, {}, true],
@@ -252,5 +319,41 @@ describe("canManageParticipants", () => {
     ],
   ])("%s -> %s", (_n, c, ss, want) => {
     expect(canManageParticipants(caller(c), session(ss))).toBe(want);
+  });
+});
+
+describe("bots and grant holders", () => {
+  const bot = caller({ isBot: true });
+
+  it("lets a bot participant read and post like a person", () => {
+    const ss = session({ participantRole: "member", space: inSpace() });
+    expect(canReadSession(bot, ss)).toBe(true);
+    expect(canPost(bot, ss)).toBe(true);
+  });
+
+  it("refuses a bot that is not a participant", () => {
+    const ss = session({ space: inSpace() });
+    expect(canPost(bot, ss)).toBe(false);
+  });
+
+  it.each([
+    ["grant holder, members-visibility open space", grantHolder, true],
+    ["admin, members-visibility open space", admin, true],
+    ["plain user, members-visibility open space", {}, false],
+  ])("canJoinSession: %s -> %s", (_n, c, want) => {
+    const ss = session({
+      space: space({ kind: grants, joinPolicy: "open" }),
+    });
+    expect(canJoinSession(caller(c), ss)).toBe(want);
+  });
+
+  it("refuses a grant holder from another organization everywhere", () => {
+    const c = caller({
+      organizationId: OTHER_ORG,
+      permissions: ["support.cases.read"],
+    });
+    const ss = session({ space: space({ kind: grants, joinPolicy: "open" }) });
+    expect(canReadSession(c, ss)).toBe(false);
+    expect(canJoinSession(c, ss)).toBe(false);
   });
 });
