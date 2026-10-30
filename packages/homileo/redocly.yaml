@@ -1,0 +1,17 @@
+# The one spec for Homileo: `npm run openapi:lint` / `npm run openapi:build`.
+extends:
+  - recommended
+
+apis:
+  homileo:
+    root: openapi/openapi.yaml
+    output: openapi/bundled-openapi.yaml
+
+rules:
+  # Localhost server URLs are intended.
+  no-server-example.com: off
+  # The licence is Apache-2.0 by name and URL, which the strict rule does not take.
+  info-license-strict: off
+  # Every operation declares security; public ones (health, webhook
+  # definitions) opt out explicitly with `security: []`.
+  security-defined: error

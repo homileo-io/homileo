@@ -21,6 +21,8 @@
     "test:clean": "../../docker/test/run.sh down -v",
     "cli": "tsx src/cli/index.ts",
     "tereo:provisioning": "tsx scripts/tereo-provisioning.ts",
+    "openapi:lint": "redocly lint",
+    "openapi:build": "redocly lint && redocly bundle",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",
@@ -53,6 +55,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@redocly/cli": "^2.72.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.9",
@@ -60,6 +63,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.4",
+    "yaml": "^2.9.0"
   }
 }

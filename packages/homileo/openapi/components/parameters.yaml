@@ -1,0 +1,23 @@
+# Shared by every area. Variants that differ per area carry its prefix
+# (MessagesLimitParam, …) and live in <area>/parameters.yaml.
+
+CursorParam:
+  name: cursor
+  in: query
+  description: |
+    Opaque cursor for keyset pagination: the `nextCursor` of the previous page. Omit it on the
+    first request. A malformed cursor is `400 invalid_request`.
+  required: false
+  schema:
+    type: string
+
+LimitParam:
+  name: limit
+  in: query
+  description: Maximum number of items per page
+  required: false
+  schema:
+    type: integer
+    minimum: 1
+    maximum: 100
+    default: 50

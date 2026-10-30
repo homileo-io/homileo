@@ -1,0 +1,52 @@
+HealthStatus:
+  type: object
+  required: [status, postgres, redis]
+  properties:
+    status:
+      type: string
+      enum: [ok, degraded]
+    postgres:
+      type: string
+      enum: [ok, fail]
+    redis:
+      type: string
+      enum: [ok, fail]
+
+MePrincipal:
+  type: object
+  description: The caller's principal
+  required: [id, kind, tereoUserId, isBot, displayName, avatarUrl]
+  properties:
+    id:
+      type: string
+      format: uuid
+    kind:
+      type: string
+      enum: [user, external]
+    tereoUserId:
+      type: [string, 'null']
+      format: uuid
+      description: The tereo user the principal is, for a `user`
+    isBot:
+      type: boolean
+      description: True for a tereo service account
+    displayName:
+      type: [string, 'null']
+    avatarUrl:
+      type: [string, 'null']
+
+MeResponse:
+  type: object
+  required: [principal, organizationId, permissions]
+  properties:
+    principal:
+      $ref: '#/MePrincipal'
+    organizationId:
+      type: string
+      format: uuid
+      description: The organization of the token
+    permissions:
+      type: array
+      description: The token's tereo permissions
+      items:
+        type: string

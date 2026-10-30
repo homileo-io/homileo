@@ -80,6 +80,13 @@ export const AREA_BY_PATH: ReadonlyArray<
   readonly [prefix: string, area: AreaTag]
 > = [
   ["routes/v1/me", "auth"],
+  ["routes/v1/spaces", "spaces"],
+  ["routes/v1/sessions", "sessions"],
+  ["routes/v1/messages", "messages"],
+  ["routes/v1/threads", "messages"],
+  ["routes/v1/principals", "auth"],
+  ["utils/access", "access"],
+  ["utils/kinds", "provisioning"],
   ["middleware/auth", "auth"],
   ["policy", "access"],
   ["utils/provisioning", "provisioning"],

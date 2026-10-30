@@ -96,6 +96,12 @@ export const retireType = async (tx: Tx, name: string): Promise<void> => {
   });
 };
 
+export const lockKind = async (tx: Tx, name: string): Promise<void> => {
+  await tx.$queryRaw`
+    SELECT name FROM "chat"."provisioned_space_kinds"
+    WHERE name = ${name} FOR UPDATE`;
+};
+
 export const countUnarchivedSpaces = (tx: Tx, kind: string): Promise<number> =>
   tx.space.count({ where: { kind, archivedAt: null } });
 

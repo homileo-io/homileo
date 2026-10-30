@@ -1,0 +1,12 @@
+BearerAuth:
+  type: http
+  scheme: bearer
+  bearerFormat: JWT
+  description: |
+    A tereo access token. Homileo verifies it with tereo's SDK and takes the caller's user id,
+    permissions and organization (`org_id`) from it. A token without an organization is refused
+    with `400 organization_required`.
+
+    The one permission a route asks of the token is `homileo.spaces.write`, on `POST /v1/spaces`.
+    Permissions are tereo's dotted, hierarchical form: `write` covers `read`, and a domain's
+    `admin` covers all of it. Everything else is decided by the access rules for the resource.

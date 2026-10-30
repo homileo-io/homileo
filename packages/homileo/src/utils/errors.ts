@@ -88,6 +88,22 @@ export class ConflictError extends AppError {
   }
 }
 
+/** A change to something archived. */
+export class ArchivedError extends ConflictError {
+  constructor(message = "The resource is archived") {
+    super(message, "resource_archived");
+    this.name = "ArchivedError";
+  }
+}
+
+/** Archiving something already archived. */
+export class AlreadyArchivedError extends ConflictError {
+  constructor(message = "The resource is already archived") {
+    super(message, "already_archived");
+    this.name = "AlreadyArchivedError";
+  }
+}
+
 export class ManagedByProvisioningError extends AppError {
   constructor(
     message = "Managed by the provisioning file; change it there and restart the service"

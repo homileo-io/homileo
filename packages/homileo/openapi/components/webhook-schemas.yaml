@@ -1,0 +1,36 @@
+WebhookEvent:
+  type: object
+  description: |
+    The envelope of every webhook delivery, as tereo's webhooks service builds and signs it. A
+    delivery's headers and signature are tereo's: see its documentation for how to verify one.
+  required: [id, eventType, entityType, entityId, data]
+  properties:
+    id:
+      type: string
+      format: uuid
+      description: Identifier of this payload, per subscribed endpoint
+    organizationId:
+      type: [string, 'null']
+      format: uuid
+      description: The organization the event belongs to
+    eventType:
+      type: string
+      description: The event type, `homileo.<area>.<verb>`
+    entityType:
+      type: string
+      description: The kind of entity the event is about
+    entityId:
+      type: string
+      description: The entity's id
+    occurredAt:
+      type: string
+      format: date-time
+    data:
+      type: object
+      description: The event's payload, with its `eventId` (the id of the event in Homileo's own log)
+      required: [eventId]
+      properties:
+        eventId:
+          type: string
+          description: Id of the event row; the same id realtime delivery and `GET /v1/sync` carry
+      additionalProperties: true

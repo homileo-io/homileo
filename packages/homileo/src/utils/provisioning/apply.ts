@@ -1,4 +1,5 @@
 import { resolveKind } from "../../definitions/builtins.js";
+import { invalidateKinds } from "../kinds.js";
 import { validateSet } from "./validate.js";
 import { prisma } from "../db/prisma.js";
 import { db } from "../db/index.js";
@@ -37,7 +38,7 @@ export const applyDocuments = async (
   const invalid = validateSet(documents);
   if (invalid.length > 0) throw new ProvisioningError(invalid);
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const problems: Problem[] = [];
     const retired: string[] = [];
     let applied = 0;
@@ -102,6 +103,9 @@ export const applyDocuments = async (
 
     for (const row of existingKinds.values()) {
       if (row.retired || declaredKinds.has(row.name)) continue;
+      // Space creation reads the kind FOR SHARE: holding the row FOR UPDATE
+      // makes the count and the retirement wait for any create in flight.
+      await db.provisioned.lockKind(tx, row.name);
       const spaces = await db.provisioned.countUnarchivedSpaces(tx, row.name);
       if (spaces > 0) {
         problems.push({
@@ -133,4 +137,6 @@ export const applyDocuments = async (
     if (problems.length > 0) throw new ProvisioningError(problems);
     return { applied, retired };
   });
+  invalidateKinds();
+  return result;
 };

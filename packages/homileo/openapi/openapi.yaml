@@ -1,0 +1,105 @@
+openapi: 3.1.0
+info:
+  title: Homileo API
+  version: 0.1.0
+  description: |
+    Homileo is a generic chat service for apps built on tereo: spaces, sessions, messages, threads,
+    reactions, mentions, read state and attachments. Each app deploys its own Homileo beside its
+    tereo. Every path in this spec is the full path on the service: the API is versioned under
+    `/v1`, and `GET /health` stays at the root.
+
+    ## Authentication
+
+    Requests carry a tereo access token as `Authorization: Bearer <token>`. Homileo verifies it
+    with tereo's SDK. A service account (a bot) is a principal like any other.
+
+    ## Organizations
+
+    Every space and session belongs to one tereo organization, and every request is limited to the
+    organization in the token's `org_id`. No header names one. A token without an organization gets
+    `400 organization_required` on every `/v1` route.
+
+    ## Permissions and access
+
+    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
+    open to any signed-in caller in an organization, and what the caller may see or do is decided
+    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
+    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
+    the caller can read the resource but may not do the action.
+
+    ## Pagination
+
+    Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
+    `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
+    instead, as their routes describe.
+
+    ## Errors
+
+    An error is `{ "error": "<code>", "error_description": "<text>", ...details }`. A validation
+    failure is `400 invalid_request` with `issues`, a list of `{ path, message }`.
+
+    ## JSON shapes
+
+    Ids are strings, `seq`, `lastSeq` and `lastReadSeq` are JSON numbers, timestamps are ISO 8601
+    strings and event ids are strings.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:4101
+    description: Local development server (each app deploys its own Homileo; substitute its host)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Platform
+    description: Health and the caller's own identity
+
+x-tagGroups:
+  - name: Platform
+    tags: [Platform]
+
+paths:
+  /health:
+    $ref: './paths/platform/health.yaml#/~1health'
+  /v1/me:
+    $ref: './paths/platform/me.yaml#/~1v1~1me'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: './components/security.yaml#/BearerAuth'
+  parameters:
+    CursorParam:
+      $ref: './components/parameters.yaml#/CursorParam'
+    LimitParam:
+      $ref: './components/parameters.yaml#/LimitParam'
+  responses:
+    BadRequestResponse:
+      $ref: './components/responses.yaml#/BadRequestResponse'
+    UnauthorizedResponse:
+      $ref: './components/responses.yaml#/UnauthorizedResponse'
+    ForbiddenResponse:
+      $ref: './components/responses.yaml#/ForbiddenResponse'
+    NotFoundResponse:
+      $ref: './components/responses.yaml#/NotFoundResponse'
+    ConflictResponse:
+      $ref: './components/responses.yaml#/ConflictResponse'
+    ServerErrorResponse:
+      $ref: './components/responses.yaml#/ServerErrorResponse'
+    NoContentResponse:
+      $ref: './components/responses.yaml#/NoContentResponse'
+  schemas:
+    Error:
+      $ref: './components/responses.yaml#/Error'
+    HealthStatus:
+      $ref: './components/platform/schemas.yaml#/HealthStatus'
+    MeResponse:
+      $ref: './components/platform/schemas.yaml#/MeResponse'
+    WebhookEvent:
+      $ref: './components/webhook-schemas.yaml#/WebhookEvent'
+
+# Each event type's webhook is added by the task that emits it.
+webhooks: {}

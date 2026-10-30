@@ -1,0 +1,20 @@
+/v1/me:
+  get:
+    tags: [Platform]
+    summary: Get the caller
+    description: |
+      The caller's principal, created on the first request of a signed-in tereo user, with the
+      organization and permissions of the token.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: getMe
+    responses:
+      '200':
+        description: The caller
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/platform/schemas.yaml#/MeResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

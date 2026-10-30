@@ -60,6 +60,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Lints, then bundles; the committed bundle must match the source.
+      - name: Lint and bundle OpenAPI spec
+        run: |
+          npm run openapi:build -w homileo
+          git diff --exit-code packages/homileo/openapi/bundled-openapi.yaml
+
       - name: Type check
         run: npx nx $NX_SCOPE -t check --parallel=4
 

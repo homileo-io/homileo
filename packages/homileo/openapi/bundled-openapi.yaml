@@ -1,0 +1,328 @@
+openapi: 3.1.0
+info:
+  title: Homileo API
+  version: 0.1.0
+  description: |
+    Homileo is a generic chat service for apps built on tereo: spaces, sessions, messages, threads,
+    reactions, mentions, read state and attachments. Each app deploys its own Homileo beside its
+    tereo. Every path in this spec is the full path on the service: the API is versioned under
+    `/v1`, and `GET /health` stays at the root.
+
+    ## Authentication
+
+    Requests carry a tereo access token as `Authorization: Bearer <token>`. Homileo verifies it
+    with tereo's SDK. A service account (a bot) is a principal like any other.
+
+    ## Organizations
+
+    Every space and session belongs to one tereo organization, and every request is limited to the
+    organization in the token's `org_id`. No header names one. A token without an organization gets
+    `400 organization_required` on every `/v1` route.
+
+    ## Permissions and access
+
+    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
+    open to any signed-in caller in an organization, and what the caller may see or do is decided
+    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
+    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
+    the caller can read the resource but may not do the action.
+
+    ## Pagination
+
+    Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
+    `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
+    instead, as their routes describe.
+
+    ## Errors
+
+    An error is `{ "error": "<code>", "error_description": "<text>", ...details }`. A validation
+    failure is `400 invalid_request` with `issues`, a list of `{ path, message }`.
+
+    ## JSON shapes
+
+    Ids are strings, `seq`, `lastSeq` and `lastReadSeq` are JSON numbers, timestamps are ISO 8601
+    strings and event ids are strings.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://localhost:4101
+    description: Local development server (each app deploys its own Homileo; substitute its host)
+security:
+  - BearerAuth: []
+tags:
+  - name: Platform
+    description: Health and the caller's own identity
+paths:
+  /health:
+    get:
+      tags:
+        - Platform
+      summary: Health check
+      description: |
+        Whether Postgres and Redis answer. Public: it names no version and takes no token.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: A dependency does not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /v1/me:
+    get:
+      tags:
+        - Platform
+      summary: Get the caller
+      description: |
+        The caller's principal, created on the first request of a signed-in tereo user, with the
+        organization and permissions of the token.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getMe
+      responses:
+        '200':
+          description: The caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+webhooks: {}
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A tereo access token. Homileo verifies it with tereo's SDK and takes the caller's user id,
+        permissions and organization (`org_id`) from it. A token without an organization is refused
+        with `400 organization_required`.
+
+        The one permission a route asks of the token is `homileo.spaces.write`, on `POST /v1/spaces`.
+        Permissions are tereo's dotted, hierarchical form: `write` covers `read`, and a domain's
+        `admin` covers all of it. Everything else is decided by the access rules for the resource.
+  parameters:
+    CursorParam:
+      name: cursor
+      in: query
+      description: |
+        Opaque cursor for keyset pagination: the `nextCursor` of the previous page. Omit it on the
+        first request. A malformed cursor is `400 invalid_request`.
+      required: false
+      schema:
+        type: string
+    LimitParam:
+      name: limit
+      in: query
+      description: Maximum number of items per page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+  responses:
+    BadRequestResponse:
+      description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnauthorizedResponse:
+      description: Unauthorized - the access token is missing, invalid or expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ForbiddenResponse:
+      description: Forbidden - the caller can read the resource but may not do this (or lacks the permission the route needs)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFoundResponse:
+      description: Not found - the resource does not exist, is in another organization, or the caller cannot read it (the three look alike)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ConflictResponse:
+      description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServerErrorResponse:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NoContentResponse:
+      description: Done; no content
+  schemas:
+    Error:
+      type: object
+      description: Every error body
+      required:
+        - error
+        - error_description
+      properties:
+        error:
+          type: string
+          description: A stable, machine-readable code
+        error_description:
+          type: string
+          description: A human-readable explanation
+        issues:
+          type: array
+          description: On `invalid_request`, the failed checks
+          items:
+            type: object
+            required:
+              - path
+              - message
+            properties:
+              path:
+                type: string
+                description: The field, dotted (`metadata.key`); empty for the whole value
+              message:
+                type: string
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - postgres
+        - redis
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        postgres:
+          type: string
+          enum:
+            - ok
+            - fail
+        redis:
+          type: string
+          enum:
+            - ok
+            - fail
+    MeResponse:
+      type: object
+      required:
+        - principal
+        - organizationId
+        - permissions
+      properties:
+        principal:
+          $ref: '#/components/schemas/MePrincipal'
+        organizationId:
+          type: string
+          format: uuid
+          description: The organization of the token
+        permissions:
+          type: array
+          description: The token's tereo permissions
+          items:
+            type: string
+    WebhookEvent:
+      type: object
+      description: |
+        The envelope of every webhook delivery, as tereo's webhooks service builds and signs it. A
+        delivery's headers and signature are tereo's: see its documentation for how to verify one.
+      required:
+        - id
+        - eventType
+        - entityType
+        - entityId
+        - data
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier of this payload, per subscribed endpoint
+        organizationId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The organization the event belongs to
+        eventType:
+          type: string
+          description: The event type, `homileo.<area>.<verb>`
+        entityType:
+          type: string
+          description: The kind of entity the event is about
+        entityId:
+          type: string
+          description: The entity's id
+        occurredAt:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: The event's payload, with its `eventId` (the id of the event in Homileo's own log)
+          required:
+            - eventId
+          properties:
+            eventId:
+              type: string
+              description: Id of the event row; the same id realtime delivery and `GET /v1/sync` carry
+          additionalProperties: true
+    MePrincipal:
+      type: object
+      description: The caller's principal
+      required:
+        - id
+        - kind
+        - tereoUserId
+        - isBot
+        - displayName
+        - avatarUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - user
+            - external
+        tereoUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The tereo user the principal is, for a `user`
+        isBot:
+          type: boolean
+          description: True for a tereo service account
+        displayName:
+          type:
+            - string
+            - 'null'
+        avatarUrl:
+          type:
+            - string
+            - 'null'
+x-tagGroups:
+  - name: Platform
+    tags:
+      - Platform
