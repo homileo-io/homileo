@@ -1,0 +1,38 @@
+# Local backing services for Homileo.
+#
+#   docker compose up -d postgres redis   # then `npm run dev` in packages/homileo
+#
+# Host ports (5452 / 6399) keep clear of 5432/6379 and of tereo's own stack
+# (5442 / 6389); override with HOMILEO_POSTGRES_PORT / HOMILEO_REDIS_PORT. Both
+# are published on 127.0.0.1 only: their credentials are the public defaults below.
+name: homileo
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: homileo
+      POSTGRES_PASSWORD: homileo
+      POSTGRES_DB: homileo
+    ports:
+      - "127.0.0.1:${HOMILEO_POSTGRES_PORT:-5452}:5432"
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homileo -d homileo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${HOMILEO_REDIS_PORT:-6399}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres:
