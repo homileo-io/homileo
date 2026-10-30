@@ -78,3 +78,23 @@ homileo.session.participant_added:
     responses:
       '2XX':
         description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.session.participant_removed:
+  post:
+    tags: [Sessions]
+    summary: Participant removed from a session
+    operationId: webhookSessionParticipantRemoved
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.session.participant_removed }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionParticipantRemovedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

@@ -112,6 +112,14 @@ paths:
     $ref: './paths/sessions/session.yaml#/~1v1~1sessions~1{sessionId}'
   /v1/sessions/{sessionId}/archive:
     $ref: './paths/sessions/archive.yaml#/~1v1~1sessions~1{sessionId}~1archive'
+  /v1/sessions/{sessionId}/participants:
+    $ref: './paths/sessions/participants.yaml#/~1v1~1sessions~1{sessionId}~1participants'
+  /v1/sessions/{sessionId}/participants/{principalId}:
+    $ref: './paths/sessions/participant.yaml#/~1v1~1sessions~1{sessionId}~1participants~1{principalId}'
+  /v1/sessions/{sessionId}/read:
+    $ref: './paths/sessions/read.yaml#/~1v1~1sessions~1{sessionId}~1read'
+  /v1/sessions/{sessionId}/notify:
+    $ref: './paths/sessions/notify.yaml#/~1v1~1sessions~1{sessionId}~1notify'
 
 components:
   securitySchemes:
@@ -224,6 +232,20 @@ components:
       $ref: './components/spaces/schemas.yaml#/SpaceMemberRoleChangedEventData'
     JoinRequestEventData:
       $ref: './components/spaces/schemas.yaml#/JoinRequestEventData'
+    SessionParticipantRemovedEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionParticipantRemovedEventData'
+    ParticipantWithPrincipal:
+      $ref: './components/sessions/schemas.yaml#/ParticipantWithPrincipal'
+    ListParticipantsResponse:
+      $ref: './components/sessions/schemas.yaml#/ListParticipantsResponse'
+    ParticipantResponse:
+      $ref: './components/sessions/schemas.yaml#/ParticipantResponse'
+    ReadPositionRequest:
+      $ref: './components/sessions/schemas.yaml#/ReadPositionRequest'
+    ReadPositionResponse:
+      $ref: './components/sessions/schemas.yaml#/ReadPositionResponse'
+    NotifyRequest:
+      $ref: './components/sessions/schemas.yaml#/NotifyRequest'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 
@@ -253,3 +275,5 @@ webhooks:
     $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_requested'
   homileo.space.join_decided:
     $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_decided'
+  homileo.session.participant_removed:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_removed'

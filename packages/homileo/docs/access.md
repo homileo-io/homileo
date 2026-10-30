@@ -98,6 +98,14 @@ The design does not state these.
   grants and admin role are unknown to the caller and ignored. A leaving caller is judged with their
   own permissions.
 - **Leave a session** (`canLeaveSession`): any participant of an unarchived session except a DM.
+  When the last `owner` of a space-less group leaves or is removed, ownership passes to the
+  remaining participant who joined first (no event records the role change).
+- **Joining through an open space** also makes a non-member a space `member`
+  (`space.member_added`). Adding someone else to a space's session needs them to be a space member.
+- **`session.access_revoked`** follows a removal. When someone else is removed, only membership and
+  visibility are judged (the removed principal's kind grants are unknown): a members-only or
+  space-less session is revoked; a space session only for a non-member of a non-public space. When
+  one leaves, their own facts decide.
 - **React** (`canReact`): participation and an unarchived session and space; the post policy does
   not apply.
 - **Session settings** (`canEditSessionSettings`: rename, `metadata`, `externalRef`, `state`): in a

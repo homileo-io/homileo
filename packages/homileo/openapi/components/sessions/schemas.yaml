@@ -179,3 +179,65 @@ SessionParticipantAddedEventData:
     sessionId: { type: string, format: uuid }
     participant: { $ref: '#/Participant' }
     eventId: { type: string }
+
+ParticipantWithPrincipal:
+  allOf:
+    - $ref: '#/Participant'
+    - type: object
+      required: [principal]
+      properties:
+        principal: { $ref: '../principals/schemas.yaml#/Principal' }
+
+ListParticipantsResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/ParticipantWithPrincipal' }
+    nextCursor: { type: [string, 'null'] }
+
+ParticipantResponse:
+  type: object
+  required: [participant]
+  properties:
+    participant: { $ref: '#/Participant' }
+
+ReadPositionRequest:
+  type: object
+  additionalProperties: false
+  required: [seq]
+  properties:
+    seq:
+      type: integer
+      minimum: 0
+      description: The `seq` of the last message read
+  examples:
+    - seq: 42
+
+ReadPositionResponse:
+  type: object
+  required: [lastReadSeq]
+  properties:
+    lastReadSeq:
+      type: integer
+      description: The position after the request; it never moves back and never passes the session's `lastSeq`
+
+NotifyRequest:
+  type: object
+  additionalProperties: false
+  required: [notify]
+  properties:
+    notify:
+      type: string
+      enum: [all, mentions, none]
+  examples:
+    - notify: mentions
+
+SessionParticipantRemovedEventData:
+  type: object
+  required: [sessionId, principalId, eventId]
+  properties:
+    sessionId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+    eventId: { type: string }

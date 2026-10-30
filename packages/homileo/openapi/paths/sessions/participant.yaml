@@ -1,0 +1,74 @@
+/v1/sessions/{sessionId}/participants/{principalId}:
+  put:
+    tags: [Sessions]
+    summary: Join a session or add a participant
+    description: |
+      When `principalId` is the caller this is a join: it needs an `access: space` session in an
+      unarchived space the caller can read, and the caller to be a member of the space or the
+      space's `joinPolicy` to be `open`. A non-member joining through an open space also becomes a
+      space `member` (records `space.member_added`). Otherwise it is an add: in a space it needs
+      the right to moderate the space, and the target must already be a space member (`400
+      invalid_request` with an issue at `principalId`); in a group without a space only its
+      `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
+      re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
+      already a current participant. Records `session.participant_added`.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: putSessionParticipant
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: principalId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    responses:
+      '200':
+        description: Already a participant
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/ParticipantResponse'
+      '201':
+        description: Added
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/ParticipantResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  delete:
+    tags: [Sessions]
+    summary: Leave a session or remove a participant
+    description: |
+      When `principalId` is the caller, they leave: any participant may, except in a DM (`403`).
+      Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
+      without a space, its `owner` or `homileo.chat.admin` (who must be a participant to reach
+      it). A principal who is not a current participant is `404`. When the last `owner` of a group
+      without a space leaves or is removed, ownership passes to the remaining participant who
+      joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
+      removed principal can no longer read the session. Removing someone else is audited.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: deleteSessionParticipant
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: principalId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    responses:
+      '204': { $ref: '../../components/responses.yaml#/NoContentResponse' }
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

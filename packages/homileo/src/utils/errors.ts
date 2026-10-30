@@ -74,6 +74,14 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/** The caller can read the session but takes no part in it. */
+export class NotAParticipantError extends AppError {
+  constructor(message = "You are not a participant of this session") {
+    super(403, "not_a_participant", message);
+    this.name = "NotAParticipantError";
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Not found") {
     super(404, "not_found", message);

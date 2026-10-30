@@ -1,0 +1,28 @@
+/v1/sessions/{sessionId}/participants:
+  get:
+    tags: [Sessions]
+    summary: List a session's participants
+    description: |
+      The current participants, oldest joiner first, each with its `principal`. Participants who
+      left are not listed. Any caller who can read the session may list them.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: listSessionParticipants
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+    responses:
+      '200':
+        description: A page of participants
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/ListParticipantsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

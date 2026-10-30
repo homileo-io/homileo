@@ -1,3 +1,4 @@
+import * as participants from "./participants.js";
 import * as provisioned from "./provisioned.js";
 import * as principals from "./principals.js";
 import * as sessions from "./sessions.js";
@@ -16,6 +17,7 @@ export const db = {
   spaces,
   sessions,
   members,
+  participants,
 };
 
 export { prisma } from "./prisma.js";

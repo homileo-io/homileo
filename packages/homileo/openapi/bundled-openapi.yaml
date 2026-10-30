@@ -893,6 +893,219 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/participants:
+    get:
+      tags:
+        - Sessions
+      summary: List a session's participants
+      description: |
+        The current participants, oldest joiner first, each with its `principal`. Participants who
+        left are not listed. Any caller who can read the session may list them.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSessionParticipants
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of participants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListParticipantsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/participants/{principalId}:
+    put:
+      tags:
+        - Sessions
+      summary: Join a session or add a participant
+      description: |
+        When `principalId` is the caller this is a join: it needs an `access: space` session in an
+        unarchived space the caller can read, and the caller to be a member of the space or the
+        space's `joinPolicy` to be `open`. A non-member joining through an open space also becomes a
+        space `member` (records `space.member_added`). Otherwise it is an add: in a space it needs
+        the right to moderate the space, and the target must already be a space member (`400
+        invalid_request` with an issue at `principalId`); in a group without a space only its
+        `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
+        re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
+        already a current participant. Records `session.participant_added`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionParticipant
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Already a participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Sessions
+      summary: Leave a session or remove a participant
+      description: |
+        When `principalId` is the caller, they leave: any participant may, except in a DM (`403`).
+        Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
+        without a space, its `owner` or `homileo.chat.admin` (who must be a participant to reach
+        it). A principal who is not a current participant is `404`. When the last `owner` of a group
+        without a space leaves or is removed, ownership passes to the remaining participant who
+        joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
+        removed principal can no longer read the session. Removing someone else is audited.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: deleteSessionParticipant
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/read:
+    put:
+      tags:
+        - Sessions
+      summary: Set the caller's read position
+      description: |
+        Moves the caller's read position to `seq`, never backwards and never past the session's
+        `lastSeq`. Records `read.updated` only when the position moved. A caller who can read the
+        session but is not a participant gets `403 not_a_participant`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionRead
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadPositionRequest'
+      responses:
+        '200':
+          description: The position after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadPositionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/notify:
+    put:
+      tags:
+        - Sessions
+      summary: Set the caller's notify level
+      description: |
+        Sets how the caller is notified of this session. A personal setting: records no event. A
+        caller who can read the session but is not a participant gets `403 not_a_participant`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionNotify
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotifyRequest'
+      responses:
+        '200':
+          description: The caller's participation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -1187,6 +1400,30 @@ webhooks:
                       const: space
                     data:
                       $ref: '#/components/schemas/JoinRequestEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.participant_removed:
+    post:
+      tags:
+        - Sessions
+      summary: Participant removed from a session
+      operationId: webhookSessionParticipantRemoved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.participant_removed
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantRemovedEventData'
       responses:
         2XX:
           description: Any 2xx response acknowledges the delivery; anything else is retried.
@@ -2237,6 +2474,85 @@ components:
           type: string
         request:
           $ref: '#/components/schemas/JoinRequest'
+    SessionParticipantRemovedEventData:
+      type: object
+      required:
+        - sessionId
+        - principalId
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+    ParticipantWithPrincipal:
+      allOf:
+        - $ref: '#/components/schemas/Participant'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
+    ListParticipantsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantWithPrincipal'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    ParticipantResponse:
+      type: object
+      required:
+        - participant
+      properties:
+        participant:
+          $ref: '#/components/schemas/Participant'
+    ReadPositionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - seq
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: The `seq` of the last message read
+      examples:
+        - seq: 42
+    ReadPositionResponse:
+      type: object
+      required:
+        - lastReadSeq
+      properties:
+        lastReadSeq:
+          type: integer
+          description: The position after the request; it never moves back and never passes the session's `lastSeq`
+    NotifyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - notify
+      properties:
+        notify:
+          type: string
+          enum:
+            - all
+            - mentions
+            - none
+      examples:
+        - notify: mentions
     WebhookEvent:
       type: object
       description: |
