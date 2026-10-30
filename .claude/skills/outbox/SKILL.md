@@ -18,12 +18,12 @@ paths:
 Homileo records every change **in the transaction that makes it**, so the event, the webhook and
 the audit entry exist exactly when the business write commits, and not at all when it rolls back.
 It uses one function for this, `recordChange` (`utils/changes.ts`), on top of `@tereo-io/sdk`'s
-`core.outbox`.
+`core.outbox` (the table is `core.core_outbox`).
 
 | Piece | Where | What it does |
 |---|---|---|
 | `chat.events` | Homileo's database, range-partitioned by day | The ordered event log behind realtime and `GET /v1/sync` |
-| `core.outbox` | Homileo's database (the `core` schema, created by Homileo's migration) | tereo's outbox rows: `webhook` (events → tereo webhooks) and `audit` |
+| `core.core_outbox` | Homileo's database (the `core` schema, created by Homileo's migration) | tereo's outbox rows: `webhook` (events → tereo webhooks) and `audit` |
 | Reaper | `tereo.start()` in `worker.ts` (`ROLE=worker` or `all`) | Claims due outbox rows, sends them to tereo, deletes on success |
 
 tereo's database is not Homileo's, so nothing here writes tereo's tables: both webhook events and
@@ -44,7 +44,7 @@ audit entries go through the outbox.
 ## Call-site pattern
 
 ```typescript
-await db.$transaction(async (tx) => {
+await prisma.$transaction(async (tx) => {
   const message = await db.messages.create(input, tx);
   await recordChange(tx, {
     type: "message.created",
@@ -60,8 +60,10 @@ await db.$transaction(async (tx) => {
 
 `ChangeInput`: `type` (a key of `EVENT_TYPES`), `organizationId`, `spaceId?`, `sessionId?`,
 `actorId` (a principal id), `entity` (`{ type, id }`, becomes tereo's `entityType`/`entityId`),
-`payload` (parsed with the type's schema), `audit?` (`{ action, userId, metadata? }`). It returns the
-`ChangeEvent` (with the `bigint` id) so the caller can publish it after commit.
+`payload` (parsed with the type's schema), `audit?` (`{ action: "CREATE" | "UPDATE" | "DELETE", userId, metadata? }`; `userId` must be a
+UUID, the SDK refuses anything else now). It returns the `ChangeEvent` (with the `bigint` id) so the
+caller can publish it after commit. A payload the type's schema rejects throws `ValidationError`
+(400) before anything is written.
 
 - The webhook `data` is `{ eventId: String(id), ...payload }`; the tereo event type is
   `homileo.<type>`.
@@ -75,7 +77,7 @@ await db.$transaction(async (tx) => {
 1. **Inside the transaction**: `recordChange` writes to the same `tx` as the business write. Call it
    last, just before returning from the callback.
 2. **Outside the transaction**: side effects with no database write — socket publishes — run after
-   `db.$transaction` resolves. A failed publish logs and never fails the request; the client
+   `prisma.$transaction` resolves. A failed publish logs and never fails the request; the client
    catches up with `GET /v1/sync?since=`.
 
 ## Adding a new event type
@@ -94,15 +96,17 @@ Removing an event type that webhook subscribers rely on is a breaking change.
 ## Event partitions
 
 `chat.events` is range-partitioned by day (`events_YYYY_MM_DD`). `ensureEventPartitions()` creates
-yesterday through today+7; `index.ts` runs it before listening and the worker runs it daily. It is
-idempotent and safe to run concurrently. Retention (dropping old partitions, `EVENT_RETENTION_DAYS`)
+yesterday through today+7 (9 partitions) and returns how many it ensured; `index.ts` runs it before
+listening (API roles), and `jobs/eventPartitions.ts` wraps it for the worker's daily run. It is
+idempotent and safe to run concurrently; a locked table makes it give up after
+`PARTITION_DDL_LOCK_TIMEOUT_MS` and retry next run. See `packages/homileo/docs/events.md`. Retention (dropping old partitions, `EVENT_RETENTION_DAYS`)
 arrives in plan 3.
 
 ## Reaper behaviour
 
 tereo's reaper (in `@tereo-io/sdk`) is started by `tereo.start()` in `worker.ts` and stopped by
 `tereo.stop()`. Defaults: `pollIntervalMs` 1000, `batchSize` 100, `maxAttempts` 100,
-`retryBaseMs` 2000, `maxBackoffMs` 30 min, `claimTtlMs` 60 s. It dispatches `audit` →
+`retryBaseMs` 2000, `maxBackoffMs` 30 min, `claimTtlMs` 5 min. It dispatches `audit` →
 `audit.logAsync` and `webhook` → `webhooks.emitAsync`, sequentially within a batch, each with
 `idempotencyKey: row.id`. A permanent rejection (a 4xx other than 401, 408, 409, 429) dead-letters
 at once; watch for `outbox.dead_letter` logs. **Replay**: clear `dead_lettered_at`, set
@@ -125,13 +129,15 @@ at once; watch for `outbox.dead_letter` logs. **Replay**: clear `dead_lettered_a
 - **Don't emit an event type that isn't in the registry** (and, for webhooks, the declaration).
 - **Don't add events to read endpoints** — read state has its own `read.updated` event, written
   when the cursor moves.
-- **Don't open `prisma.$transaction` in a controller** — use `db.$transaction`.
+- **Don't open `prisma.$transaction` in a controller** — transactions belong to the `utils/db/` module that owns the write, or to a service function the controller calls.
 
 ## Common gotchas
 
-- **`TEREO_TEST_MODE`**: tereo is stubbed; the outbox tables and reaper still run. Tests poll
-  (`waitFor`) for the effect of a dispatch rather than assuming it is immediate, and may call the
-  SDK's public `processBatch()` to drain the outbox deterministically.
+- **`TEREO_TEST_MODE`**: tereo is stubbed. The tereo client is created by `initializeTereo()`, which
+  the server does in the vitest main process; a test file runs in a worker and calls it itself in
+  `beforeAll` (and `stopTereo()` in `afterAll`) before `recordChange`. Creating the client does not
+  start the reaper, so outbox rows stay in `core.core_outbox` for the test to read; delete the ones
+  the test made. The SDK's public `processBatch()` drains them deterministically.
 - **A rolled-back transaction leaves no event and no outbox row** — `changes.test.ts` asserts this;
   keep it true when refactoring.
 - **`created_at` partitions**: an event recorded for a day with no partition fails. The daily job

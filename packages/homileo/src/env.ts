@@ -92,6 +92,9 @@ const EnvFields = z
     PROVISIONING_PATH: z.string().optional(),
     // How long change events are kept.
     EVENT_RETENTION_DAYS: int(1, 3650, 30),
+    // How long creating an event partition waits for the table's lock before
+    // the next run retries.
+    PARTITION_DDL_LOCK_TIMEOUT_MS: int(100, 60_000, 5_000),
     // How long a cached principal profile lives.
     PRINCIPAL_PROFILE_TTL_SECONDS: int(1, 86_400, 3600),
   })

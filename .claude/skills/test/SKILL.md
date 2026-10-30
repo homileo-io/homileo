@@ -76,8 +76,9 @@ During work, run the focused tests (the file, or a tag expression) — CI runs t
 - `setup/globalSetup.ts` migrates the test database, then starts **one server** (port 4101 unless
   `TEST_PORT`) that every `int` file talks to. Stop `npm run dev` first if it holds the port.
 - `int` files run serially (`fileParallelism: false`) in no promised order.
-- The running server's own worker runs its reaper and partition job mid-test. A test that needs a
-  quiet outbox drains it with the SDK's `processBatch()` rather than assuming it is idle.
+- The server starts `ensureEventPartitions()` before listening, so today's and the next week's
+  `chat.events` partitions exist. No reaper runs in the test process yet; a test that needs the outbox
+  drained calls the SDK's `processBatch()`.
 
 ## Auth in Tests
 
@@ -134,12 +135,14 @@ can't show. Write one test per mutation for its side effects (in `.audit` when t
 near the cap):
 
 - **Event**: a `chat.events` row with the type, organization, space/session and actor.
-- **Webhook**: a `core.outbox` row with `destination = "webhook"`, `payload.eventType ===
+- **Webhook**: a `core.core_outbox` row with `destination = "webhook"`, `payload.eventType ===
   "homileo.<type>"`; none for a non-webhook event such as `read.updated`.
-- **Audit**: a `core.outbox` row with `destination = "audit"` when the change asks for one.
+- **Audit**: a `core.core_outbox` row with `destination = "audit"` when the change asks for one.
 - **Atomicity**: a rolled-back transaction leaves no event and no outbox row.
-- **Background jobs**: call the job's exported function directly (`ensureEventPartitions()`), then
-  check the rows.
+- **`recordChange`**: call `initializeTereo()` in `beforeAll`, run it inside `prisma.$transaction`,
+  and read `core.core_outbox` with raw SQL filtered on the test's own `organizationId`.
+- **Background jobs**: call the job's exported function directly (`ensureEventPartitions(day)`; pass
+  a far-off day so the count is exact), then check the rows.
 
 ## DO
 

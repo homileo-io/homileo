@@ -2,6 +2,7 @@ import "./preload.js";
 import { closeHttpServer, tuneServerKeepAlive } from "./utils/httpServer.js";
 import { ProvisioningError, provision } from "./utils/provisioning/index.js";
 import { closeRedisConnection, initializeRedis } from "./utils/redis.js";
+import { ensureEventPartitions } from "./utils/partitions.js";
 import { initializeTereo, stopTereo } from "./utils/tereo.js";
 import { disconnectDatabase } from "./utils/db/prisma.js";
 import { createServer, type Server } from "http";
@@ -46,6 +47,10 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
         }
         throw err;
       }
+
+      // Events recorded today and tomorrow need their partitions even while
+      // the worker, which creates them a week ahead, is down.
+      await ensureEventPartitions();
 
       // Imported after Redis is up, as the modules behind it may resolve the
       // client when they load.

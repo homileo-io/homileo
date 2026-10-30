@@ -140,7 +140,7 @@ from `utils/changes.ts`, which validates the payload against the SDK's event sch
 (`outbox.emit`) and, when `audit` is given, the audit row (`outbox.audit`):
 
 ```typescript
-const session = await db.$transaction(async (tx) => {
+const session = await prisma.$transaction(async (tx) => {
   const created = await db.sessions.create(input, tx);
   await recordChange(tx, {
     type: "session.created",
