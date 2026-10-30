@@ -54,6 +54,9 @@ security:
   - BearerAuth: []
 
 tags:
+  - name: Spaces
+    description: Places that group sessions, with members, a kind and an access policy
+
   - name: Platform
     description: Health and the caller's own identity
 
@@ -61,6 +64,8 @@ tags:
     description: Users, bots and external identities that take part in chat
 
 x-tagGroups:
+  - name: Spaces
+    tags: [Spaces]
   - name: Principals
     tags: [Principals]
   - name: Platform
@@ -71,6 +76,12 @@ paths:
     $ref: './paths/platform/health.yaml#/~1health'
   /v1/me:
     $ref: './paths/platform/me.yaml#/~1v1~1me'
+  /v1/spaces:
+    $ref: './paths/spaces/spaces.yaml#/~1v1~1spaces'
+  /v1/spaces/{spaceId}:
+    $ref: './paths/spaces/space.yaml#/~1v1~1spaces~1{spaceId}'
+  /v1/spaces/{spaceId}/archive:
+    $ref: './paths/spaces/archive.yaml#/~1v1~1spaces~1{spaceId}~1archive'
   /v1/principals/resolve:
     $ref: './paths/principals/resolve.yaml#/~1v1~1principals~1resolve'
   /v1/principals/{principalId}:
@@ -115,8 +126,40 @@ components:
       $ref: './components/principals/schemas.yaml#/ResolvePrincipalsRequest'
     ResolvePrincipalsResponse:
       $ref: './components/principals/schemas.yaml#/ResolvePrincipalsResponse'
+    SpaceRole:
+      $ref: './components/spaces/schemas.yaml#/SpaceRole'
+    Space:
+      $ref: './components/spaces/schemas.yaml#/Space'
+    SpaceWithRole:
+      $ref: './components/spaces/schemas.yaml#/SpaceWithRole'
+    SpaceMember:
+      $ref: './components/spaces/schemas.yaml#/SpaceMember'
+    ListSpacesResponse:
+      $ref: './components/spaces/schemas.yaml#/ListSpacesResponse'
+    CreateSpaceRequest:
+      $ref: './components/spaces/schemas.yaml#/CreateSpaceRequest'
+    CreateSpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/CreateSpaceResponse'
+    UpdateSpaceRequest:
+      $ref: './components/spaces/schemas.yaml#/UpdateSpaceRequest'
+    GetSpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/GetSpaceResponse'
+    SpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/SpaceResponse'
+    SpaceEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceEventData'
+    SpaceMemberAddedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberAddedEventData'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
 
 # Each event type's webhook is added by the task that emits it.
-webhooks: {}
+webhooks:
+  homileo.space.created:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.created'
+  homileo.space.updated:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.updated'
+  homileo.space.archived:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.archived'
+  homileo.space.member_added:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_added'

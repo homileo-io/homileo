@@ -1,0 +1,194 @@
+SpaceRole:
+  type: string
+  enum: [owner, moderator, member]
+
+Metadata:
+  type: object
+  description: |
+    A flat object of the caller's choosing: at most 50 keys, each matching
+    `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. An update replaces it whole.
+  additionalProperties: true
+  examples:
+    - { team: core, priority: 2 }
+
+Space:
+  type: object
+  description: A place that groups sessions and has members, in one organization
+  required:
+    - id
+    - organizationId
+    - kind
+    - name
+    - description
+    - visibility
+    - joinPolicy
+    - postPolicy
+    - state
+    - externalRef
+    - metadata
+    - createdBy
+    - createdAt
+    - updatedAt
+    - archivedAt
+  properties:
+    id: { type: string, format: uuid, description: Unique identifier }
+    organizationId: { type: string, format: uuid, description: The tereo organization it belongs to }
+    kind:
+      type: string
+      description: The space kind, `default` or a provisioned one (`<app>:<name>`)
+    name: { type: string, minLength: 1, maxLength: 255 }
+    description: { type: [string, 'null'] }
+    visibility:
+      type: string
+      enum: [public, members]
+      description: '`public` spaces can be read by anyone in the organization; `members` only by members, kind grants and admins'
+    joinPolicy:
+      type: string
+      enum: [open, request, invite]
+    postPolicy:
+      type: string
+      enum: [members, moderators]
+      description: Who may start a session in the space
+    state:
+      type: [string, 'null']
+      maxLength: 64
+      description: One of the kind's declared states, or null
+    externalRef:
+      type: [string, 'null']
+      maxLength: 255
+      description: The app's own id for the space; unique within the organization and kind
+    metadata: { $ref: '#/Metadata' }
+    createdBy: { type: string, format: uuid, description: The creator's principal id }
+    createdAt: { type: string, format: date-time }
+    updatedAt: { type: string, format: date-time }
+    archivedAt: { type: [string, 'null'], format: date-time }
+
+SpaceWithRole:
+  description: A space with the caller's role in it
+  allOf:
+    - $ref: '#/Space'
+    - type: object
+      required: [role]
+      properties:
+        role:
+          oneOf:
+            - { $ref: '#/SpaceRole' }
+            - { type: 'null' }
+          description: The caller's role, or null when they read the space without being a member
+
+SpaceMember:
+  type: object
+  required: [spaceId, principalId, role, joinedAt]
+  properties:
+    spaceId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+    role: { $ref: '#/SpaceRole' }
+    joinedAt: { type: string, format: date-time }
+
+ListSpacesResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/SpaceWithRole' }
+    nextCursor:
+      type: [string, 'null']
+      description: Pass it as `cursor` for the next page; null on the last page
+
+CreateSpaceRequest:
+  type: object
+  additionalProperties: false
+  required: [name]
+  properties:
+    kind:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: An active kind; `default` when omitted. An unknown or retired kind is `400 kind_not_found`.
+    name: { type: string, minLength: 1, maxLength: 255, description: Trimmed }
+    description: { type: [string, 'null'], maxLength: 10000 }
+    visibility:
+      type: string
+      enum: [public, members]
+      description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `visibility`
+    joinPolicy:
+      type: string
+      enum: [open, request, invite]
+      description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `join`
+    postPolicy:
+      type: string
+      enum: [members, moderators]
+      description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `posting`
+    state:
+      type: [string, 'null']
+      minLength: 1
+      maxLength: 64
+      description: Null or one of the kind's states, else `400 invalid_state`
+    externalRef:
+      type: [string, 'null']
+      minLength: 1
+      maxLength: 255
+      description: Unique per organization and kind, else `409 external_ref_taken`
+    metadata: { $ref: '#/Metadata' }
+  examples:
+    - kind: support:case
+      name: Case 4821
+      externalRef: case-4821
+      metadata: { priority: high }
+
+UpdateSpaceRequest:
+  type: object
+  additionalProperties: false
+  minProperties: 1
+  description: Every field is optional, but at least one is required. `metadata` replaces the whole object.
+  properties:
+    name: { type: string, minLength: 1, maxLength: 255, description: Trimmed }
+    description: { type: [string, 'null'], maxLength: 10000 }
+    visibility: { type: string, enum: [public, members], description: Needs the kind to let spaces override `visibility` }
+    joinPolicy: { type: string, enum: [open, request, invite], description: Needs the kind to let spaces override `join` }
+    postPolicy: { type: string, enum: [members, moderators], description: Needs the kind to let spaces override `posting` }
+    state: { type: [string, 'null'], minLength: 1, maxLength: 64 }
+    externalRef: { type: [string, 'null'], minLength: 1, maxLength: 255 }
+    metadata: { $ref: '#/Metadata' }
+  examples:
+    - { name: Case 4821 (resolved), state: resolved }
+
+CreateSpaceResponse:
+  type: object
+  required: [space]
+  properties:
+    space: { $ref: '#/Space' }
+
+GetSpaceResponse:
+  type: object
+  required: [space, role]
+  properties:
+    space: { $ref: '#/Space' }
+    role:
+      oneOf:
+        - { $ref: '#/SpaceRole' }
+        - { type: 'null' }
+      description: The caller's role, or null when they read the space without being a member
+
+SpaceResponse:
+  type: object
+  required: [space]
+  properties:
+    space: { $ref: '#/Space' }
+
+SpaceEventData:
+  type: object
+  description: The payload of `space.created`, `space.updated` and `space.archived`, with the event's id
+  required: [eventId, space]
+  properties:
+    eventId: { type: string }
+    space: { $ref: '#/Space' }
+
+SpaceMemberAddedEventData:
+  type: object
+  required: [eventId, spaceId, member]
+  properties:
+    eventId: { type: string }
+    spaceId: { type: string, format: uuid }
+    member: { $ref: '#/SpaceMember' }

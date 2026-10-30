@@ -1,0 +1,30 @@
+/v1/spaces/{spaceId}/archive:
+  post:
+    tags: [Spaces]
+    summary: Archive a space
+    description: |
+      Archives the space. Its sessions are not archived; they become read-only because their space
+      is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
+      and an audit entry is written.
+
+      **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+      a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
+      the space, 404.
+
+      **Errors:** `409 already_archived`.
+    operationId: archiveSpace
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+    responses:
+      '200':
+        description: The archived space
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/SpaceResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

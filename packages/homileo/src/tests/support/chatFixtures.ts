@@ -39,6 +39,12 @@ export const chatFixtures = () => {
   const principals: string[] = [];
   const spaces: string[] = [];
   const sessions: string[] = [];
+  const organizations: string[] = [];
+
+  /** Spaces made through the API in this organization are removed by `cleanup()` too. */
+  const organization = (id: string) => {
+    organizations.push(id);
+  };
 
   const principal = async (o: { isBot?: boolean } = {}) => {
     const row = await prisma.principal.create({
@@ -131,6 +137,14 @@ export const chatFixtures = () => {
   };
 
   const cleanup = async () => {
+    spaces.push(
+      ...(
+        await prisma.space.findMany({
+          where: { organizationId: { in: organizations } },
+          select: { id: true },
+        })
+      ).map((s) => s.id)
+    );
     // Sessions a test made through the API in a fixture space count too.
     const owned = (
       await prisma.session.findMany({
@@ -172,6 +186,7 @@ export const chatFixtures = () => {
   };
 
   return {
+    organization,
     principal,
     space,
     member,

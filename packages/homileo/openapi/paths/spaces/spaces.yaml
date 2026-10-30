@@ -1,0 +1,66 @@
+/v1/spaces:
+  get:
+    tags: [Spaces]
+    summary: List spaces
+    description: |
+      Lists spaces of the caller's organization, newest first (`createdAt` then `id`, descending).
+      `membership=member` (the default) lists the spaces the caller belongs to; `readable` also
+      lists the spaces they may read without belonging: `public` ones, ones of a kind whose grant
+      they hold, and, for a `homileo.chat.admin`, all of them. Spaces of other organizations are
+      never listed. Each item carries the caller's `role`, or null.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: listSpaces
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpacesMembershipParam'
+      - $ref: '../../components/spaces/parameters.yaml#/SpacesKindParam'
+      - $ref: '../../components/spaces/parameters.yaml#/SpacesExternalRefParam'
+      - $ref: '../../components/spaces/parameters.yaml#/SpacesIncludeArchivedParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+    responses:
+      '200':
+        description: A page of spaces
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/ListSpacesResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  post:
+    tags: [Spaces]
+    summary: Create a space
+    description: |
+      Creates a space in the caller's organization. The caller becomes its `owner`, and the kind's
+      `bots` become `member`s (each is created as a bot principal if Homileo has not seen it).
+      Fields not given take the kind's defaults.
+
+      A `space.created` event is recorded, then a `space.member_added` for each member, the
+      creator first; the `homileo.space.created` and `homileo.space.member_added` webhooks are
+      emitted and an audit entry is written.
+
+      **Required permissions:**
+      - `homileo.spaces.write`
+
+      **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
+      `409 external_ref_taken`.
+    operationId: createSpace
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/spaces/schemas.yaml#/CreateSpaceRequest'
+    responses:
+      '201':
+        description: The space
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/CreateSpaceResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

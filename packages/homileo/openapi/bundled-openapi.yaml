@@ -51,6 +51,8 @@ servers:
 security:
   - BearerAuth: []
 tags:
+  - name: Spaces
+    description: Places that group sessions, with members, a kind and an access policy
   - name: Platform
     description: Health and the caller's own identity
   - name: Principals
@@ -100,6 +102,192 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces:
+    get:
+      tags:
+        - Spaces
+      summary: List spaces
+      description: |
+        Lists spaces of the caller's organization, newest first (`createdAt` then `id`, descending).
+        `membership=member` (the default) lists the spaces the caller belongs to; `readable` also
+        lists the spaces they may read without belonging: `public` ones, ones of a kind whose grant
+        they hold, and, for a `homileo.chat.admin`, all of them. Spaces of other organizations are
+        never listed. Each item carries the caller's `role`, or null.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSpaces
+      parameters:
+        - $ref: '#/components/parameters/SpacesMembershipParam'
+        - $ref: '#/components/parameters/SpacesKindParam'
+        - $ref: '#/components/parameters/SpacesExternalRefParam'
+        - $ref: '#/components/parameters/SpacesIncludeArchivedParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of spaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSpacesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    post:
+      tags:
+        - Spaces
+      summary: Create a space
+      description: |
+        Creates a space in the caller's organization. The caller becomes its `owner`, and the kind's
+        `bots` become `member`s (each is created as a bot principal if Homileo has not seen it).
+        Fields not given take the kind's defaults.
+
+        A `space.created` event is recorded, then a `space.member_added` for each member, the
+        creator first; the `homileo.space.created` and `homileo.space.member_added` webhooks are
+        emitted and an audit entry is written.
+
+        **Required permissions:**
+        - `homileo.spaces.write`
+
+        **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
+        `409 external_ref_taken`.
+      operationId: createSpace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSpaceRequest'
+      responses:
+        '201':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}:
+    get:
+      tags:
+        - Spaces
+      summary: Get a space
+      description: |
+        One space and the caller's role in it. An archived space can still be read.
+
+        **Required permissions:** none; the caller must be able to read the space (a member, any
+        reader of a `public` space, the holder of a grant of its kind, or a `homileo.chat.admin`).
+        A space the caller cannot read is a 404.
+      operationId: getSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    patch:
+      tags:
+        - Spaces
+      summary: Update a space
+      description: |
+        Changes the given fields; `metadata` replaces the whole object. A request that changes
+        nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
+        is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
+
+        **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+        or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
+        A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
+        `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
+        `409 resource_archived`.
+      operationId: updateSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSpaceRequest'
+      responses:
+        '200':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/archive:
+    post:
+      tags:
+        - Spaces
+      summary: Archive a space
+      description: |
+        Archives the space. Its sessions are not archived; they become read-only because their space
+        is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
+        and an audit entry is written.
+
+        **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+        a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
+        the space, 404.
+
+        **Errors:** `409 already_archived`.
+      operationId: archiveSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The archived space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
   /v1/principals/resolve:
@@ -168,7 +356,107 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
-webhooks: {}
+webhooks:
+  homileo.space.created:
+    post:
+      tags:
+        - Spaces
+      summary: Space created
+      operationId: webhookSpaceCreated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.created
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.updated:
+    post:
+      tags:
+        - Spaces
+      summary: Space updated
+      operationId: webhookSpaceUpdated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.updated
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.archived:
+    post:
+      tags:
+        - Spaces
+      summary: Space archived
+      operationId: webhookSpaceArchived
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.archived
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_added:
+    post:
+      tags:
+        - Spaces
+      summary: Member added to a space
+      operationId: webhookSpaceMemberAdded
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_added
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberAddedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
 components:
   securitySchemes:
     BearerAuth:
@@ -203,6 +491,54 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+    SpacesMembershipParam:
+      name: membership
+      in: query
+      required: false
+      description: |
+        `member` (the default) lists the spaces the caller is a member of. `readable` adds the
+        `public` spaces, the spaces of kinds whose grant the caller holds, and, for a
+        `homileo.chat.admin`, every space of the organization.
+      schema:
+        type: string
+        enum:
+          - member
+          - readable
+        default: member
+    SpacesKindParam:
+      name: kind
+      in: query
+      required: false
+      description: Only spaces of this kind
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    SpacesExternalRefParam:
+      name: externalRef
+      in: query
+      required: false
+      description: Only the space with this external reference
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    SpacesIncludeArchivedParam:
+      name: includeArchived
+      in: query
+      required: false
+      description: Also list archived spaces
+      schema:
+        type: boolean
+        default: false
+    SpaceIdParam:
+      name: spaceId
+      in: path
+      required: true
+      description: The space's id. A value that is not a UUID is `400 invalid_request`.
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequestResponse:
       description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
@@ -390,6 +726,311 @@ components:
           items:
             type: string
             format: uuid
+    SpaceRole:
+      type: string
+      enum:
+        - owner
+        - moderator
+        - member
+    Space:
+      type: object
+      description: A place that groups sessions and has members, in one organization
+      required:
+        - id
+        - organizationId
+        - kind
+        - name
+        - description
+        - visibility
+        - joinPolicy
+        - postPolicy
+        - state
+        - externalRef
+        - metadata
+        - createdBy
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier
+        organizationId:
+          type: string
+          format: uuid
+          description: The tereo organization it belongs to
+        kind:
+          type: string
+          description: The space kind, `default` or a provisioned one (`<app>:<name>`)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type:
+            - string
+            - 'null'
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: '`public` spaces can be read by anyone in the organization; `members` only by members, kind grants and admins'
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Who may start a session in the space
+        state:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+          description: One of the kind's declared states, or null
+        externalRef:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+          description: The app's own id for the space; unique within the organization and kind
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        createdBy:
+          type: string
+          format: uuid
+          description: The creator's principal id
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    SpaceWithRole:
+      description: A space with the caller's role in it
+      allOf:
+        - $ref: '#/components/schemas/Space'
+        - type: object
+          required:
+            - role
+          properties:
+            role:
+              oneOf:
+                - $ref: '#/components/schemas/SpaceRole'
+                - type: 'null'
+              description: The caller's role, or null when they read the space without being a member
+    SpaceMember:
+      type: object
+      required:
+        - spaceId
+        - principalId
+        - role
+        - joinedAt
+      properties:
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/SpaceRole'
+        joinedAt:
+          type: string
+          format: date-time
+    ListSpacesResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpaceWithRole'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    CreateSpaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: An active kind; `default` when omitted. An unknown or retired kind is `400 kind_not_found`.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `visibility`
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `join`
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `posting`
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+          description: Null or one of the kind's states, else `400 invalid_state`
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+          description: Unique per organization and kind, else `409 external_ref_taken`
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - kind: support:case
+          name: Case 4821
+          externalRef: case-4821
+          metadata:
+            priority: high
+    CreateSpaceResponse:
+      type: object
+      required:
+        - space
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+    UpdateSpaceRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Every field is optional, but at least one is required. `metadata` replaces the whole object.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: Needs the kind to let spaces override `visibility`
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+          description: Needs the kind to let spaces override `join`
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Needs the kind to let spaces override `posting`
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - name: Case 4821 (resolved)
+          state: resolved
+    GetSpaceResponse:
+      type: object
+      required:
+        - space
+        - role
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+        role:
+          oneOf:
+            - $ref: '#/components/schemas/SpaceRole'
+            - type: 'null'
+          description: The caller's role, or null when they read the space without being a member
+    SpaceResponse:
+      type: object
+      required:
+        - space
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+    SpaceEventData:
+      type: object
+      description: The payload of `space.created`, `space.updated` and `space.archived`, with the event's id
+      required:
+        - eventId
+        - space
+      properties:
+        eventId:
+          type: string
+        space:
+          $ref: '#/components/schemas/Space'
+    SpaceMemberAddedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - member
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        member:
+          $ref: '#/components/schemas/SpaceMember'
     WebhookEvent:
       type: object
       description: |
@@ -470,7 +1111,19 @@ components:
           type:
             - string
             - 'null'
+    Metadata:
+      type: object
+      description: |
+        A flat object of the caller's choosing: at most 50 keys, each matching
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. An update replaces it whole.
+      additionalProperties: true
+      examples:
+        - team: core
+          priority: 2
 x-tagGroups:
+  - name: Spaces
+    tags:
+      - Spaces
   - name: Principals
     tags:
       - Principals

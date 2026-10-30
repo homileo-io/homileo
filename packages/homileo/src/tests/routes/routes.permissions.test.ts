@@ -9,6 +9,9 @@
  * - every route answers 400 `organization_required` to a token without an
  *   organization, before validation or any lookup runs.
  *
+ * - a route that needs a tereo permission answers 403 to a token with an
+ *   organization but without it (`PERMISSION_GATED`).
+ *
  * What it does not prove: which resources a caller may read or change. That is
  * the policy's, tested in `src/tests/policy` and in each route's own
  * `.permissions` file.
@@ -41,6 +44,11 @@ const request = async (route: RouteEntry, token: string | null) => {
   return { status: response.status, body: await response.text() };
 };
 
+/** Routes that need a tereo permission; every other `/v1` route is open to any caller in an organization. */
+const PERMISSION_GATED = [
+  { method: "post", path: "/v1/spaces", permission: "homileo.spaces.write" },
+] as const;
+
 describe("route table", () => {
   it("finds the routes under /v1", () => {
     expect(routes).toEqual(
@@ -66,3 +74,37 @@ describe.each(v1Routes)("%s %s", (_method, _path, route) => {
     expect(JSON.parse(body).error).toBe("organization_required");
   });
 });
+
+describe.each(PERMISSION_GATED)(
+  "$method $path",
+  ({ method, path, permission }) => {
+    const route = { method, path } as RouteEntry;
+
+    it("is mounted", () => {
+      expect(routes).toContainEqual(route);
+    });
+
+    it(`returns 403 for a token without ${permission}`, async () => {
+      const token = personToken({
+        org: "0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b",
+      });
+
+      const { status, body } = await request(route, token);
+
+      expect(status, body).toBe(403);
+      expect(JSON.parse(body).error).toBe("forbidden");
+    });
+
+    it("does not answer 403 to a token that has it", async () => {
+      const token = personToken({
+        org: "0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b",
+        perms: [permission],
+      });
+
+      const { status } = await request(route, token);
+
+      // `{}` fails validation: the permission was accepted.
+      expect(status).toBe(400);
+    });
+  }
+);

@@ -1,0 +1,61 @@
+/v1/spaces/{spaceId}:
+  get:
+    tags: [Spaces]
+    summary: Get a space
+    description: |
+      One space and the caller's role in it. An archived space can still be read.
+
+      **Required permissions:** none; the caller must be able to read the space (a member, any
+      reader of a `public` space, the holder of a grant of its kind, or a `homileo.chat.admin`).
+      A space the caller cannot read is a 404.
+    operationId: getSpace
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+    responses:
+      '200':
+        description: The space
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/GetSpaceResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  patch:
+    tags: [Spaces]
+    summary: Update a space
+    description: |
+      Changes the given fields; `metadata` replaces the whole object. A request that changes
+      nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
+      is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
+
+      **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+      or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
+      A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+      **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
+      `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
+      `409 resource_archived`.
+    operationId: updateSpace
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/spaces/schemas.yaml#/UpdateSpaceRequest'
+    responses:
+      '200':
+        description: The space
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/SpaceResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

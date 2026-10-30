@@ -138,12 +138,13 @@ export interface NewUserPrincipal {
  * callers racing on the same ids all read the rows that won.
  */
 export const findOrCreateMany = async (
-  users: NewUserPrincipal[]
+  users: NewUserPrincipal[],
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<Principal[]> => {
   const unique = [...new Map(users.map((u) => [u.tereoUserId, u])).values()];
   if (unique.length === 0) return [];
 
-  await prisma.$executeRaw`INSERT INTO "chat"."principals"
+  await client.$executeRaw`INSERT INTO "chat"."principals"
       (id, kind, tereo_user_id, is_bot, display_name, created_at, updated_at)
     VALUES ${Prisma.join(
       unique.map(
@@ -154,7 +155,7 @@ export const findOrCreateMany = async (
     )}
     ON CONFLICT (tereo_user_id) DO NOTHING`;
 
-  const rows = await prisma.principal.findMany({
+  const rows = await client.principal.findMany({
     where: { tereoUserId: { in: unique.map((u) => u.tereoUserId) } },
   });
   const byUser = new Map(rows.map((r) => [r.tereoUserId, r]));
@@ -162,19 +163,22 @@ export const findOrCreateMany = async (
 };
 
 /**
- * Principals for a kind's declared bots, created when unseen. They are service
+ * Principals for a kind's declared bots, created when unseen (in `client`, a
+ * transaction when the caller holds one, so it needs no second connection). They are service
  * accounts by declaration, so tereo is not asked; a name arrives with their
  * first request.
  */
 export const ensureBotPrincipals = (
-  tereoUserIds: string[]
+  tereoUserIds: string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<Principal[]> =>
   findOrCreateMany(
     tereoUserIds.map((tereoUserId) => ({
       tereoUserId,
       isBot: true,
       displayName: null,
-    }))
+    })),
+    client
   );
 
 export interface ResolvedPrincipals {
