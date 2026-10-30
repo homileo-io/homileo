@@ -1,0 +1,39 @@
+{
+  "name": "@homileo-io/sdk",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The contract of Homileo: its event registry and provisioning document types",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!dist/tests",
+    "!src/tests",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:watch": "vitest"
+  },
+  "author": "Aaron Leman",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.9",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.4"
+  }
+}
