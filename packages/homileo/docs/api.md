@@ -142,10 +142,10 @@ kind; `externalRef` is unique per kind within the organization.
 | Route | Policy | Errors | Events |
 |---|---|---|---|
 | `GET /sessions` | `canReadSession` per row; filters `spaceId`, `type`, `externalRef`, … | | |
-| `POST /sessions` | `canCreateSessionIn` in a space; open for a space-less group | `403 forbidden`, `409 resource_archived`, `400 invalid_state` (a `state` on a space-less group, or one the kind does not declare) | `session.created`, `space.member_added` for kind bots missing from the space |
+| `POST /sessions` | `canCreateSessionIn` in a space; open for a space-less group | `403 forbidden`, `403 posting_restricted` (a space whose `postPolicy` is `moderators`), `409 resource_archived`, `400 invalid_state` (a `state` on a space-less group, or one the kind does not declare) | `session.created`, `space.member_added` for kind bots missing from the space |
 | `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal | `session.created` (once; a repeat records nothing) |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
-| `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `409 external_ref_taken`, `400 invalid_state` | `session.updated` |
+| `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
 | `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
 | `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
@@ -157,7 +157,12 @@ kind; `externalRef` is unique per kind within the organization.
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
 
 A DM is created with `type: "direct"` and a deterministic `direct_key`, so two concurrent requests
-for the same pair produce one session.
+for the same pair produce one session. A session's `externalRef` is not unique, so `PATCH` never
+answers `external_ref_taken`.
+
+An attachment's upload URL stays valid until it expires (15 minutes), and the bytes behind it can be
+replaced through it until then, even after a message names the attachment. Pinning the version a
+message was sent with is planned.
 
 ### Messages and threads
 

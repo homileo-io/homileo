@@ -60,7 +60,7 @@ One ordinary package, shared by every area:
 | `src/env.ts` | The one env schema. `src/preload.ts` must be the first import of every entry point |
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
 | `src/middleware/auth.ts` | `authenticate`, `callerOf` |
-| `src/policy/` | The access policy: `spaces.ts`, `sessions.ts`, `messages.ts`, and the "readable sessions" SQL condition |
+| `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`. The "readable sessions" SQL condition arrives in plan 4; until then lists filter through `readableSessions` (`utils/access.ts`) |
 | `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`; `events/` and `/sync` arrive in plan 3) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
 | `src/cli/` | Operator commands, `npm run cli -- <command>` |

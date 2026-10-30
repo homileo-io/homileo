@@ -159,6 +159,11 @@ The design does not state these.
 Every mutation takes locks in one order, so two mutations cannot wait on each other: the space row,
 then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
-needs both; a route that starts from a session id locks its space first
-(`db.sessions.lockSpaceOf`). Removing a member locks the space, then the owner rows, then the
-member's active sessions in id order, and only then changes participants.
+needs both. A route that changes a session's participants or settings, archives it, or edits,
+deletes or reacts to a message starts from a session id and locks its space first
+(`db.sessions.lockSpaceOf(tx, sessionId, "share")`): `FOR SHARE`, since it needs the space to stay
+as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
+`FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
+only the caller's participant row; an attachment upload takes no lock. Removing a member locks the
+space, then the owner rows, then the member's active sessions in id order, and only then changes
+participants.

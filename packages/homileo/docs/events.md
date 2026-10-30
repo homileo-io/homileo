@@ -45,15 +45,15 @@ The channel says whose realtime channel receives the event. The webhook types ar
 ## Write path
 
 ```ts
-await prisma.$transaction(async (tx) => {
-  const space = await db.spaces.create(input, tx);
-  await recordChange(tx, {
+await withChanges(async (tx, record) => {
+  const space = await tx.space.create({ data });
+  await record({
     type: "space.created",
-    organizationId,
+    organizationId: space.organizationId,
     spaceId: space.id,
     actorId: caller.principalId,
-    entity: { type: "Space", id: space.id },
-    payload: formatSpace(space),
+    entity: { type: "space", id: space.id },
+    payload: { space: spaceView(space) },
     audit: { action: "CREATE", userId: caller.tereoUserId },
   });
 });
@@ -74,7 +74,7 @@ It returns the event, with its `bigint` id, so the caller can publish it to sock
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so
 they increase in allocation order, which is not always commit order: an event can become visible
 after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,
-so `/sync` (plan 2) must hold its cursor back across ids whose transactions may still commit — a
+so `/sync` (plan 3) must hold its cursor back across ids whose transactions may still commit — a
 gap-aware cursor. Ids are `bigint` inside Homileo and leave the process as strings.
 
 After the transaction commits, `withChanges` puts the committed events on `changeBus`
