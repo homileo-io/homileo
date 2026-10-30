@@ -108,6 +108,62 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/me/unread:
+    get:
+      tags:
+        - Platform
+      summary: Get the caller's unread totals
+      description: |
+        Per session the caller currently participates in (and can read), the unread top-level
+        messages above their read position, and the unread mentions; per followed thread, the unread
+        replies. The caller's own messages and deleted messages never count. Counts stop at 99, with
+        `unreadCapped: true` past it. Only entries with something unread are listed.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getMeUnread
+      responses:
+        '200':
+          description: The unread totals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/me/mentions:
+    get:
+      tags:
+        - Platform
+      summary: List the messages that mention the caller
+      description: |
+        Messages and replies that mention the caller, plus `here` and `session` mentions in sessions
+        the caller currently participates in, newest first. Deleted messages, the caller's own
+        messages, other organizations' messages and sessions the caller can no longer read are left
+        out. A message mentioning the caller more than once appears once. The cursor is the id of the
+        last message returned. A page can hold fewer than `limit` items when some are dropped.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listMeMentions
+      parameters:
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of mentions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMentionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
   /v1/spaces:
     get:
       tags:
@@ -1834,6 +1890,117 @@ components:
           description: The token's tereo permissions
           items:
             type: string
+    UnreadSession:
+      type: object
+      required:
+        - sessionId
+        - unread
+        - unreadCapped
+        - mentions
+        - lastSeq
+        - lastReadSeq
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        unread:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: Top-level messages above the caller's read position, not their own; at most 99
+        unreadCapped:
+          type: boolean
+          description: There are more than 99 unread messages
+        mentions:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: |
+            Unread top-level messages and replies that mention the caller, or carry `here` or `session`,
+            not the caller's own; at most 99
+        lastSeq:
+          type: integer
+        lastReadSeq:
+          type: integer
+    UnreadThread:
+      type: object
+      required:
+        - rootId
+        - sessionId
+        - unread
+        - unreadCapped
+      properties:
+        rootId:
+          type: string
+          format: uuid
+          description: The thread's root message
+        sessionId:
+          type: string
+          format: uuid
+        unread:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: Replies above the caller's thread read position, not their own; at most 99
+        unreadCapped:
+          type: boolean
+    UnreadResponse:
+      type: object
+      description: |
+        Only entries with something unread (or, for sessions, a mention), in the caller's organization,
+        for sessions they currently participate in and can read.
+      required:
+        - sessions
+        - threads
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnreadSession'
+        threads:
+          type: array
+          description: Followed threads only
+          items:
+            $ref: '#/components/schemas/UnreadThread'
+      examples:
+        - sessions:
+            - sessionId: 0192f3a0-0000-7000-8000-000000000001
+              unread: 99
+              unreadCapped: true
+              mentions: 2
+              lastSeq: 240
+              lastReadSeq: 100
+          threads:
+            - rootId: 0192f3a0-0000-7000-8000-000000000002
+              sessionId: 0192f3a0-0000-7000-8000-000000000001
+              unread: 3
+              unreadCapped: false
+    MentionItem:
+      type: object
+      required:
+        - message
+        - session
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        session:
+          $ref: '#/components/schemas/Session'
+    ListMentionsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/MentionItem'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: The cursor of the next page, `null` on the last
     Principal:
       type: object
       description: A user, bot or external identity that sends messages and joins spaces and sessions

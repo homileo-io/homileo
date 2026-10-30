@@ -50,3 +50,86 @@ MeResponse:
       description: The token's tereo permissions
       items:
         type: string
+
+UnreadSession:
+  type: object
+  required: [sessionId, unread, unreadCapped, mentions, lastSeq, lastReadSeq]
+  properties:
+    sessionId: { type: string, format: uuid }
+    unread:
+      type: integer
+      minimum: 0
+      maximum: 99
+      description: Top-level messages above the caller's read position, not their own; at most 99
+    unreadCapped:
+      type: boolean
+      description: There are more than 99 unread messages
+    mentions:
+      type: integer
+      minimum: 0
+      maximum: 99
+      description: |
+        Unread top-level messages and replies that mention the caller, or carry `here` or `session`,
+        not the caller's own; at most 99
+    lastSeq: { type: integer }
+    lastReadSeq: { type: integer }
+
+UnreadThread:
+  type: object
+  required: [rootId, sessionId, unread, unreadCapped]
+  properties:
+    rootId: { type: string, format: uuid, description: The thread's root message }
+    sessionId: { type: string, format: uuid }
+    unread:
+      type: integer
+      minimum: 1
+      maximum: 99
+      description: Replies above the caller's thread read position, not their own; at most 99
+    unreadCapped: { type: boolean }
+
+UnreadResponse:
+  type: object
+  description: |
+    Only entries with something unread (or, for sessions, a mention), in the caller's organization,
+    for sessions they currently participate in and can read.
+  required: [sessions, threads]
+  properties:
+    sessions:
+      type: array
+      items: { $ref: '#/UnreadSession' }
+    threads:
+      type: array
+      description: Followed threads only
+      items: { $ref: '#/UnreadThread' }
+  examples:
+    - sessions:
+        - sessionId: 0192f3a0-0000-7000-8000-000000000001
+          unread: 99
+          unreadCapped: true
+          mentions: 2
+          lastSeq: 240
+          lastReadSeq: 100
+      threads:
+        - rootId: 0192f3a0-0000-7000-8000-000000000002
+          sessionId: 0192f3a0-0000-7000-8000-000000000001
+          unread: 3
+          unreadCapped: false
+
+MentionItem:
+  type: object
+  required: [message, session]
+  properties:
+    message: { $ref: '../messages/schemas.yaml#/Message' }
+    session: { $ref: '../sessions/schemas.yaml#/Session' }
+
+ListMentionsResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      description: Newest first
+      items: { $ref: '#/MentionItem' }
+    nextCursor:
+      type: [string, 'null']
+      description: The cursor of the next page, `null` on the last

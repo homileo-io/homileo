@@ -200,3 +200,58 @@ export const mentionReaders = (
   principals: MentionedPrincipal[]
 ): MentionedPrincipal[] =>
   principals.filter((p) => isMentionReader(context.facts, p));
+
+/**
+ * The sessions among `sessionIds` the caller can read now, in their organization,
+ * by session id. Loads the sessions, spaces and the caller's memberships and
+ * participation in bulk rather than one `readableSession` per row.
+ */
+export const readableSessions = async (
+  c: Caller,
+  sessionIds: string[]
+): Promise<Map<string, SessionRow>> => {
+  const readable = new Map<string, SessionRow>();
+  if (sessionIds.length === 0) return readable;
+  const sessions = await prisma.session.findMany({
+    where: { id: { in: sessionIds }, organizationId: c.organizationId },
+  });
+  const spaceIds = [
+    ...new Set(sessions.flatMap((s) => (s.spaceId ? [s.spaceId] : []))),
+  ];
+  const [spaces, members, participants] = await Promise.all([
+    prisma.space.findMany({ where: { id: { in: spaceIds } } }),
+    prisma.spaceMember.findMany({
+      where: { spaceId: { in: spaceIds }, userId: c.principalId },
+    }),
+    prisma.sessionParticipant.findMany({
+      where: {
+        sessionId: { in: sessions.map((s) => s.id) },
+        userId: c.principalId,
+        leftAt: null,
+      },
+    }),
+  ]);
+  const spaceOf = new Map(spaces.map((s) => [s.id, s]));
+  const roleOf = new Map(members.map((m) => [m.spaceId, m.role]));
+  const participantOf = new Map(participants.map((p) => [p.sessionId, p]));
+  const spaceFacts = new Map<string, SpaceFacts>();
+  for (const space of spaces) {
+    spaceFacts.set(
+      space.id,
+      await spaceFactsFor(c, space, roleOf.get(space.id) ?? null)
+    );
+  }
+  for (const session of sessions) {
+    if (session.spaceId && !spaceOf.has(session.spaceId)) continue;
+    const facts: SessionFacts = {
+      organizationId: session.organizationId,
+      type: session.type,
+      space: session.spaceId ? (spaceFacts.get(session.spaceId) ?? null) : null,
+      access: session.access,
+      archived: session.archivedAt !== null,
+      participantRole: participantOf.get(session.id)?.role ?? null,
+    };
+    if (canReadSession(c, facts)) readable.set(session.id, session);
+  }
+  return readable;
+};

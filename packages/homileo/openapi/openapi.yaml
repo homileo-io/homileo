@@ -86,6 +86,10 @@ paths:
     $ref: './paths/platform/health.yaml#/~1health'
   /v1/me:
     $ref: './paths/platform/me.yaml#/~1v1~1me'
+  /v1/me/unread:
+    $ref: './paths/platform/me-unread.yaml#/~1v1~1me~1unread'
+  /v1/me/mentions:
+    $ref: './paths/platform/me-mentions.yaml#/~1v1~1me~1mentions'
   /v1/spaces:
     $ref: './paths/spaces/spaces.yaml#/~1v1~1spaces'
   /v1/spaces/{spaceId}:
@@ -159,6 +163,16 @@ components:
       $ref: './components/platform/schemas.yaml#/HealthStatus'
     MeResponse:
       $ref: './components/platform/schemas.yaml#/MeResponse'
+    UnreadSession:
+      $ref: './components/platform/schemas.yaml#/UnreadSession'
+    UnreadThread:
+      $ref: './components/platform/schemas.yaml#/UnreadThread'
+    UnreadResponse:
+      $ref: './components/platform/schemas.yaml#/UnreadResponse'
+    MentionItem:
+      $ref: './components/platform/schemas.yaml#/MentionItem'
+    ListMentionsResponse:
+      $ref: './components/platform/schemas.yaml#/ListMentionsResponse'
     Principal:
       $ref: './components/principals/schemas.yaml#/Principal'
     GetPrincipalResponse:
