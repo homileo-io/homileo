@@ -1,6 +1,7 @@
 // @module-tag int
 // @module-tag auth
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { authenticate, callerOf } from "../../middleware/auth.js";
 import { setProfileLookup } from "../../utils/db/principals.js";
 import { initializeTereo } from "../../utils/tereo.js";
 import type { AuthServiceUser } from "@tereo-io/sdk";
@@ -10,11 +11,6 @@ import { fetchJson } from "../support/http.js";
 import { v7 as uuidv7 } from "uuid";
 import type { Server } from "http";
 import express from "express";
-import {
-  authenticate,
-  requireOrganization,
-  callerOf,
-} from "../../middleware/auth.js";
 
 const serve = async (
   app: express.Express
@@ -37,9 +33,9 @@ describe("auth middleware", () => {
     server = null;
   });
 
-  it("requireOrganization answers 400 organization_required without one", async () => {
+  it("authenticate answers 400 organization_required without an organization", async () => {
     const app = express();
-    app.get("/x", authenticate, requireOrganization, (_req, res) => {
+    app.get("/x", authenticate, (_req, res) => {
       res.json({});
     });
     app.use(errorHandler);
@@ -56,10 +52,10 @@ describe("auth middleware", () => {
     expect(res.body.error).toBe("organization_required");
   });
 
-  it("requireOrganization passes a caller with one", async () => {
+  it("authenticate sets a caller with the token's organization", async () => {
     const org = uuidv7();
     const app = express();
-    app.get("/x", authenticate, requireOrganization, (req, res) => {
+    app.get("/x", authenticate, (req, res) => {
       res.json({ org: callerOf(req).organizationId });
     });
     app.use(errorHandler);

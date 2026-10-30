@@ -31,8 +31,14 @@ declare global {
 const authenticateAfterTereo: RequestHandler = async (req, _res, next) => {
   try {
     const auth = req.auth!;
-    // No principal for a token `requireOrganization` is about to refuse.
-    if (!auth.organizationId) return next();
+    // Refused before a principal is created for it.
+    if (!auth.organizationId) {
+      throw new AppError(
+        400,
+        "organization_required",
+        "This request needs an organization: use a token that has one"
+      );
+    }
     const principal = await db.principals.findOrCreateUser({
       tereoUserId: auth.userId,
       isBot: auth.userType === "service_account",
@@ -54,24 +60,12 @@ const authenticateAfterTereo: RequestHandler = async (req, _res, next) => {
   }
 };
 
-/** Verifies the token with tereo, then sets `req.caller`. */
+/** Verifies the token with tereo, refuses one without `org_id` (400 `organization_required`), then sets `req.caller`. */
 export const authenticate: RequestHandler = (req, res, next) => {
   void getTereo().auth.requireAuth(req, res, (err?: unknown) => {
     if (err) return next(err);
     void authenticateAfterTereo(req, res, next);
   });
-};
-
-/** Refuses a token without an organization; goes right after `authenticate`. */
-export const requireOrganization: RequestHandler = (req, _res, next) => {
-  if (!req.auth?.organizationId) {
-    throw new AppError(
-      400,
-      "organization_required",
-      "This request needs an organization: use a token that has one"
-    );
-  }
-  next();
 };
 
 export const callerOf = (req: Request): Caller => {

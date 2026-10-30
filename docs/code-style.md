@@ -100,7 +100,7 @@ imports, which are ordered by the length of their last line.
 
 ```typescript
 // packages/homileo/src/routes/v1/spaces/index.ts
-import { authenticate, requireOrganization } from "../../../middleware/auth.js";
+import { authenticate } from "../../../middleware/auth.js";
 import { CreateSpaceSchema } from "./schemas.js";
 import spaceRouter from "./space/index.js";
 import { Router } from "express";

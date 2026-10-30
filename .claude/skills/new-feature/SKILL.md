@@ -68,7 +68,7 @@ the layout.
   - Throw the error classes from `utils/errors.ts`; a session the caller cannot read is a 404
 - [ ] `index.ts` — the router. Item routes go in a singular subfolder
       (`Router({ mergeParams: true })`) mounted with `router.use("/:id", …)`
-  - nothing to add: `authenticate` and `requireOrganization` are on the `/v1` router
+  - nothing to add: `authenticate` (which requires an organization) is on the `/v1` router
 - [ ] Mount the router in its parent `index.ts`
 - [ ] ESM: `.js` on every relative import, directory imports included
 - [ ] Imports sorted by the repo rule — `npm run sort-imports`
