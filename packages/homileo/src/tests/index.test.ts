@@ -1,10 +1,10 @@
 // @module-tag int
 // @module-tag platform
+import { getTereo, initializeTereo } from "../utils/tereo.js";
 import { describe, expect, it, vi } from "vitest";
 import { prisma } from "../utils/db/prisma.js";
 import { createAppServer } from "../index.js";
 import { fetchJson } from "./support/http.js";
-import { getTereo } from "../utils/tereo.js";
 import { redis } from "../utils/redis.js";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
@@ -64,18 +64,22 @@ describe("ROLE=api", () => {
 });
 
 describe("stop", () => {
-  it("drains and closes Postgres and Redis", async () => {
+  it("starts and stops the tereo client once, and drains and closes Postgres and Redis", async () => {
+    // Created here so the spies are in place before start() runs;
+    // start() then finds the client and uses it.
+    await initializeTereo();
+    const tereoStart = vi.spyOn(getTereo(), "start");
+    const tereoStop = vi.spyOn(getTereo(), "stop");
     const server = createAppServer(4151);
     await server.start();
+    expect(tereoStart).toHaveBeenCalledTimes(1);
     expect(
       (await fetchJson("GET", "http://localhost:4151/health", null)).status
     ).toBe(200);
 
-    const stopTereoClient = vi.spyOn(getTereo(), "stop");
-
     await server.stop();
 
-    expect(stopTereoClient).toHaveBeenCalledTimes(1);
+    expect(tereoStop).toHaveBeenCalledTimes(1);
     expect(server.isRunning()).toBe(false);
     await expect(
       fetch("http://localhost:4151/health", {

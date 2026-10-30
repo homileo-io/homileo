@@ -64,14 +64,14 @@ describe("buildTereoDocument", () => {
   });
 
   it("matches the committed tereo-provisioning.json", () => {
-    const committed = JSON.parse(
-      readFileSync(
-        new URL("../../../tereo-provisioning.json", import.meta.url),
-        "utf-8"
-      )
-    );
-    const { version } = committed;
+    const read = (file: string) =>
+      JSON.parse(readFileSync(new URL(file, import.meta.url), "utf-8"));
+    const { version } = read("../../../package.json");
 
-    expect(committed).toEqual(buildTereoDocument(version));
+    // Built from the package's own version, so a release bump without
+    // `npm run tereo:provisioning` fails here.
+    expect(read("../../../tereo-provisioning.json")).toEqual(
+      buildTereoDocument(version)
+    );
   });
 });

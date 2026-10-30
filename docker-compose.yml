@@ -71,7 +71,8 @@ services:
       # No tereo to reach locally: accept the SDK's test tokens.
       TEREO_TEST_MODE: "true"
     ports:
-      - "${HOMILEO_PORT:-4101}:4101"
+      # Loopback only: test mode accepts forged tokens.
+      - "127.0.0.1:${HOMILEO_PORT:-4101}:4101"
     depends_on:
       migrate:
         condition: service_completed_successfully
