@@ -9,10 +9,11 @@ import {
   OTHER_ORG,
 } from "../support/pure/policyFacts.js";
 import {
+  canAddParticipant,
   canJoinSession,
-  canManageParticipants,
   canPost,
   canReadSession,
+  canRemoveParticipant,
 } from "../../policy/index.js";
 
 const grants = kind({
@@ -259,66 +260,97 @@ describe("canPost", () => {
   });
 });
 
-describe("canManageParticipants", () => {
+const moderateGrant = kind({
+  grants: [{ permission: "support.cases.moderate", access: "moderate" }],
+});
+const moderateGrantHolder = { permissions: ["support.cases.moderate"] };
+
+/** Rows that hold for adding and removing alike. */
+const participantChangeRows: [string, object, object, boolean][] = [
+  ["space-less owner", {}, { space: null, participantRole: "owner" }, true],
+  ["space-less member", {}, { space: null, participantRole: "member" }, false],
+  [
+    "grant moderate (moderators remove members)",
+    moderateGrantHolder,
+    { space: space({ kind: moderateGrant }) },
+    true,
+  ],
+  ["grant read", grantHolder, { space: space({ kind: grants }) }, false],
+  ["space moderator", {}, { space: inSpace({ role: "moderator" }) }, true],
+  ["space member", {}, { space: inSpace() }, false],
+  ["space admin", admin, {}, true],
+  [
+    "space-less admin, other organization",
+    admin,
+    { space: null, organizationId: OTHER_ORG },
+    false,
+  ],
+  ["space-less admin, archived", admin, { space: null, archived: true }, false],
+  [
+    "archived session",
+    {},
+    { archived: true, space: null, participantRole: "owner" },
+    false,
+  ],
+  [
+    "archived space",
+    {},
+    { space: inSpace({ role: "owner", archived: true }) },
+    false,
+  ],
+  [
+    "other organization",
+    {},
+    { organizationId: OTHER_ORG, space: null, participantRole: "owner" },
+    false,
+  ],
+];
+
+describe("canAddParticipant", () => {
+  it.each(participantChangeRows)("%s -> %s", (_n, c, ss, want) => {
+    expect(canAddParticipant(caller(c), session(ss))).toBe(want);
+  });
+
+  it("admin cannot add a participant to a space-less session", () => {
+    expect(canAddParticipant(caller(admin), session({ space: null }))).toBe(
+      false
+    );
+  });
+
   it.each([
-    ["space-less owner", {}, { space: null, participantRole: "owner" }, true],
-    [
-      "space-less member",
-      {},
-      { space: null, participantRole: "member" },
-      false,
-    ],
-    ["space-less admin, not a participant", admin, { space: null }, true],
-    [
-      "space-less admin, other organization",
-      admin,
-      { space: null, organizationId: OTHER_ORG },
-      false,
-    ],
-    [
-      "space-less admin, archived",
-      admin,
-      { space: null, archived: true },
-      false,
-    ],
-    [
-      "grant moderate (moderators remove members)",
-      { permissions: ["support.cases.moderate"] },
-      {
-        space: space({
-          kind: kind({
-            grants: [
-              { permission: "support.cases.moderate", access: "moderate" },
-            ],
-          }),
-        }),
-      },
-      true,
-    ],
-    ["grant read", grantHolder, { space: space({ kind: grants }) }, false],
-    ["space moderator", {}, { space: inSpace({ role: "moderator" }) }, true],
-    ["space member", {}, { space: inSpace() }, false],
-    ["space admin", admin, {}, true],
-    [
-      "archived session",
-      {},
-      { archived: true, space: null, participantRole: "owner" },
-      false,
-    ],
-    [
-      "archived space",
-      {},
-      { space: inSpace({ role: "owner", archived: true }) },
-      false,
-    ],
-    [
-      "other organization",
-      {},
-      { organizationId: OTHER_ORG, space: null, participantRole: "owner" },
-      false,
-    ],
-  ])("%s -> %s", (_n, c, ss, want) => {
-    expect(canManageParticipants(caller(c), session(ss))).toBe(want);
+    ["owner", {}, { participantRole: "owner" }],
+    ["member", {}, { participantRole: "member" }],
+    ["admin", admin, {}],
+    ["moderator", moderateGrantHolder, {}],
+  ])("nobody adds to a direct session (%s)", (_n, c, ss) => {
+    const direct = session({ type: "direct", space: null, ...ss });
+    expect(canAddParticipant(caller(c), direct)).toBe(false);
+  });
+});
+
+describe("canRemoveParticipant", () => {
+  it.each(participantChangeRows)("%s -> %s", (_n, c, ss, want) => {
+    expect(canRemoveParticipant(caller(c), session(ss))).toBe(want);
+  });
+
+  it("admin can remove a participant from a space-less session", () => {
+    expect(canRemoveParticipant(caller(admin), session({ space: null }))).toBe(
+      true
+    );
+  });
+
+  it("admin can remove a participant from a direct session", () => {
+    const direct = session({ type: "direct", space: null });
+    expect(canRemoveParticipant(caller(admin), direct)).toBe(true);
+  });
+
+  it("a direct session's participant cannot remove the other", () => {
+    const direct = session({
+      type: "direct",
+      space: null,
+      participantRole: "member",
+    });
+    expect(canRemoveParticipant(caller(), direct)).toBe(false);
   });
 });
 

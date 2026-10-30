@@ -15,6 +15,7 @@ export interface SpaceFacts {
 
 export interface SessionFacts {
   organizationId: string;
+  type: "direct" | "group";
   /** `null` for a space-less session (DMs, groups). */
   space: SpaceFacts | null;
   access: "space" | "members";

@@ -44,13 +44,18 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 | Sender | edit and delete their own messages (editing within the kind's `editWindowSeconds`) |
 | Moderator, or a grant with `access: moderate` | delete any message, remove members and participants, approve join requests, change overridable settings (`canModerateSpace`) |
 | Owner | all of the above, archive the space, transfer ownership, promote moderators (`canManageSpace`) |
-| `homileo.chat.admin` | moderate and archive any space or session; read anything except space-less sessions |
+| `homileo.chat.admin` | moderate and archive any space or session; read anything except space-less sessions; remove (not add) participants of space-less sessions |
 
-In a space-less session the participant `owner` can add and remove participants and rename it
-(`canManageParticipants`). `homileo.chat.admin` may also manage participants of a space-less
-session, but cannot read it or delete its messages: admins archive DMs and remove people, not touch
-their content. In a space's session, participants are managed by whoever can moderate the space,
-grant `moderate` holders included (moderators remove members).
+Participants are added with `canAddParticipant` and removed with `canRemoveParticipant`.
+
+- A `direct` session (a DM) has exactly its two participants and never an `owner`: nobody adds to
+  it, not even an admin.
+- In a space-less group the participant `owner` adds and removes participants and renames it.
+  `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
+  delete its messages: admins archive DMs and remove people, not touch their content. An admin who
+  could add would add themselves and then read it.
+- In a space's session, whoever can moderate the space adds and removes participants, grant
+  `moderate` holders included (moderators remove members).
 
 ## Decisions the module fixes
 
@@ -61,8 +66,8 @@ The design does not state these.
   management of the space itself (`canModerateSpace`, `canManageSpace`) are not blocked by archiving.
 - **A deleted message cannot be edited, and cannot be deleted again.**
 - **`homileo.chat.admin` passes every moderate and manage check** in the organization, except
-  that it never reads a space-less session or deletes messages in one, and posting still requires
-  being a participant. In a space's sessions its moderator delete works without participating.
+  that it never reads a space-less session, deletes messages in one or adds participants to one,
+  and posting still requires being a participant. In a space's sessions its moderator delete works without participating.
 - **Grants:** `read` gives read only; `moderate` gives read and moderate. Neither makes the holder a
   member, a participant or a poster.
 - **Editing and deleting one's own message requires still being able to read the session**, so a

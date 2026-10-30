@@ -39,6 +39,7 @@ export const space = (o: object = {}): SpaceFacts =>
 export const session = (o: object = {}): SessionFacts =>
   ({
     organizationId: ORG,
+    type: "group",
     space: space(),
     access: "space",
     archived: false,
