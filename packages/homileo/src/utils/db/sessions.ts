@@ -61,13 +61,29 @@ export const addParticipants = async (
   return added;
 };
 
-/** Takes the session's space row `FOR UPDATE`, which comes before the session row in the lock order. */
-export const lockSpaceOf = async (tx: Tx, sessionId: string): Promise<void> => {
+/**
+ * Locks the session's space row, which comes before the session row in the lock order. `share`
+ * keeps the space as it is while a session-level change runs, and lets such changes in different
+ * sessions of the space run together; `update` is for changing the space or its members.
+ */
+export const lockSpaceOf = async (
+  tx: Tx,
+  sessionId: string,
+  mode: "share" | "update"
+): Promise<void> => {
+  if (mode === "update") {
+    await tx.$queryRaw`
+      SELECT sp.id FROM "chat"."spaces" sp
+      JOIN "chat"."sessions" s ON s.space_id = sp.id
+      WHERE s.id = ${sessionId}::uuid
+      FOR UPDATE OF sp`;
+    return;
+  }
   await tx.$queryRaw`
     SELECT sp.id FROM "chat"."spaces" sp
     JOIN "chat"."sessions" s ON s.space_id = sp.id
     WHERE s.id = ${sessionId}::uuid
-    FOR UPDATE OF sp`;
+    FOR SHARE OF sp`;
 };
 
 /** The indexes in `ids` that name no principal. */

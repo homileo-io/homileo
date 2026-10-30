@@ -34,7 +34,7 @@ export const putParticipant = async (req: Request, res: Response) => {
   );
 
   const { row, created } = await withChanges(async (tx, record) => {
-    await db.sessions.lockSpaceOf(tx, sessionId);
+    await db.sessions.lockSpaceOf(tx, sessionId, "share");
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
@@ -123,7 +123,7 @@ export const removeParticipant = async (req: Request, res: Response) => {
   );
 
   await withChanges(async (tx, record) => {
-    await db.sessions.lockSpaceOf(tx, sessionId);
+    await db.sessions.lockSpaceOf(tx, sessionId, "share");
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
