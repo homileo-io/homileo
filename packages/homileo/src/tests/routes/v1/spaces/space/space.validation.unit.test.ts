@@ -14,6 +14,14 @@ describe("SpaceParamsSchema", () => {
     );
   });
 
+  it("lower-cases the id", () => {
+    const id = uuidv7();
+
+    expect(SpaceParamsSchema.parse({ spaceId: id.toUpperCase() }).spaceId).toBe(
+      id
+    );
+  });
+
   it.each(["", "abc", "123", `${uuidv7()}x`])("rejects %j", (spaceId) => {
     expect(SpaceParamsSchema.safeParse({ spaceId }).success).toBe(false);
   });

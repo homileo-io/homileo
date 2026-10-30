@@ -1,3 +1,4 @@
+import { IdSchema } from "../../../../utils/idSchema.js";
 import { z } from "zod";
 
-export const PrincipalParamsSchema = z.object({ principalId: z.guid() });
+export const PrincipalParamsSchema = z.object({ principalId: IdSchema });

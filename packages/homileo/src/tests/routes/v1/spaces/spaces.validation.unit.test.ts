@@ -112,4 +112,13 @@ describe("SpaceCursorSchema", () => {
   ])("rejects %j", (values) => {
     expect(SpaceCursorSchema.safeParse(values).success).toBe(false);
   });
+
+  it("lower-cases the id", () => {
+    const stamp = new Date().toISOString();
+
+    expect(SpaceCursorSchema.parse([stamp, uuidv7().toUpperCase()])).toEqual([
+      stamp,
+      expect.stringMatching(/^[0-9a-f-]+$/),
+    ]);
+  });
 });

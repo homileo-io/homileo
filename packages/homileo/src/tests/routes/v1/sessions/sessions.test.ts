@@ -10,8 +10,8 @@ import { v7 as uuidv7 } from "uuid";
 import {
   removeKinds,
   provisionKind,
-  startApp,
-} from "../../../support/sessionsApp.js";
+  startV1App,
+} from "../../../support/v1App.js";
 
 const URL = `${env.PUBLIC_URL}/v1/sessions`;
 const fixtures = chatFixtures();
@@ -202,12 +202,12 @@ describe("POST /v1/sessions in a space", () => {
 });
 
 describe("POST /v1/sessions with a kind", () => {
-  let app: Awaited<ReturnType<typeof startApp>>;
+  let app: Awaited<ReturnType<typeof startV1App>>;
   beforeAll(async () => {
-    app = await startApp();
+    app = await startV1App();
   });
   afterAll(async () => {
-    await app.stop();
+    await app.close();
     await removeKinds();
   });
 
@@ -289,6 +289,17 @@ describe("POST /v1/sessions with a kind", () => {
 });
 
 describe("POST /v1/sessions without a space", () => {
+  it("rejects a JSON body over 256 KiB with 413 payload_too_large", async () => {
+    const me = await signIn(newOrg());
+
+    const res = await fetchJson("POST", URL, me.token, {
+      name: "x".repeat(300 * 1024),
+    });
+
+    expect(res.status).toBe(413);
+    expect(res.body.error).toBe("payload_too_large");
+  });
+
   it("makes the creator the owner and the others members, storing access `members`", async () => {
     const org = newOrg();
     const me = await signIn(org);
@@ -555,12 +566,12 @@ describe("GET /v1/sessions", () => {
 });
 
 describe("GET /v1/sessions with a kind grant", () => {
-  let app: Awaited<ReturnType<typeof startApp>>;
+  let app: Awaited<ReturnType<typeof startV1App>>;
   beforeAll(async () => {
-    app = await startApp();
+    app = await startV1App();
   });
   afterAll(async () => {
-    await app.stop();
+    await app.close();
     await removeKinds();
   });
 

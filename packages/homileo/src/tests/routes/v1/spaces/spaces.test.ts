@@ -1,8 +1,9 @@
 // @module-tag int
 // @module-tag spaces
-import { spaceApiFixtures, startV1App } from "../../../support/spaceApi.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spaceApiFixtures } from "../../../support/spaceApi.js";
 import { prisma } from "../../../../utils/db/prisma.js";
+import { startV1App } from "../../../support/v1App.js";
 import { botToken } from "../../../support/tokens.js";
 import { fetchJson } from "../../../support/http.js";
 import { v7 as uuidv7 } from "uuid";
@@ -31,6 +32,15 @@ describe("/v1/spaces", () => {
   });
 
   describe("POST /v1/spaces", () => {
+    it("rejects a JSON body over 64 KiB with 413 payload_too_large", async () => {
+      const { token } = await api.actor(api.organization(), WRITE);
+
+      const res = await create(token, { name: "x".repeat(65 * 1024) });
+
+      expect(res.status).toBe(413);
+      expect(res.body.error).toBe("payload_too_large");
+    });
+
     it("creates a space of the default kind, with the creator as its owner", async () => {
       const org = api.organization();
       const { principal, token } = await api.actor(org, WRITE);

@@ -1,7 +1,7 @@
 import { authenticate } from "../../middleware/auth.js";
 import principalsRouter from "./principals/index.js";
-import spacesRouter from "./spaces/index.js";
 import sessionsRouter from "./sessions/index.js";
+import spacesRouter from "./spaces/index.js";
 import express, { Router } from "express";
 import meRouter from "./me/index.js";
 

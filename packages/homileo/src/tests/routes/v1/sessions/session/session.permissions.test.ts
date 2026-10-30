@@ -10,8 +10,8 @@ import { v7 as uuidv7 } from "uuid";
 import {
   removeKinds,
   provisionKind,
-  startApp,
-} from "../../../../support/sessionsApp.js";
+  startV1App,
+} from "../../../../support/v1App.js";
 
 const URL = `${env.PUBLIC_URL}/v1/sessions`;
 const fixtures = chatFixtures();
@@ -28,12 +28,12 @@ afterAll(async () => {
 });
 
 describe("reading a members-only session in a public space", () => {
-  let app: Awaited<ReturnType<typeof startApp>>;
+  let app: Awaited<ReturnType<typeof startV1App>>;
   beforeAll(async () => {
-    app = await startApp();
+    app = await startV1App();
   });
   afterAll(async () => {
-    await app.stop();
+    await app.close();
     await removeKinds();
   });
 

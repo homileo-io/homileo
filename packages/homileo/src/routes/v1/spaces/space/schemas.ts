@@ -1,7 +1,8 @@
+import { IdSchema } from "../../../../utils/idSchema.js";
 import { SpaceFieldsShape } from "../schemas.js";
 import { z } from "zod";
 
-export const SpaceParamsSchema = z.object({ spaceId: z.guid() });
+export const SpaceParamsSchema = z.object({ spaceId: IdSchema });
 
 export const UpdateSpaceSchema = z
   .strictObject({

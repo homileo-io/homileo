@@ -1,4 +1,5 @@
 import { metadataSchema } from "../../../utils/metadata.js";
+import { IdSchema } from "../../../utils/idSchema.js";
 import { z } from "zod";
 
 const Name = z.string().trim().min(1).max(255);
@@ -48,4 +49,4 @@ export const ListSpacesQuerySchema = z.strictObject({
 export type ListSpacesQuery = z.infer<typeof ListSpacesQuerySchema>;
 
 /** A list cursor's values: `created_at` as an ISO string, then the id. */
-export const SpaceCursorSchema = z.tuple([z.iso.datetime(), z.guid()]);
+export const SpaceCursorSchema = z.tuple([z.iso.datetime(), IdSchema]);

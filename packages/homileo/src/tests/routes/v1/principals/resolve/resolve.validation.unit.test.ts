@@ -12,6 +12,10 @@ describe("POST /v1/principals/resolve body", () => {
     ["101 ids", { tereoUserIds: Array.from({ length: 101 }, () => uuidv7()) }],
     ["a non-UUID", { tereoUserIds: ["not-a-uuid"] }],
     ["duplicates", { tereoUserIds: [ID, ID] }],
+    [
+      "duplicates that differ in case",
+      { tereoUserIds: [ID, ID.toUpperCase()] },
+    ],
     ["a missing list", {}],
     ["an unknown key", { tereoUserIds: [ID], extra: 1 }],
   ])("rejects %s", (_name, body) => {
@@ -23,5 +27,11 @@ describe("POST /v1/principals/resolve body", () => {
     ["100 ids", Array.from({ length: 100 }, () => uuidv7())],
   ])("accepts %s", (_name, tereoUserIds) => {
     expect(ResolveBodySchema.safeParse({ tereoUserIds }).success).toBe(true);
+  });
+
+  it("lower-cases ids", () => {
+    expect(
+      ResolveBodySchema.parse({ tereoUserIds: [ID.toUpperCase()] }).tereoUserIds
+    ).toEqual([ID]);
   });
 });
