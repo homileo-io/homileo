@@ -70,6 +70,35 @@ describe("message permissions", () => {
     }
   });
 
+  it.each([
+    ["session", { sessionArchived: true }],
+    ["space", { spaceArchived: true }],
+  ])(
+    "answers 409 resource_archived for edit and delete in an archived %s",
+    async (_n, o) => {
+      const { space, session, sender, id } = await publicRoom();
+      if (o.sessionArchived) {
+        await prisma.session.update({
+          where: { id: session.id },
+          data: { archivedAt: new Date() },
+        });
+      } else {
+        await prisma.space.update({
+          where: { id: space.id },
+          data: { archivedAt: new Date() },
+        });
+      }
+
+      const edit = await editMessage(id, sender.token, { body: "x" });
+      const del = await deleteMessage(id, sender.token);
+
+      expect(edit.status).toBe(409);
+      expect(edit.body.error).toBe("resource_archived");
+      expect(del.status).toBe(409);
+      expect(del.body.error).toBe("resource_archived");
+    }
+  );
+
   it("answers 403 to a reader who is not the sender, for edit and delete", async () => {
     const { reader, id } = await publicRoom();
 

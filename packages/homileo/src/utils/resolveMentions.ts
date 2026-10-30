@@ -1,9 +1,9 @@
 import { mentionReaders, type SessionContext } from "./access.js";
 import type { MentionedPrincipal } from "./db/messages.js";
-import type { Prisma } from "./db/prisma.js";
 import { parseMentions } from "./mentions.js";
-import { IdSchema } from "./idSchema.js";
+import type { Prisma } from "./db/prisma.js";
 import { plainText } from "./markdown.js";
+import { IdSchema } from "./idSchema.js";
 import { db } from "./db/index.js";
 
 /** Distinct user mentions per message, in order of appearance; later ones stay text. */

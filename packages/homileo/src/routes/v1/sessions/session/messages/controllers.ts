@@ -1,12 +1,13 @@
 import { ListMessagesQuerySchema, SendMessageBodySchema } from "./schemas.js";
 import { callerOf, principalOf } from "../../../../../middleware/auth.js";
+import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../../utils/transaction.js";
+import { readableSession } from "../../../../../utils/access.js";
 import type { Prisma } from "../../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../../utils/db/index.js";
 import { postRefusal } from "../../../../../policy/index.js";
-import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { warmKinds } from "../../../../../utils/kinds.js";
 import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
@@ -16,7 +17,6 @@ import {
   validateParams,
   validateQuery,
 } from "../../../../../utils/validateReq.js";
-import { readableSession } from "../../../../../utils/access.js";
 import {
   AppError,
   ArchivedError,

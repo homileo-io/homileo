@@ -154,6 +154,59 @@ describe("PATCH /v1/messages/:messageId", () => {
     expect(await notificationsTo(b.tereoUserId!)).toHaveLength(1);
   });
 
+  it("leaves a malformed id as text and stores at most 100 user mentions", async () => {
+    const { me, session } = await room();
+    const sent = await sendMessage(session.id, me.token, { body: "x" });
+    const id = sent.body.message.id;
+
+    const bad = await editMessage(id, me.token, {
+      body: "<@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa> hi",
+    });
+    const rowsAfterBad = await mentionIds(id);
+    const many = Array.from({ length: 101 }, () => uuidv7());
+    const principals = await prisma.principal.createManyAndReturn({
+      data: many.map((tereoUserId) => ({ kind: "user", tereoUserId })),
+    });
+    for (const p of principals) await fixtures.participant(session, p);
+    const big = await editMessage(id, me.token, {
+      body: principals.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(bad.status).toBe(200);
+    expect(rowsAfterBad).toEqual([]);
+    expect(big.status).toBe(200);
+    expect(await mentionIds(id)).toHaveLength(100);
+    await prisma.sessionParticipant.deleteMany({
+      where: {
+        sessionId: session.id,
+        userId: { in: principals.map((p) => p.id) },
+      },
+    });
+    await prisma.messageMention.deleteMany({ where: { messageId: id } });
+    await prisma.principal.deleteMany({
+      where: { id: { in: principals.map((p) => p.id) } },
+    });
+  });
+
+  it("serializes two concurrent edits into revisions N+1 and N+2", async () => {
+    const { me, session } = await room();
+    const sent = await sendMessage(session.id, me.token, { body: "one" });
+    const id = sent.body.message.id;
+
+    const results = await Promise.all([
+      editMessage(id, me.token, { body: "a" }),
+      editMessage(id, me.token, { body: "b" }),
+    ]);
+
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(results.map((r) => r.body.message.revision).sort()).toEqual([2, 3]);
+    const revisions = await prisma.messageRevision.findMany({
+      where: { messageId: id },
+      orderBy: { revision: "asc" },
+    });
+    expect(revisions.map((r) => r.revision)).toEqual([1, 2, 3]);
+  });
+
   it("recomputes body_text with mention names", async () => {
     const { me, session } = await room();
     const ada = await prisma.principal.update({
@@ -246,6 +299,30 @@ describe("DELETE /v1/messages/:messageId", () => {
     expect(res.status).toBe(200);
     const after = await getMessage(root.body.message.id, me.token);
     expect(after.body.message.replyCount).toBe(1);
+  });
+
+  it("moves the root's lastReplyAt to the surviving reply, or to null", async () => {
+    const { me, session } = await room();
+    const root = await sendMessage(session.id, me.token, { body: "root" });
+    const rootId = root.body.message.id;
+    const r1 = await sendMessage(session.id, me.token, {
+      body: "r1",
+      threadRootId: rootId,
+    });
+    const r2 = await sendMessage(session.id, me.token, {
+      body: "r2",
+      threadRootId: rootId,
+    });
+
+    await deleteMessage(r2.body.message.id, me.token);
+    const one = await getMessage(rootId, me.token);
+    await deleteMessage(r1.body.message.id, me.token);
+    const none = await getMessage(rootId, me.token);
+
+    expect(one.body.message.replyCount).toBe(1);
+    expect(one.body.message.lastReplyAt).toBe(r1.body.message.createdAt);
+    expect(none.body.message.replyCount).toBe(0);
+    expect(none.body.message.lastReplyAt).toBeNull();
   });
 
   it("answers 409 resource_archived when it is already deleted", async () => {

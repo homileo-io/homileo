@@ -139,7 +139,7 @@ describe("DELETE /v1/messages/:messageId events", () => {
     });
   });
 
-  it("records thread.updated, then message.deleted, for a reply", async () => {
+  it("records message.deleted, then thread.updated, for a reply", async () => {
     const { me, session } = await room();
     const root = await sendMessage(session.id, me.token, { body: "root" });
     const reply = await sendMessage(session.id, me.token, {
@@ -151,11 +151,11 @@ describe("DELETE /v1/messages/:messageId events", () => {
 
     const events = (await eventsOf(session.id)).slice(3);
     expect(events.map((e) => e.type)).toEqual([
-      "thread.updated",
       "message.deleted",
+      "thread.updated",
     ]);
     expect(
-      EVENT_TYPES["thread.updated"].payload.parse(events[0].payload)
+      EVENT_TYPES["thread.updated"].payload.parse(events[1].payload)
     ).toMatchObject({
       sessionId: session.id,
       rootId: root.body.message.id,
