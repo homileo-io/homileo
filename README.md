@@ -1,4 +1,10 @@
+<p align="center">
+  <img src="assets/homileo-banner.svg" alt="Homileo — realtime chat service" width="720">
+</p>
+
 # Homileo
+
+**ὁμιλέω** — *to converse, to talk together.*
 
 A generic chat service for apps built on [tereo](https://github.com/tereo-io/tereo). Homileo owns
 the hard parts of chat — spaces, sessions, messages, threads, reactions, mentions, read state,
