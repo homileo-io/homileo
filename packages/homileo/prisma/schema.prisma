@@ -118,16 +118,18 @@ enum MentionKind {
 // ===========================================================================
 
 model Principal {
-  id          String        @id @default(uuid(7)) @db.Uuid
-  kind        PrincipalKind
-  tereoUserId String?       @unique @map("tereo_user_id") @db.Uuid
-  app         String?       @db.VarChar(100)
-  externalId  String?       @map("external_id") @db.VarChar(255)
-  isBot       Boolean       @default(false) @map("is_bot")
-  displayName String?       @map("display_name") @db.VarChar(255)
-  avatarUrl   String?       @map("avatar_url") @db.VarChar(2048)
-  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamp(3)
-  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamp(3)
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  kind               PrincipalKind
+  tereoUserId        String?       @unique @map("tereo_user_id") @db.Uuid
+  app                String?       @db.VarChar(100)
+  externalId         String?       @map("external_id") @db.VarChar(255)
+  isBot              Boolean       @default(false) @map("is_bot")
+  displayName        String?       @map("display_name") @db.VarChar(255)
+  avatarUrl          String?       @map("avatar_url") @db.VarChar(2048)
+  /// Last attempt to take the profile from tereo, whether or not it succeeded.
+  profileRefreshedAt DateTime?     @map("profile_refreshed_at") @db.Timestamp(3)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamp(3)
 
   spacesCreated         Space[]              @relation("SpaceCreatedBy")
   spaceMemberships      SpaceMember[]
@@ -421,7 +423,7 @@ model ProvisionedSpaceKind {
   name            String    @id @db.VarChar(64)
   app             String    @db.VarChar(100)
   definition      Json
-  documentVersion String    @db.VarChar(64) @map("document_version")
+  documentVersion String    @map("document_version") @db.VarChar(64)
   sourceFile      String    @map("source_file") @db.VarChar(512)
   retiredAt       DateTime? @map("retired_at") @db.Timestamp(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)
@@ -435,7 +437,7 @@ model ProvisionedMessageType {
   name            String    @id @db.VarChar(64)
   app             String    @db.VarChar(100)
   payloadSchema   Json      @map("payload_schema")
-  documentVersion String    @db.VarChar(64) @map("document_version")
+  documentVersion String    @map("document_version") @db.VarChar(64)
   sourceFile      String    @map("source_file") @db.VarChar(512)
   retiredAt       DateTime? @map("retired_at") @db.Timestamp(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)

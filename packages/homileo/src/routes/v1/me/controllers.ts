@@ -1,12 +1,9 @@
-import { callerOf } from "../../../middleware/auth.js";
-import { prisma } from "../../../utils/db/prisma.js";
+import { callerOf, principalOf } from "../../../middleware/auth.js";
 import type { Request, Response } from "express";
 
-export const getMe = async (req: Request, res: Response) => {
+export const getMe = (req: Request, res: Response) => {
   const caller = callerOf(req);
-  const principal = await prisma.principal.findUniqueOrThrow({
-    where: { id: caller.principalId },
-  });
+  const principal = principalOf(req);
   res.status(200).json({
     principal: {
       id: principal.id,

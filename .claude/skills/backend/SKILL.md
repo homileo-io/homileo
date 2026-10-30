@@ -101,7 +101,7 @@ adding or moving a route.
 ## Database Layer
 
 - Prisma calls live in `utils/db/{table}.ts`, aggregated by `utils/db/index.ts` into one default
-  export: `import db from "../../utils/db/index.js"` → `db.principals.upsertUser(…)`.
+  export: `import db from "../../utils/db/index.js"` → `db.principals.findOrCreateUser(…)`.
 - Controllers call `db.*`, not `prisma`.
 - Every write function takes an optional transaction: `(…, tx?: Prisma.TransactionClient)` with
   `const db = tx ?? prisma;`. Controllers open `db.$transaction(async (tx) => …)`.

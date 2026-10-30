@@ -47,6 +47,7 @@ CREATE TABLE "chat"."principals" (
     "is_bot" BOOLEAN NOT NULL DEFAULT false,
     "display_name" VARCHAR(255),
     "avatar_url" VARCHAR(2048),
+    "profile_refreshed_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 

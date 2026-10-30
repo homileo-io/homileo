@@ -4,7 +4,7 @@ import * as events from "./events.js";
 
 /**
  * One object across all tables. Each table's module is added here as it is
- * written, so callers write `db.principals.upsertUser(...)`.
+ * written, so callers write `db.principals.findOrCreateUser(...)`.
  */
 export const db = { principals, provisioned, events };
 
