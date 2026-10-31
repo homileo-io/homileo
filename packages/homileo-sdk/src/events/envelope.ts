@@ -39,3 +39,28 @@ export const SyncResponseSchema = z.strictObject({
 });
 
 export type SyncResponse = z.infer<typeof SyncResponseSchema>;
+
+/**
+ * The socket's `ready` event, sent once its rooms are joined. `until` is a
+ * sync cursor to pass as `/sync`'s `until` while catching up.
+ */
+export const SocketReadySchema = z.strictObject({ until: z.string().min(1) });
+
+export type SocketReady = z.infer<typeof SocketReadySchema>;
+
+/** A `subscribe` ack: on success, `until` is for `/sync` as `ready`'s is. */
+export const SubscribeAckSchema = z.discriminatedUnion("ok", [
+  z.strictObject({ ok: z.literal(true), until: z.string().min(1) }),
+  z.strictObject({
+    ok: z.literal(false),
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      issues: z
+        .array(z.object({ path: z.string(), message: z.string() }))
+        .optional(),
+    }),
+  }),
+]);
+
+export type SubscribeAck = z.infer<typeof SubscribeAckSchema>;

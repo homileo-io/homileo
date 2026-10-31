@@ -36,3 +36,35 @@ export const drainSync = async (
     if (!body.hasMore) return { events, next };
   }
 };
+
+/**
+ * The documented reconnect loop: pages from `since` until `hasMore` is false, passing
+ * `until`, and waits `backoffMs` after an empty page that has more.
+ */
+export const catchUp = async (
+  token: string,
+  since: string,
+  until: string,
+  query: Record<string, string> = {},
+  backoffMs = 100,
+  base?: string
+) => {
+  const events: JsonResponse["body"][] = [];
+  let next = since;
+  let pages = 0;
+  for (;;) {
+    const { status, body } = await sync(
+      token,
+      { ...query, since: next, until },
+      base
+    );
+    expect(status, JSON.stringify(body)).toBe(200);
+    pages++;
+    events.push(...body.events);
+    next = body.next;
+    if (!body.hasMore) return { events, next, pages };
+    if (body.events.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+};

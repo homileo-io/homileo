@@ -1,10 +1,12 @@
 import { readableSession, readableSpace } from "../utils/access.js";
 import { NotFoundError, issuesOf } from "../utils/errors.js";
+import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import type { Ack, AckError, AppSocket } from "./types.js";
 import { IdSchema } from "../utils/idSchema.js";
 import { MAX_SUBSCRIPTIONS } from "./limits.js";
 import { prisma } from "../utils/db/prisma.js";
 import { logger } from "../utils/logger.js";
+import { db } from "../utils/db/index.js";
 import { z } from "zod";
 import {
   sessionIdOf,
@@ -19,6 +21,15 @@ export const SubscriptionTargetSchema = z.union([
 ]);
 
 const OK: Ack = { ok: true };
+
+/**
+ * A successful subscribe: `until`, taken once the socket is in the room, is where the
+ * client's `/sync` for the resource must reach; later transactions fan out to the room.
+ */
+const subscribed = async (): Promise<Ack> => ({
+  ok: true,
+  until: encodeSyncCursor(await db.events.tail()),
+});
 const failure = (error: AckError): Ack => ({ ok: false, error });
 
 const notFound = (target: { sessionId: string } | { spaceId: string }) =>
@@ -47,7 +58,7 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
       ? sessionRoom(target.sessionId)
       : spaceRoom(target.spaceId);
   // Already there, subscribed or for membership: nothing to count or check.
-  if (socket.rooms.has(room)) return OK;
+  if (socket.rooms.has(room)) return subscribed();
 
   const { subscriptions } = socket.data;
   const atLimit = () => {
@@ -77,11 +88,11 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
   }
 
   // Subscribes in flight together all passed the first check.
-  if (socket.rooms.has(room)) return OK;
+  if (socket.rooms.has(room)) return subscribed();
   if (atLimit()) return tooMany;
   subscriptions.add(room);
   await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
-  return OK;
+  return subscribed();
 };
 
 /** Whether the socket's principal takes part in the session, or is a member of the space. */

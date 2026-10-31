@@ -1,6 +1,16 @@
 export { EVENT_TYPES, webhookEventTypes } from "./events/registry.js";
-export { EventEnvelopeSchema, SyncResponseSchema } from "./events/envelope.js";
-export type { EventEnvelope, SyncResponse } from "./events/envelope.js";
+export {
+  EventEnvelopeSchema,
+  SocketReadySchema,
+  SubscribeAckSchema,
+  SyncResponseSchema,
+} from "./events/envelope.js";
+export type {
+  EventEnvelope,
+  SocketReady,
+  SubscribeAck,
+  SyncResponse,
+} from "./events/envelope.js";
 export type {
   EventChannel,
   EventDefinition,

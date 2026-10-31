@@ -15,6 +15,7 @@ import {
   openLocalSocket,
   request,
   startSocketServer,
+  SUBSCRIBED,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
@@ -95,7 +96,7 @@ describe("startFanout losing access", () => {
       const socket = await connect(alice, node);
       expect(
         await request(socket, "subscribe", { sessionId: session.id })
-      ).toEqual({ ok: true });
+      ).toEqual(SUBSCRIBED);
       const received = record(socket, [
         "space.member_removed",
         "space.access_revoked",

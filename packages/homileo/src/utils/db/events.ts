@@ -107,6 +107,19 @@ export const head = async (): Promise<SyncPosition> => {
   return { txId: BigInt(row.tx_id), id: 0n, at: row.at };
 };
 
+/**
+ * The first transaction id not yet assigned: every transaction at or above it
+ * starts after this call. A socket takes it once its rooms are joined, so
+ * those transactions' fan-out reaches it, and its catch-up runs until the
+ * horizon passes it.
+ */
+export const tail = async (): Promise<SyncPosition> => {
+  const [row] = await prisma.$queryRaw<Array<{ tx_id: string; at: Date }>>`
+    SELECT pg_snapshot_xmax(pg_current_snapshot())::text AS tx_id,
+           date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at`;
+  return { txId: BigInt(row.tx_id), id: 0n, at: row.at };
+};
+
 /** The alias `readFrom` gives `chat.events`; its `where` may qualify columns with it. */
 export const EVENTS_ALIAS = "ev";
 
@@ -127,14 +140,17 @@ export const readFrom = async (
   hasMore: boolean;
   /** The horizon read up to: every transaction below it had ended. */
   horizon: bigint;
+  /** The first transaction id not yet assigned when the page was read. */
+  tail: bigint;
 }> => {
   // `at` and the horizon ride in the same statement as the rows; the join
   // keeps one row when the page is empty.
   const found = await prisma.$queryRaw<
-    Array<Partial<RawEventRow> & { at: Date; horizon: string }>
+    Array<Partial<RawEventRow> & { at: Date; horizon: string; tail: string }>
   >`
     SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at,
            pg_snapshot_xmin(pg_current_snapshot())::text AS horizon,
+           pg_snapshot_xmax(pg_current_snapshot())::text AS tail,
            page.id, page.created_at, page.type, page.organization_id,
            page.space_id, page.session_id, page.actor_id, page.payload,
            page.tx_id::text AS tx_id
@@ -153,6 +169,7 @@ export const readFrom = async (
     ORDER BY page.tx_id, page.id`;
   const now = found[0].at;
   const horizon = BigInt(found[0].horizon);
+  const tail = BigInt(found[0].tail);
   const matched = found.filter((r) => r.id != null) as RawEventRow[];
   const hasMore = matched.length > limit;
   const rows = matched.slice(0, limit).map(toEventRow);
@@ -166,6 +183,7 @@ export const readFrom = async (
       next: { txId: last!.txId, id: last!.id, at: after.at },
       hasMore,
       horizon,
+      tail,
     };
   }
   // Every row below the horizon was scanned, matching or not, so the next
@@ -175,7 +193,7 @@ export const readFrom = async (
     horizon > reached.txId
       ? { txId: horizon, id: 0n, at: now }
       : { txId: reached.txId, id: reached.id, at: now };
-  return { rows, next, hasMore, horizon };
+  return { rows, next, hasMore, horizon, tail };
 };
 
 export interface Partition {

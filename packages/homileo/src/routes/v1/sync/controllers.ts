@@ -1,6 +1,6 @@
+import { ResyncRequiredError, ValidationError } from "../../../utils/errors.js";
 import { readableSessions, readableSpaces } from "../../../utils/access.js";
 import { Prisma } from "../../../../prisma/generated/client/index.js";
-import { ResyncRequiredError } from "../../../utils/errors.js";
 import { validateQuery } from "../../../utils/validateReq.js";
 import { EVENT_TYPES, type EventType } from "@homileo-io/sdk";
 import { callerOf } from "../../../middleware/auth.js";
@@ -95,7 +95,7 @@ export const sync = async (req: Request, res: Response) => {
   const memberOf = new Set(memberships.map((m) => m.spaceId));
   const participantOf = new Set(participations.map((p) => p.sessionId));
 
-  const { rows, next, hasMore } = await db.events.readFrom(
+  const page = await db.events.readFrom(
     after,
     prefilter(
       caller.organizationId,
@@ -105,6 +105,19 @@ export const sync = async (req: Request, res: Response) => {
     ),
     query.limit
   );
+  const { rows } = page;
+  const { until } = query;
+  // Every transaction below the horizon has ended, so the read passed `until`
+  // once the horizon is at or above it.
+  if (until && until.txId > page.tail) {
+    throw new ValidationError("Invalid cursor", [
+      { path: "until", message: "Not issued by this database" },
+    ]);
+  }
+  const waiting = until !== undefined && page.horizon < until.txId;
+  const hasMore = page.hasMore || waiting;
+  // While more remains, the cursor keeps the time it was issued (as readFrom does).
+  const next = waiting ? { ...page.next, at: after.at } : page.next;
 
   const messageIds = unique(rows.flatMap((r) => mentionedMessageOf(r) ?? []));
   const [sessions, spaces, mentions] = await Promise.all([

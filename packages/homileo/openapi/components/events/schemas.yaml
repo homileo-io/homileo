@@ -67,4 +67,6 @@ SyncResponse:
       description: The cursor to pass as `since` next, also when `events` is empty
     hasMore:
       type: boolean
-      description: Whether events remain past `next`; call again with it until this is false
+      description: |
+        Whether events remain past `next`, or, with `until`, transactions older than it are still
+        running; call again with it until this is false

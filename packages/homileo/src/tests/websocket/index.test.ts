@@ -1,20 +1,32 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag race
-import { afterAll, afterEach, beforeAll, describe, it, vi } from "vitest";
+import { decodeSyncCursor } from "../../realtime/syncCursor.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { roomsOnConnect } from "../../websocket/rooms.js";
 import type * as rooms from "../../websocket/rooms.js";
 import { sessionRoom } from "../../realtime/rooms.js";
 import { personToken } from "../support/tokens.js";
+import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import {
+  disconnected,
   eventually,
+  openReadySocket,
   openSocket,
   startSocketServer,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("../../websocket/rooms.js", async (importOriginal) => {
   const original = await importOriginal<typeof rooms>();
@@ -94,5 +106,52 @@ describe("createSocketServer", () => {
           .sockets.get(socket.id!)
           ?.rooms.has(sessionRoom(session.id)) === true
     );
+  });
+
+  it("sends ready, with a position no older than the rooms it joined, once they are settled", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const session = await fixtures.session({ org, type: "group" });
+    await fixtures.participant(session, who);
+    const before = await db.events.tail();
+
+    const { socket, until } = await openReadySocket(
+      personToken({ userId: who.tereoUserId!, org }),
+      local.url
+    );
+    opened.push(socket);
+
+    const position = decodeSyncCursor(until);
+    expect(position.id).toBe(0n);
+    expect(position.txId).toBeGreaterThanOrEqual(before.txId);
+    expect(
+      local.io
+        .of("/")
+        .sockets.get(socket.id!)
+        ?.rooms.has(sessionRoom(session.id))
+    ).toBe(true);
+  });
+
+  it("closes a new socket whose rooms could not be reloaded, sending no ready", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    vi.mocked(roomsOnConnect)
+      .mockImplementationOnce((c) =>
+        vi
+          .importActual<typeof rooms>("../../websocket/rooms.js")
+          .then((m) => m.roomsOnConnect(c))
+      )
+      .mockRejectedValueOnce(new Error("database down"));
+
+    const socket = await openSocket(
+      personToken({ userId: who.tereoUserId!, org }),
+      local.url
+    );
+    opened.push(socket);
+    let ready = false;
+    socket.on("ready", () => (ready = true));
+
+    await disconnected(socket);
+    expect(ready).toBe(false);
   });
 });

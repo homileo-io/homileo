@@ -1,6 +1,7 @@
 import { claimSocketSlot, limitEvents, MAX_PACKET_BYTES } from "./limits.js";
 import { handleEphemeral, startPresenceSweep } from "./ephemeral.js";
 import { authenticateSocket, closeAtExpiry } from "./auth.js";
+import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import { redisRetryStrategy } from "../utils/redisRetry.js";
 import { closeRedisClient, redis } from "../utils/redis.js";
 import { recheckSockets, roomsOnConnect } from "./rooms.js";
@@ -10,6 +11,7 @@ import type { AppSocket, IOServer } from "./types.js";
 import { startFanout, stopFanout } from "./fanout.js";
 import type { Server as HttpServer } from "http";
 import { logger } from "../utils/logger.js";
+import { db } from "../utils/db/index.js";
 import type { Redis } from "ioredis";
 import { Server } from "socket.io";
 import env from "../env.js";
@@ -84,7 +86,8 @@ export const connectCheckOf = (socket: AppSocket): Promise<void> =>
  * Changes committed between the handshake's load and the joins on connect fanned out before
  * the socket was in its rooms, its personal room included: a participation added then was
  * never joined, and a revocation never re-checked. Loads the rooms again, joins the new
- * ones, then re-checks them all.
+ * ones, re-checks them all, then sends `ready` with the position the client's catch-up must
+ * reach. A socket whose rooms could not be settled is closed, so its client reconnects.
  */
 const settleRooms = async (socket: AppSocket): Promise<void> => {
   const principalId = socket.data.caller.principalId;
@@ -93,16 +96,13 @@ const settleRooms = async (socket: AppSocket): Promise<void> => {
     // Joining after the disconnect would leave the id in the adapter's rooms.
     if (socket.disconnected) return;
     await socket.join(rooms);
-  } catch (err) {
-    logger.error({ err, principalId }, "Reloading a new socket's rooms failed");
-  }
-  try {
     await recheckSockets([socket]);
+    // Taken after the joins: every transaction from here on fans out to these rooms.
+    const until = encodeSyncCursor(await db.events.tail());
+    if (socket.connected) socket.emit("ready", { until });
   } catch (err) {
-    logger.error(
-      { err, principalId },
-      "Re-checking a new socket's rooms failed"
-    );
+    logger.error({ err, principalId }, "Settling a new socket's rooms failed");
+    socket.disconnect(true);
   }
 };
 

@@ -1,14 +1,16 @@
 // @module-tag int
 // @module-tag sync
 // @module-tag websocket
+import { catchUp, drainSync, syncHead } from "../../support/sync.js";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { spaceApiFixtures } from "../../support/spaceApi.js";
-import { drainSync, syncHead } from "../../support/sync.js";
 import { sendMessage } from "../../support/messageApi.js";
 import type { JsonResponse } from "../../support/http.js";
+import { prisma } from "../../../utils/db/prisma.js";
 import {
   collect,
   eventually,
+  openReadySocket,
   openSocket,
   type ClientSocket,
 } from "../../support/sockets.js";
@@ -73,5 +75,60 @@ describe("reconnecting through /sync", () => {
     });
     expect(applied.map((e) => e.payload.message.id)).toEqual(sentIds);
     expect(buffered.map((e) => e.payload.message.id)).toEqual([sentIds[5]]);
+  });
+
+  it("waits for an older open transaction before catching up past an event committed while the socket was down", async () => {
+    const org = api.organization();
+    const owner = await api.actor(org);
+    const alice = await api.actor(org);
+    const session = await fixtures.session({ org, type: "group" });
+    await fixtures.participant(session, owner.principal, "owner");
+    await fixtures.participant(session, alice.principal);
+    const since = await syncHead(alice.token);
+
+    // An older transaction holds a transaction id and stays open.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let began!: () => void;
+    const holding = new Promise<void>((resolve) => (began = resolve));
+    const older = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT pg_current_xact_id()::text`;
+        began();
+        await released;
+      },
+      { timeout: 30_000 }
+    );
+    try {
+      await holding;
+      // Committed while alice has no socket, after the older transaction began.
+      const sent = await sendMessage(session.id, owner.token, {
+        body: "while away",
+      });
+      expect(sent.status, JSON.stringify(sent.body)).toBe(201);
+
+      const { socket, until } = await openReadySocket(alice.token);
+      opened.push(socket);
+      let done = false;
+      const caughtUp = catchUp(alice.token, since, until).finally(() => {
+        done = true;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(done).toBe(false);
+
+      release();
+      await older;
+      const { events } = await caughtUp;
+
+      expect(
+        events
+          .filter((e) => e.type === "message.created")
+          .map((e) => e.payload.message.id)
+      ).toEqual([sent.body.message.id]);
+    } finally {
+      release();
+      await older.catch(() => {});
+    }
   });
 });

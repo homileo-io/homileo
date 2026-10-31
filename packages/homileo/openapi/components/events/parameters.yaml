@@ -10,6 +10,20 @@ SyncSinceParam:
     type: string
     minLength: 1
 
+SyncUntilParam:
+  name: until
+  in: query
+  required: false
+  description: |
+    The position this catch-up must reach: the `until` of the socket's `ready` event, or of its
+    last `subscribe` ack, as it was sent. Until every transaction
+    older than it has ended, responses keep `hasMore` true, even with no events; a transaction
+    that started after it reaches the socket instead. Ignored without `since`. A malformed cursor,
+    one from the future, or one past what this database has issued is `400 invalid_request`.
+  schema:
+    type: string
+    minLength: 1
+
 SyncLimitParam:
   name: limit
   in: query

@@ -22,6 +22,11 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 - The socket closes when the token's `exp` passes. The client reconnects with a fresh token, which
   refreshes the permissions the socket is judged by.
 - Connecting counts as a presence heartbeat.
+- Once its rooms are joined and re-checked, the server sends the socket `ready`:
+  `{ until: <sync cursor> }`. Every transaction that starts after `until` was taken fans out to
+  the socket's rooms; `until` is where a catch-up through `/sync` must reach (see
+  [Reconnecting](#reconnecting)). A socket whose rooms could not be loaded is closed without
+  `ready`, and the client reconnects.
 
 ## Rooms
 
@@ -48,7 +53,7 @@ postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rat
 
 | Event | Payload | Ack |
 |---|---|---|
-| `subscribe` | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true }` |
+| `subscribe` | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true, until }` |
 | `unsubscribe` | the same | `{ ok: true }` |
 | `typing.start`, `typing.stop` | `{ sessionId }` | `{ ok: true }` |
 | `presence.heartbeat` | none | `{ ok: true }` |
@@ -57,7 +62,8 @@ postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rat
 `subscribe` requires that the caller can read the target now (the same check as the REST route,
 [access.md](access.md)). A session subscription also joins that session's `spaceof:` room. A socket
 holds at most 200 explicit subscriptions; one already in the room (subscribed or joined for
-membership) answers `ok` without counting. `unsubscribe` of something not subscribed is `ok`.
+membership) answers `ok` without counting. `until` in the ack is a sync cursor taken once the
+socket is in the room, as `ready`'s is. `unsubscribe` of something not subscribed is `ok`.
 
 ## The envelope
 
@@ -145,7 +151,8 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
 ## `GET /v1/sync`
 
 `since` takes the `next` of the previous response (`limit` 1 to 500, default 100; `sessionIds` and
-`spaceIds` each up to 50 comma-separated ids to subscribe to for this call). It answers
+`spaceIds` each up to 50 comma-separated ids to subscribe to for this call; `until` the position
+the catch-up must reach). It answers
 
 ```json
 { "events": [ { "id": "…" } ], "next": "<cursor>", "hasMore": false }
@@ -162,6 +169,13 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
   events exist, because filtering by audience drops rows after the page is cut; keep calling until
   `hasMore` is false. While `hasMore` is true the cursor's `at` stays that of the cursor sent
   (R8); it refreshes only when a page reaches the horizon.
+- **`until`** is the `until` of the socket's `ready`, or of its last `subscribe` ack (each is at
+  least as late as the one before). While a
+  transaction older than it is still running, the response has `hasMore: true`, even with no
+  events, and `next` holds the progress so far: such a transaction may have committed before the
+  socket was in its rooms, so only `/sync` can deliver it. Once the horizon has passed `until` and
+  the page drains, `hasMore` is false. An `until` past what the database has issued is
+  `400 invalid_request`; without `since` it is ignored.
 - **`410 resync_required`** when the cursor's `at` is earlier than the oldest retained partition's
   lower bound plus 10 minutes (Decision 3). No transaction outlives that margin. Reload state and
   start again without `since`. A malformed cursor, or one from the future, is `400 invalid_request`.
@@ -172,43 +186,51 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
 
 Limits of the implementation:
 
-- `pg_snapshot_xmin` is cluster-wide. Any open transaction holding an xid on the Postgres server
-  holds `/sync` back until it ends: a shared server, an idle-in-transaction session, a prepared
-  transaction. Sockets are unaffected.
+- `pg_snapshot_xmin` is cluster-wide. Any open write transaction on the Postgres server holds the
+  catch-up back until it ends: a shared server, an idle-in-transaction session, a prepared
+  transaction. With `until`, `/sync` answers `hasMore: true` meanwhile and the client waits; a
+  reconnect therefore takes as long as the oldest such transaction. Live delivery on the socket
+  does not wait.
 - `limit` caps the matches, not the rows scanned: a reader with few relevant events in a busy
   organization can make `/sync` scan many rows.
 
 ## Reconnecting
 
-The socket is connected and buffering before `/sync` starts, so nothing falls between them
-(Decision 2).
+The socket is connected and buffering before `/sync` starts, and `/sync` runs until it reaches
+the position the server gave the socket, so nothing falls between them (Decision 2).
 
 ```ts
 let cursor = loadSavedCursor();           // the last `next`, or from /sync with no since
 const applied = new Set<string>();        // ids already applied, bounded by cursor age
 
-socket.on("connect", async () => {
-  socket.buffering = true;                // keep socket events aside, in order
+socket.on("ready", async ({ until }) => {
+  // Socket events are kept aside, in order, from the moment the socket connects.
   try {
+    // Explicit subscriptions are gone after a reconnect.
+    for (const target of subscriptions) {
+      const ack = await socket.emitWithAck("subscribe", target);
+      if (ack.ok) until = ack.until;     // each is at least as late as the one before
+    }
     for (;;) {
-      const page = await sync({ since: cursor, sessionIds, spaceIds });
+      const page = await sync({ since: cursor, until, sessionIds, spaceIds });
       page.events.forEach(apply);
       cursor = page.next;
       if (!page.hasMore) break;
+      if (page.events.length === 0) await sleep(100 + Math.random() * 150);
     }
   } catch (e) {
     if (e.status === 410) return reloadEverything();   // resync_required
     throw e;
   }
   for (const e of buffered) apply(e);     // after /sync, skipping seen ids
-  socket.buffering = false;
-  resubscribe(sessionIds, spaceIds);      // explicit subscriptions are gone
+  stopBuffering();
 });
 
 const apply = (e) => { if (applied.has(e.id)) return; applied.add(e.id); /* update state */ };
 ```
 
-Explicit subscriptions do not survive a reconnect: call `subscribe` again, and pass the same
-resources in `sessionIds`/`spaceIds` so `/sync` covers the gap. After a long gap, or on `410`,
+Pass the subscribed resources in
+`sessionIds`/`spaceIds` so `/sync` covers what they missed. An empty page with `hasMore` means an
+older transaction is still open: back off briefly and call again. After a long gap, or on `410`,
 reload state from the REST routes instead. Events pushed on the socket carry no cursor; keep the
 `next` from `/sync`, since socket events do not advance it.

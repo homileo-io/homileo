@@ -7,11 +7,12 @@ import { personToken } from "../support/tokens.js";
 import { redis } from "../../utils/redis.js";
 import { v7 as uuidv7 } from "uuid";
 import {
-  noEvent,
   nextEvent,
+  noEvent,
   openSocket,
   request,
   startSocketServer,
+  SUBSCRIBED,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
@@ -128,10 +129,10 @@ describe("typing", () => {
     const outsider = await connect(await fixtures.principal(), org);
     expect(
       await request(outsider, "subscribe", { sessionId: session.id })
-    ).toEqual({ ok: true });
+    ).toEqual(SUBSCRIBED);
     expect(
       await request(bobSocket, "subscribe", { sessionId: session.id })
-    ).toEqual({ ok: true });
+    ).toEqual(SUBSCRIBED);
     const heard = noEvent(bobSocket, "typing");
 
     const ack = await request(outsider, "typing.start", {

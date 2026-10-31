@@ -126,6 +126,27 @@ describe("GET /v1/sync", () => {
     expect(body.error).toBe("resync_required");
   });
 
+  it("answers 400 invalid_request to an until this database has not reached", async () => {
+    const since = await syncHead(bob.token);
+    const head = decodeSyncCursor(since);
+    const until = encodeSyncCursor({ ...head, txId: head.txId + 10n ** 12n });
+
+    const { status, body } = await sync(bob.token, { since, until });
+
+    expect(status).toBe(400);
+    expect(body.error).toBe("invalid_request");
+    expect(body.issues[0].path).toBe("until");
+  });
+
+  it("answers hasMore false once the horizon has passed until", async () => {
+    const since = await syncHead(bob.token);
+
+    const { status, body } = await sync(bob.token, { since, until: since });
+
+    expect(status).toBe(200);
+    expect(body.hasMore).toBe(false);
+  });
+
   it("answers 400 invalid_request to a malformed cursor", async () => {
     const { status, body } = await sync(bob.token, { since: "not-a-cursor" });
 

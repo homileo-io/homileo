@@ -1,7 +1,12 @@
-import { EventEnvelopeSchema, SyncResponseSchema } from "../events/envelope.js";
 import { EVENT_TYPES, type EventType } from "../events/registry.js";
 import { describe, expect, it } from "vitest";
 import * as fx from "./resourceFixtures.js";
+import {
+  EventEnvelopeSchema,
+  SocketReadySchema,
+  SubscribeAckSchema,
+  SyncResponseSchema,
+} from "../events/envelope.js";
 
 const envelope = (
   type: string,
@@ -81,5 +86,42 @@ describe("SyncResponseSchema", () => {
     const parsed = SyncResponseSchema.safeParse({ events: [], next: "x" });
 
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("SocketReadySchema", () => {
+  it("accepts the position the catch-up must reach", () => {
+    const parsed = SocketReadySchema.safeParse({
+      until: "WyI1IiwiMCIsMTc2MTkxMjAwMDAwMF0",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it.each([
+    ["no until", {}],
+    ["an empty until", { until: "" }],
+    ["an extra key", { until: "x", next: "y" }],
+  ])("rejects %s", (_name, input) => {
+    expect(SocketReadySchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("SubscribeAckSchema", () => {
+  it("accepts ok with until, and a failure with its code", () => {
+    expect(
+      SubscribeAckSchema.safeParse({ ok: true, until: "WyI1IiwiMCIsMV0" })
+        .success
+    ).toBe(true);
+    expect(
+      SubscribeAckSchema.safeParse({
+        ok: false,
+        error: { code: "not_found", message: "Session not found" },
+      }).success
+    ).toBe(true);
+  });
+
+  it("requires until on ok", () => {
+    expect(SubscribeAckSchema.safeParse({ ok: true }).success).toBe(false);
   });
 });

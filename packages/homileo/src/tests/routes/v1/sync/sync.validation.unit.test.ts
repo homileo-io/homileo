@@ -1,6 +1,7 @@
 // @module-tag unit
 // @module-tag sync
 import { SyncQuerySchema } from "../../../../routes/v1/sync/schemas.js";
+import { encodeSyncCursor } from "../../../../realtime/syncCursor.js";
 import { describe, expect, it } from "vitest";
 import { v7 as uuidv7 } from "uuid";
 
@@ -26,6 +27,18 @@ describe("GET /v1/sync query", () => {
     ["an empty spaceId in the list", { spaceIds: `${uuidv7()},` }],
     ["a repeated sessionIds parameter", { sessionIds: [uuidv7(), uuidv7()] }],
     ["an unknown key", { after: "1" }],
+    ["an empty until", { until: "" }],
+    ["an until that is not a cursor", { until: "not-a-cursor" }],
+    [
+      "an until from the future",
+      {
+        until: encodeSyncCursor({
+          txId: 1n,
+          id: 0n,
+          at: new Date(Date.now() + 3_600_000),
+        }),
+      },
+    ],
   ])("rejects %s", (_name, input) => {
     expect(SyncQuerySchema.safeParse(input).success).toBe(false);
   });
@@ -50,5 +63,15 @@ describe("GET /v1/sync query", () => {
     });
 
     expect(parsed.sessionIds).toEqual([id]);
+  });
+
+  it("decodes until into a position", () => {
+    const at = new Date(1_700_000_000_000);
+    const until = encodeSyncCursor({ txId: 9007199254740993n, id: 0n, at });
+
+    const parsed = SyncQuerySchema.safeParse({ since: "abc", until });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.until).toEqual({ txId: 9007199254740993n, id: 0n, at });
   });
 });

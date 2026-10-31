@@ -2,6 +2,7 @@ import { io as connect, type Socket as ClientSocket } from "socket.io-client";
 import { startFanout, stopFanout } from "../../websocket/fanout.js";
 import { initializeTereo } from "../../utils/tereo.js";
 import { createServer } from "http";
+import { expect } from "vitest";
 import env from "../../env.js";
 import {
   closeSocketServer,
@@ -30,6 +31,38 @@ export const openSocket = (
     });
     socket.once("connect", () => resolve(socket));
     socket.once("connect_error", (err) => {
+      socket.close();
+      reject(err);
+    });
+  });
+
+/**
+ * A socket connected to the shared test server (or `url`) with `token`, once the server has
+ * sent `ready`; `until` is the position its catch-up must reach.
+ */
+export const openReadySocket = (
+  token: string,
+  url: string = env.PUBLIC_URL,
+  timeoutMs = 5000
+): Promise<{ socket: ClientSocket; until: string }> =>
+  new Promise((resolve, reject) => {
+    const socket = connect(url, {
+      path: "/ws",
+      transports: ["websocket"],
+      reconnection: false,
+      forceNew: true,
+      auth: { token },
+    });
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error(`no ready within ${timeoutMs} ms`));
+    }, timeoutMs);
+    socket.once("ready", (payload: { until: string }) => {
+      clearTimeout(timer);
+      resolve({ socket, until: payload.until });
+    });
+    socket.once("connect_error", (err) => {
+      clearTimeout(timer);
       socket.close();
       reject(err);
     });
@@ -78,6 +111,9 @@ export const request = <T = Ack>(
   payload: unknown,
   timeoutMs = 2000
 ): Promise<T> => socket.timeout(timeoutMs).emitWithAck(type, payload);
+
+/** A successful `subscribe` ack, which carries the position its catch-up must reach. */
+export const SUBSCRIBED = { ok: true, until: expect.any(String) };
 
 export type Ack =
   | ({ ok: true } & Record<string, unknown>)

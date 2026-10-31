@@ -16,6 +16,7 @@ import {
   openLocalSocket,
   request,
   startSocketServer,
+  SUBSCRIBED,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
@@ -100,7 +101,7 @@ describe("startFanout", () => {
       const notWatching = await connect(bystander);
       expect(
         await request(watching, "subscribe", { sessionId: session.id })
-      ).toEqual({ ok: true });
+      ).toEqual(SUBSCRIBED);
       const arriving = nextEvent<JsonResponse["body"]>(
         watching,
         "message.created"
@@ -126,7 +127,7 @@ describe("startFanout", () => {
       const both = await connect(subscribed);
       expect(
         await request(both, "subscribe", { sessionId: session.id })
-      ).toEqual({ ok: true });
+      ).toEqual(SUBSCRIBED);
       const toPlain = collect<JsonResponse["body"]>(plain, "message.created");
       const toBoth = collect<JsonResponse["body"]>(both, "message.created");
 
@@ -169,7 +170,7 @@ describe("startFanout", () => {
       // Subscribed first: the participation join takes the room over from the subscription.
       expect(
         await request(socket, "subscribe", { sessionId: session.id })
-      ).toEqual({ ok: true });
+      ).toEqual(SUBSCRIBED);
       let roomsOnArrival: string[] = [];
       socket.once("session.participant_added", () => {
         roomsOnArrival = [...serverSocket(socket).rooms];
@@ -223,7 +224,7 @@ describe("startFanout", () => {
       for (const socket of [outside, inside]) {
         expect(
           await request(socket, "subscribe", { sessionId: session.id })
-        ).toEqual({ ok: true });
+        ).toEqual(SUBSCRIBED);
       }
 
       const patched = await fetchJson(

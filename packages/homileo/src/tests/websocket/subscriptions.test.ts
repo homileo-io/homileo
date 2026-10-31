@@ -2,8 +2,10 @@
 // @module-tag websocket
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Principal } from "../../../prisma/generated/client/index.js";
+import { decodeSyncCursor } from "../../realtime/syncCursor.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { personToken } from "../support/tokens.js";
+import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import {
   sessionRoom,
@@ -16,6 +18,7 @@ import {
   request,
   socketsIn,
   startSocketServer,
+  SUBSCRIBED,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
@@ -114,9 +117,18 @@ describe("subscribe", () => {
     const session = await fixtures.session({ space, access: "space" });
     const socket = await connectAs(who, org);
 
-    const ack = await request(socket, "subscribe", { sessionId: session.id });
+    const before = await db.events.tail();
 
-    expect(ack).toEqual({ ok: true });
+    const ack = await request<{ ok: true; until: string }>(
+      socket,
+      "subscribe",
+      { sessionId: session.id }
+    );
+
+    expect(ack).toEqual({ ok: true, until: expect.any(String) });
+    const until = decodeSyncCursor(ack.until);
+    expect(until.id).toBe(0n);
+    expect(until.txId).toBeGreaterThanOrEqual(before.txId);
     expect(await socketsIn(local.io, sessionRoom(session.id))).toEqual([
       socket.id,
     ]);
@@ -136,7 +148,7 @@ describe("subscribe", () => {
 
     const ack = await request(socket, "subscribe", { spaceId: space.id });
 
-    expect(ack).toEqual({ ok: true });
+    expect(ack).toEqual(SUBSCRIBED);
     expect(await socketsIn(local.io, spaceRoom(space.id))).toEqual([socket.id]);
   });
 
@@ -221,7 +233,7 @@ describe("subscribe", () => {
 
     expect(
       await request(socket, "subscribe", { sessionId: session.id })
-    ).toEqual({ ok: true });
+    ).toEqual(SUBSCRIBED);
   });
 });
 
@@ -269,7 +281,7 @@ describe("unsubscribe", () => {
     const socket = await connectAs(who, org);
     expect(
       await request(socket, "subscribe", { sessionId: session.id })
-    ).toEqual({ ok: true });
+    ).toEqual(SUBSCRIBED);
 
     await request(socket, "unsubscribe", { sessionId: session.id });
     await request(socket, "unsubscribe", { spaceId: space.id });

@@ -14,6 +14,7 @@ import {
   openLocalSocket,
   request,
   startSocketServer,
+  SUBSCRIBED,
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
@@ -52,7 +53,7 @@ describe("startFanout ordering", () => {
     opened.push(socket);
     expect(
       await request(socket, "subscribe", { sessionId: session.id })
-    ).toEqual({ ok: true });
+    ).toEqual(SUBSCRIBED);
     const received = collect<JsonResponse["body"]>(socket, "message.created");
     const committed: string[] = [];
     const onCommitted = (events: ChangeEvent[]) => {

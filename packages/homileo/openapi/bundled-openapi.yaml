@@ -1719,8 +1719,13 @@ paths:
       description: |
         The events the caller would have received on the socket after `since`, with the same ids, in
         commit order. A client calls it on reconnect, with the socket already connected and
-        buffering, until `hasMore` is false, then applies the buffered socket events, skipping ids it
-        has seen. Without `since` it returns no events and the head as `next`.
+        buffering, passing as `until` the position the socket's `ready` event (and its `subscribe`
+        acks) gave, until `hasMore` is false; then it applies the buffered socket events, skipping
+        ids it has seen. Without `since` it returns no events and the head as `next`.
+
+        Events are read only from transactions older than every one still running on the database
+        server, so an open write transaction anywhere on it holds the catch-up back until it ends;
+        with `until`, `hasMore` stays true meanwhile. Socket delivery does not wait.
 
         An event is returned when the caller can read its session or space **now** and is one of:
         - a current participant of the event's session (session events);
@@ -1739,6 +1744,7 @@ paths:
       operationId: sync
       parameters:
         - $ref: '#/components/parameters/SyncSinceParam'
+        - $ref: '#/components/parameters/SyncUntilParam'
         - $ref: '#/components/parameters/SyncLimitParam'
         - $ref: '#/components/parameters/SyncSessionIdsParam'
         - $ref: '#/components/parameters/SyncSpaceIdsParam'
@@ -2402,6 +2408,19 @@ components:
         The `next` of the previous `/v1/sync` response, as it was returned: an opaque cursor. Omit it
         to get the head, the position a reader starting now begins from. A malformed cursor is
         `400 invalid_request`.
+      schema:
+        type: string
+        minLength: 1
+    SyncUntilParam:
+      name: until
+      in: query
+      required: false
+      description: |
+        The position this catch-up must reach: the `until` of the socket's `ready` event, or of its
+        last `subscribe` ack, as it was sent. Until every transaction
+        older than it has ended, responses keep `hasMore` true, even with no events; a transaction
+        that started after it reaches the socket instead. Ignored without `since`. A malformed cursor,
+        one from the future, or one past what this database has issued is `400 invalid_request`.
       schema:
         type: string
         minLength: 1
@@ -4185,7 +4204,9 @@ components:
           description: The cursor to pass as `since` next, also when `events` is empty
         hasMore:
           type: boolean
-          description: Whether events remain past `next`; call again with it until this is false
+          description: |
+            Whether events remain past `next`, or, with `until`, transactions older than it are still
+            running; call again with it until this is false
     MePrincipal:
       type: object
       description: The caller's principal
