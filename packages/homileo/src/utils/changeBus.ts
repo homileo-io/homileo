@@ -1,3 +1,4 @@
+import type { ChangeEvent } from "./changes.js";
 import { EventEmitter } from "node:events";
 import { logger } from "./logger.js";
 
@@ -13,4 +14,24 @@ export const changeBus = new EventEmitter({ captureRejections: true });
   Symbol.for("nodejs.rejection")
 ] = (err: unknown) => {
   logger.error({ err }, "A change bus listener failed");
+};
+
+/**
+ * Calls each `"committed"` listener on its own, so one that throws or rejects
+ * neither stops the rest nor reaches the caller.
+ */
+export const publishCommitted = (events: ChangeEvent[]): void => {
+  for (const listener of changeBus.listeners("committed")) {
+    const fail = (err: unknown) =>
+      logger.error(
+        { err, listener: listener.name },
+        "A change listener failed"
+      );
+    try {
+      const returned: unknown = listener(events);
+      if (returned instanceof Promise) returned.catch(fail);
+    } catch (err) {
+      fail(err);
+    }
+  }
 };

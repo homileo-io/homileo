@@ -154,6 +154,21 @@ describe("withChanges", () => {
     }
   });
 
+  it("resolves with fn's result when a listener throws", async () => {
+    const actor = await fixtures.principal();
+    const change = spaceChange(actor.id);
+    changeBus.on("committed", () => {
+      throw new Error("listener failed");
+    });
+
+    const result = await withChanges(async (_tx, record) => {
+      await record(change);
+      return "fn result";
+    });
+
+    expect(result).toBe("fn result");
+  });
+
   it("loads the kind cache before the transaction, so fn reads kinds without a query", async () => {
     invalidateKinds();
     const load = vi.spyOn(prisma.provisionedSpaceKind, "findMany");

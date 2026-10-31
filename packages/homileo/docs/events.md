@@ -74,15 +74,23 @@ It returns the event, with its `bigint` id, so the caller can publish it to sock
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so
 they increase in allocation order, which is not always commit order: an event can become visible
 after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,
-so `/sync` (plan 3) must hold its cursor back across ids whose transactions may still commit — a
-gap-aware cursor. Ids are `bigint` inside Homileo and leave the process as strings.
+so `/sync` reads in commit order, behind the oldest running transaction, with an opaque cursor
+(see [realtime.md](realtime.md)). Ids are `bigint` inside Homileo and leave the process as strings.
 
 After the transaction commits, `withChanges` puts the committed events on `changeBus`
-(`src/utils/changeBus.ts`) in record order; a rollback publishes none. Plan 3's realtime layer
-subscribes to it and pushes to sockets. Plan 3 must treat `message.created` as advancing its sender's
-read position (the move on send records no `read.updated`) and `space.access_revoked` as revoking
-every session subscription in that space (`session.access_revoked` is sent only for sessions the
-principal participated in).
+(`src/utils/changeBus.ts`) in record order; a rollback publishes none. The realtime layer
+(`src/websocket/fanout.ts`) subscribes to it and pushes to sockets. `message.created` advances its
+sender's read position (the move on send records no `read.updated`), and `space.access_revoked`
+revokes every session subscription in that space (`session.access_revoked` is sent only for
+sessions the principal participated in).
+
+## The envelope
+
+On a socket and in `/sync`, an event is `{ id, type, createdAt, organizationId, spaceId,
+sessionId, actorId, payload }`, with `id` a decimal string (`src/views/event.ts`). The channel
+and the payload decide who receives it ([realtime.md](realtime.md)). Revocations are re-checked
+before delivery: a socket gets one only if it really lost the resource, and `/sync` drops one when
+the reader can still read it.
 
 tereo's reaper sends the outbox rows to tereo after commit, deduplicated by row id.
 
@@ -98,8 +106,13 @@ Partitions are named `events_YYYY_MM_DD` (UTC days). An insert for a day with no
   down. `src/jobs/eventPartitions.ts` wraps it as the worker's daily job.
 - Creating a partition takes a lock on `chat.events`; it waits at most
   `PARTITION_DDL_LOCK_TIMEOUT_MS` (5 s by default) and then leaves the day for the next run.
+  While it waits, inserts into `chat.events` queue behind it, so a long read on the table can
+  hold every write up to that long. Dropping a partition for retention does the same.
+- The migration that adds `tx_id` (`20261031125557_events_tx_id`) rewrites `chat.events` under
+  an exclusive lock, blocking writes for as long as that takes on a large table.
 
 ## Retention
 
-Dropping partitions older than `EVENT_RETENTION_DAYS` (30 by default) arrives in plan 3, with
-`GET /v1/sync` and the worker.
+The worker's daily job (`src/jobs/eventRetention.ts`) drops partitions older than
+`EVENT_RETENTION_DAYS` (30 by default). A `/sync` cursor older than the oldest retained partition
+(plus a 10-minute margin once retention has dropped a day) is `410 resync_required`.

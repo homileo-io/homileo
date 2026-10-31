@@ -1,0 +1,47 @@
+/v1/sync:
+  get:
+    tags: [Events]
+    summary: Catch up on events
+    description: |
+      The events the caller would have received on the socket after `since`, with the same ids, in
+      commit order. A client calls it on reconnect, with the socket already connected and
+      buffering, passing as `until` the position the socket's `ready` event (and its `subscribe`
+      acks) gave, until `hasMore` is false; then it applies the buffered socket events, skipping
+      ids it has seen. Without `since` it returns no events and the head as `next`.
+
+      Events are read only from transactions older than every one still running on the database
+      server, so an open write transaction anywhere on it holds the catch-up back until it ends;
+      with `until`, `hasMore` stays true meanwhile. Socket delivery does not wait.
+
+      An event is returned when the caller can read its session or space **now** and is one of:
+      - a current participant of the event's session (session events);
+      - a member of the event's space (space events, and `session.created`, `session.updated` and
+        `session.archived` of an `access: space` session in it);
+      - mentioned in a `message.created` or `message.edited`;
+      - or the session or space is named in `sessionIds` / `spaceIds`.
+
+      An event that names the caller is returned whatever the caller can read now: a member,
+      join-request or participant event about them, and `read.updated`. An access revocation
+      naming them is returned only once they really cannot read the resource.
+
+      Events of other organizations are never returned.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: sync
+    parameters:
+      - $ref: '../../components/events/parameters.yaml#/SyncSinceParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncUntilParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncLimitParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncSessionIdsParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncSpaceIdsParam'
+    responses:
+      '200':
+        description: A page of the caller's events and the cursor to continue from
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/events/schemas.yaml#/SyncResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

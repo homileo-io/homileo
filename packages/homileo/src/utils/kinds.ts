@@ -22,6 +22,15 @@ let loading: Promise<Cache> | null = null;
 // Bumped by `invalidateKinds`, so a load that began before it is not stored.
 let generation = 0;
 
+// Transactions open in this process. While any is, a stale cache is served as it is:
+// a reload would wait on a second connection while the transaction holds row locks.
+let openTransactions = 0;
+
+/** `withChanges` calls it around `fn` (+1 on entry, -1 on exit). */
+export const setInTransaction = (delta: 1 | -1): void => {
+  openTransactions += delta;
+};
+
 const load = (): Promise<Cache> => {
   const started = generation;
   const loadingNow = (async () => {
@@ -41,14 +50,22 @@ const load = (): Promise<Cache> => {
   return loadingNow;
 };
 
-const kinds = async (): Promise<Map<string, ResolvedSpaceKind>> => {
-  if (cache && Date.now() - cache.loadedAt < CACHE_TTL_MS) return cache.kinds;
+const kinds = async (
+  { duringTransaction }: { duringTransaction: boolean } = {
+    duringTransaction: true,
+  }
+): Promise<Map<string, ResolvedSpaceKind>> => {
+  if (cache) {
+    const fresh = Date.now() - cache.loadedAt < CACHE_TTL_MS;
+    if (fresh || (duringTransaction && openTransactions > 0))
+      return cache.kinds;
+  }
   return (await (loading ?? load())).kinds;
 };
 
-/** Loads the cache if it is cold or stale, so a transaction holding a lock never waits on a second connection for it (`withChanges` calls it). */
+/** Loads the cache if it is cold or stale, so a transaction holding a lock never waits on a second connection for it (`withChanges` calls it). It reloads even while other transactions are open. */
 export const warmKinds = async (): Promise<void> => {
-  await kinds();
+  await kinds({ duringTransaction: false });
 };
 
 /** A kind by name, retired ones included (a space keeps its kind), or `null`. */

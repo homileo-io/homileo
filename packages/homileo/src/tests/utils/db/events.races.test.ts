@@ -1,0 +1,227 @@
+// @module-tag int
+// @module-tag events
+// @module-tag race
+import { Prisma } from "../../../../prisma/generated/client/index.js";
+import { ensureEventPartitions } from "../../../utils/partitions.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { chatFixtures } from "../../support/chatFixtures.js";
+import { db, prisma } from "../../../utils/db/index.js";
+import { v7 as uuidv7 } from "uuid";
+
+const organizationId = uuidv7();
+const fixtures = chatFixtures();
+let actorId = "";
+const mine = Prisma.sql`organization_id = ${organizationId}::uuid`;
+
+const input = (n: number) => ({
+  type: "message.created",
+  organizationId,
+  spaceId: null,
+  sessionId: null,
+  actorId,
+  payload: { n },
+});
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+};
+
+describe("event positions", () => {
+  beforeAll(async () => {
+    await ensureEventPartitions();
+    actorId = (await fixtures.principal()).id;
+  });
+  afterAll(async () => {
+    await prisma.event.deleteMany({ where: { organizationId } });
+    await fixtures.cleanup();
+  });
+
+  it("holds back an event that committed ahead of an older open transaction", async () => {
+    const before = await db.events.head();
+    const aInserted = deferred();
+    const commitA = deferred();
+    let aRow!: { id: bigint };
+    let bRow!: { id: bigint };
+
+    // A takes the lower transaction id and stays open on its own connection.
+    const a = prisma.$transaction(
+      async (tx) => {
+        aRow = await db.events.insert(tx, input(1));
+        aInserted.resolve();
+        await commitA.promise;
+      },
+      { timeout: 30_000 }
+    );
+    try {
+      await aInserted.promise;
+      await prisma.$transaction(async (tx) => {
+        bRow = await db.events.insert(tx, input(2));
+      });
+      expect(bRow.id).toBeGreaterThan(aRow.id);
+
+      const held = await db.events.readFrom(before, mine, 10);
+
+      expect(held.rows).toEqual([]);
+      expect(held.hasMore).toBe(false);
+      expect(held.next.id).toBe(0n);
+
+      commitA.resolve();
+      await a;
+
+      // From the held cursor: it stopped at A's transaction, not past it.
+      const released = await db.events.readFrom(held.next, mine, 10);
+      expect(released.rows.map((r) => r.id)).toEqual([aRow.id, bRow.id]);
+      expect(released.rows[0].txId).toBeLessThan(released.rows[1].txId);
+      expect(released.hasMore).toBe(false);
+      expect(released.next.txId).toBeGreaterThan(released.rows[1].txId);
+
+      const after = await db.events.readFrom(released.next, mine, 10);
+      expect(after.rows).toEqual([]);
+      expect(after.next.txId).toBeGreaterThanOrEqual(released.next.txId);
+    } finally {
+      commitA.resolve();
+      await a.catch(() => {});
+    }
+  });
+
+  it("orders by (tx_id, id) within a transaction, pages with hasMore, and reports the database's time", async () => {
+    const start = await db.events.head();
+    const rows = await prisma.$transaction(async (tx) => [
+      await db.events.insert(tx, input(1)),
+      await db.events.insert(tx, input(2)),
+      await db.events.insert(tx, input(3)),
+    ]);
+
+    const first = await db.events.readFrom(start, mine, 2);
+    expect(first.rows.map((r) => r.id)).toEqual([rows[0].id, rows[1].id]);
+    expect(first.hasMore).toBe(true);
+    expect(first.rows[0]).toMatchObject({
+      type: "message.created",
+      organizationId,
+      payload: { n: 1 },
+    });
+    expect(first.rows[0].txId).toBe(first.rows[1].txId);
+
+    const second = await db.events.readFrom(first.next, mine, 2);
+    expect(second.rows.map((r) => r.id)).toEqual([rows[2].id]);
+    expect(second.hasMore).toBe(false);
+    expect(Math.abs(second.next.at.getTime() - Date.now())).toBeLessThan(
+      60_000
+    );
+  });
+
+  it("keeps the cursor's time while pages remain and refreshes it on the last", async () => {
+    const start = await db.events.head();
+    const old = { ...start, at: new Date(start.at.getTime() - 3_600_000) };
+    await prisma.$transaction(async (tx) => {
+      await db.events.insert(tx, input(1));
+      await db.events.insert(tx, input(2));
+    });
+
+    const first = await db.events.readFrom(old, mine, 1);
+    const last = await db.events.readFrom(first.next, mine, 1);
+
+    expect(first.hasMore).toBe(true);
+    expect(first.next.at).toEqual(old.at);
+    expect(last.hasMore).toBe(false);
+    expect(last.next.at.getTime()).toBeGreaterThan(
+      old.at.getTime() + 3_000_000
+    );
+  });
+
+  it("orders numerically across a digit boundary in id", async () => {
+    // The sequence only moves forward: to just under the next power of ten.
+    const [{ last }] = await prisma.$queryRaw<Array<{ last: bigint }>>`
+      SELECT last_value AS last
+      FROM pg_sequences WHERE schemaname = 'chat' AND sequencename = 'events_id_seq'`;
+    const boundary = 10n ** BigInt(last.toString().length);
+    await prisma.$queryRaw`SELECT setval('chat.events_id_seq', ${boundary - 3n})`;
+    const start = await db.events.head();
+    await prisma.$transaction(async (tx) => {
+      for (let n = 0; n < 4; n++) await db.events.insert(tx, input(n));
+    });
+
+    const page = await db.events.readFrom(start, mine, 10);
+
+    expect(page.rows.map((r) => r.id)).toEqual([
+      boundary - 2n,
+      boundary - 1n,
+      boundary,
+      boundary + 1n,
+    ]);
+  });
+
+  it("orders numerically across a digit boundary in tx_id", async () => {
+    // Explicit transaction ids far below any running one: a read that sorted
+    // them as text would put 100 before 99.
+    const org = uuidv7();
+    for (const tx of [100, 9, 10, 99]) {
+      await prisma.$executeRaw`
+        INSERT INTO "chat"."events" (type, organization_id, actor_id, payload, tx_id)
+        VALUES ('message.created', ${org}::uuid, ${actorId}::uuid, '{}'::jsonb, ${tx}::text::xid8)`;
+    }
+
+    const page = await db.events.readFrom(
+      { txId: 0n, id: 0n, at: new Date() },
+      Prisma.sql`organization_id = ${org}::uuid`,
+      3
+    );
+
+    expect(page.rows.map((r) => r.txId)).toEqual([9n, 10n, 99n]);
+    expect(page.hasMore).toBe(true);
+    expect(page.next.txId).toBe(99n);
+    await prisma.event.deleteMany({ where: { organizationId: org } });
+  });
+
+  it("advances a reader with no matching events to the horizon, past the rows it scanned", async () => {
+    const start = await db.events.head();
+    const other = uuidv7();
+    const row = await prisma.$transaction((tx) =>
+      db.events.insert(tx, { ...input(1), organizationId: other })
+    );
+    const [{ tx_id }] = await prisma.$queryRaw<Array<{ tx_id: string }>>`
+      SELECT tx_id::text AS tx_id FROM "chat"."events" WHERE id = ${row.id}`;
+
+    try {
+      const quiet = await db.events.readFrom(start, mine, 10);
+
+      expect(quiet.rows).toEqual([]);
+      expect(quiet.hasMore).toBe(false);
+      expect(quiet.next.txId).toBeGreaterThan(BigInt(tx_id));
+      expect(quiet.next.id).toBe(0n);
+      expect(quiet.horizon).toBe(quiet.next.txId);
+
+      const everything = await db.events.readFrom(
+        quiet.next,
+        Prisma.sql`true`,
+        10
+      );
+      expect(everything.rows.map((r) => r.id)).not.toContain(row.id);
+    } finally {
+      await prisma.event.deleteMany({ where: { organizationId: other } });
+    }
+  });
+
+  it("moves a drained cursor past its last row to the horizon", async () => {
+    const start = await db.events.head();
+    const row = await prisma.$transaction((tx) =>
+      db.events.insert(tx, input(1))
+    );
+
+    const page = await db.events.readFrom(start, mine, 10);
+
+    expect(page.rows.map((r) => r.id)).toEqual([row.id]);
+    expect(page.next.txId).toBeGreaterThan(page.rows[0].txId);
+    expect(page.next).toMatchObject({ txId: page.horizon, id: 0n });
+  });
+
+  it("returns a head whose id is zero", async () => {
+    const head = await db.events.head();
+
+    expect(head.id).toBe(0n);
+    expect(head.txId).toBeGreaterThan(0n);
+    expect(Math.abs(head.at.getTime() - Date.now())).toBeLessThan(60_000);
+  });
+});

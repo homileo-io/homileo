@@ -12,6 +12,7 @@ import {
   readableMessage,
   readableSession,
   readableSpace,
+  readableSpaces,
 } from "../../utils/access.js";
 
 const fixtures = chatFixtures();
@@ -261,5 +262,42 @@ describe("access loading", () => {
         lock: true,
       })
     ).rejects.toThrow(/transaction/);
+  });
+});
+
+describe("readableSpaces", () => {
+  afterAll(async () => {
+    await fixtures.cleanup();
+    await prisma.provisionedSpaceKind.deleteMany({
+      where: { name: { in: kindNames } },
+    });
+  });
+
+  it("returns the spaces the caller can read now, in their organization", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const member = await fixtures.space({ org, visibility: "members" });
+    await fixtures.member(member, who);
+    const open = await fixtures.space({ org, visibility: "public" });
+    const hidden = await fixtures.space({ org, visibility: "members" });
+    const granted = await fixtures.space({ org, kind: await kindRow() });
+    const foreign = await fixtures.space({ visibility: "public" });
+    await fixtures.member(foreign, who);
+
+    const readable = await readableSpaces(
+      callerOf(who, org, [`${granted.kind}.read`]),
+      [member.id, open.id, hidden.id, granted.id, foreign.id, uuidv7()]
+    );
+
+    expect([...readable.keys()].sort()).toEqual(
+      [member.id, open.id, granted.id].sort()
+    );
+    expect(readable.get(open.id)?.id).toBe(open.id);
+  });
+
+  it("returns an empty map for no ids", async () => {
+    const who = await fixtures.principal();
+
+    expect((await readableSpaces(callerOf(who, uuidv7()), [])).size).toBe(0);
   });
 });
