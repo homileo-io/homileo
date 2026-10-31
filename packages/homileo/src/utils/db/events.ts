@@ -121,13 +121,20 @@ export const readFrom = async (
   after: SyncPosition,
   where: Prisma.Sql,
   limit: number
-): Promise<{ rows: EventRow[]; next: SyncPosition; hasMore: boolean }> => {
-  // `at` rides in the same statement as the rows; the join keeps one row
-  // when the page is empty.
+): Promise<{
+  rows: EventRow[];
+  next: SyncPosition;
+  hasMore: boolean;
+  /** The horizon read up to: every transaction below it had ended. */
+  horizon: bigint;
+}> => {
+  // `at` and the horizon ride in the same statement as the rows; the join
+  // keeps one row when the page is empty.
   const found = await prisma.$queryRaw<
-    Array<Partial<RawEventRow> & { at: Date }>
+    Array<Partial<RawEventRow> & { at: Date; horizon: string }>
   >`
     SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at,
+           pg_snapshot_xmin(pg_current_snapshot())::text AS horizon,
            page.id, page.created_at, page.type, page.organization_id,
            page.space_id, page.session_id, page.actor_id, page.payload,
            page.tx_id::text AS tx_id
@@ -145,19 +152,30 @@ export const readFrom = async (
     ) AS page ON true
     ORDER BY page.tx_id, page.id`;
   const now = found[0].at;
+  const horizon = BigInt(found[0].horizon);
   const matched = found.filter((r) => r.id != null) as RawEventRow[];
   const hasMore = matched.length > limit;
   const rows = matched.slice(0, limit).map(toEventRow);
   const last = rows.at(-1);
-  // Until the page drains to the horizon, what is left may be committed
-  // backlog of any age, so the cursor keeps the time it was issued: a
-  // retention drop in between must still read as too old.
-  const at = hasMore ? after.at : now;
-  return {
-    rows,
-    next: last ? { txId: last.txId, id: last.id, at } : { ...after, at },
-    hasMore,
-  };
+  if (hasMore) {
+    // What is left may be committed backlog of any age, so the cursor keeps
+    // the time it was issued: a retention drop in between must still read as
+    // too old.
+    return {
+      rows,
+      next: { txId: last!.txId, id: last!.id, at: after.at },
+      hasMore,
+      horizon,
+    };
+  }
+  // Every row below the horizon was scanned, matching or not, so the next
+  // read starts there rather than rescanning them.
+  const reached = last ?? after;
+  const next =
+    horizon > reached.txId
+      ? { txId: horizon, id: 0n, at: now }
+      : { txId: reached.txId, id: reached.id, at: now };
+  return { rows, next, hasMore, horizon };
 };
 
 export interface Partition {

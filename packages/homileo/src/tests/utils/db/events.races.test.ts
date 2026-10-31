@@ -65,23 +65,21 @@ describe("event positions", () => {
 
       expect(held.rows).toEqual([]);
       expect(held.hasMore).toBe(false);
-      expect(held.next.txId).toBe(before.txId);
-      expect(held.next.id).toBe(before.id);
+      expect(held.next.id).toBe(0n);
 
       commitA.resolve();
       await a;
 
-      const released = await db.events.readFrom(before, mine, 10);
+      // From the held cursor: it stopped at A's transaction, not past it.
+      const released = await db.events.readFrom(held.next, mine, 10);
       expect(released.rows.map((r) => r.id)).toEqual([aRow.id, bRow.id]);
       expect(released.rows[0].txId).toBeLessThan(released.rows[1].txId);
       expect(released.hasMore).toBe(false);
-      expect(released.next.id).toBe(bRow.id);
-      expect(released.next.txId).toBe(released.rows[1].txId);
+      expect(released.next.txId).toBeGreaterThan(released.rows[1].txId);
 
       const after = await db.events.readFrom(released.next, mine, 10);
       expect(after.rows).toEqual([]);
-      expect(after.next.txId).toBe(released.next.txId);
-      expect(after.next.id).toBe(released.next.id);
+      expect(after.next.txId).toBeGreaterThanOrEqual(released.next.txId);
     } finally {
       commitA.resolve();
       await a.catch(() => {});
@@ -153,7 +151,6 @@ describe("event positions", () => {
       boundary,
       boundary + 1n,
     ]);
-    expect(page.next.id).toBe(boundary + 1n);
   });
 
   it("orders numerically across a digit boundary in tx_id", async () => {
@@ -176,6 +173,48 @@ describe("event positions", () => {
     expect(page.hasMore).toBe(true);
     expect(page.next.txId).toBe(99n);
     await prisma.event.deleteMany({ where: { organizationId: org } });
+  });
+
+  it("advances a reader with no matching events to the horizon, past the rows it scanned", async () => {
+    const start = await db.events.head();
+    const other = uuidv7();
+    const row = await prisma.$transaction((tx) =>
+      db.events.insert(tx, { ...input(1), organizationId: other })
+    );
+    const [{ tx_id }] = await prisma.$queryRaw<Array<{ tx_id: string }>>`
+      SELECT tx_id::text AS tx_id FROM "chat"."events" WHERE id = ${row.id}`;
+
+    try {
+      const quiet = await db.events.readFrom(start, mine, 10);
+
+      expect(quiet.rows).toEqual([]);
+      expect(quiet.hasMore).toBe(false);
+      expect(quiet.next.txId).toBeGreaterThan(BigInt(tx_id));
+      expect(quiet.next.id).toBe(0n);
+      expect(quiet.horizon).toBe(quiet.next.txId);
+
+      const everything = await db.events.readFrom(
+        quiet.next,
+        Prisma.sql`true`,
+        10
+      );
+      expect(everything.rows.map((r) => r.id)).not.toContain(row.id);
+    } finally {
+      await prisma.event.deleteMany({ where: { organizationId: other } });
+    }
+  });
+
+  it("moves a drained cursor past its last row to the horizon", async () => {
+    const start = await db.events.head();
+    const row = await prisma.$transaction((tx) =>
+      db.events.insert(tx, input(1))
+    );
+
+    const page = await db.events.readFrom(start, mine, 10);
+
+    expect(page.rows.map((r) => r.id)).toEqual([row.id]);
+    expect(page.next.txId).toBeGreaterThan(page.rows[0].txId);
+    expect(page.next).toMatchObject({ txId: page.horizon, id: 0n });
   });
 
   it("returns a head whose id is zero", async () => {
