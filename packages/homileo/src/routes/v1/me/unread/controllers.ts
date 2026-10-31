@@ -51,16 +51,18 @@ export const getUnread = async (req: Request, res: Response) => {
     ) u
     CROSS JOIN LATERAL (
       SELECT count(*)::int AS n FROM (
-        SELECT 1 FROM "chat"."messages" x
-        WHERE x.session_id = p.session_id
-          AND x.deleted_at IS NULL
+        SELECT 1
+        FROM (
+          SELECT mm.message_id FROM "chat"."message_mentions" mm
+          WHERE mm.user_id = ${me}::uuid AND mm.session_id = p.session_id
+          UNION
+          SELECT mm.message_id FROM "chat"."message_mentions" mm
+          WHERE mm.session_id = p.session_id AND mm.kind IN ('here', 'session')
+        ) hit
+        JOIN "chat"."messages" x ON x.id = hit.message_id
+        WHERE x.deleted_at IS NULL
           AND x.seq > p.last_read_seq
           AND x.sender_id <> ${me}::uuid
-          AND EXISTS (
-            SELECT 1 FROM "chat"."message_mentions" mm
-            WHERE mm.message_id = x.id
-              AND (mm.user_id = ${me}::uuid OR mm.kind IN ('here', 'session'))
-          )
         LIMIT ${COUNT_LIMIT}
       ) t
     ) m
