@@ -1,6 +1,6 @@
 import { canReadSpace, joinSpaceOutcome } from "../../../../../policy/index.js";
-import { uniqueViolationFields } from "../../../../../utils/prismaErrors.js";
 import { joinRequestView, memberView } from "../../../../../views/space.js";
+import { isUniqueViolationOn } from "../../../../../utils/prismaErrors.js";
 import { validateParams } from "../../../../../utils/validateReq.js";
 import { withChanges } from "../../../../../utils/transaction.js";
 import { readableSpace } from "../../../../../utils/access.js";
@@ -14,15 +14,8 @@ import {
   NotFoundError,
 } from "../../../../../utils/errors.js";
 
-/** The primary key of `space_members`: the adapter names it as the index (`pkey`) or as its columns. */
-const isMemberKeyViolation = (err: unknown): boolean => {
-  const fields = uniqueViolationFields(err);
-  return (
-    fields !== null &&
-    (fields.includes("pkey") ||
-      (fields.includes("space_id") && fields.includes("user_id")))
-  );
-};
+const isMemberKeyViolation = (err: unknown): boolean =>
+  isUniqueViolationOn(err, "space_members", ["space_id", "user_id"]);
 
 export const joinSpace = async (req: Request, res: Response) => {
   const caller = callerOf(req);

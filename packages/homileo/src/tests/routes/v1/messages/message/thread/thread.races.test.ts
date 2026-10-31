@@ -24,14 +24,15 @@ describe("GET /v1/messages/:messageId/thread races", () => {
     const root = await sendMessage(session.id, me.token, { body: "root" });
     const rootId: string = root.body.message.id;
 
-    const posting = Promise.all(
-      Array.from({ length: 30 }, (_, i) =>
-        sendMessage(session.id, me.token, {
+    // One after another, so reads land between posts.
+    const posting = (async () => {
+      for (let i = 0; i < 30; i++) {
+        await sendMessage(session.id, me.token, {
           body: `r${i}`,
           threadRootId: rootId,
-        })
-      )
-    );
+        });
+      }
+    })();
     const reads: Array<{
       root: { replyCount: number };
       data: unknown[];
@@ -50,7 +51,9 @@ describe("GET /v1/messages/:messageId/thread races", () => {
     }
     await posting;
 
-    expect(reads.length).toBeGreaterThanOrEqual(3);
+    expect(reads.some((r) => r.data.length > 0 && r.data.length < 30)).toBe(
+      true
+    );
     for (const read of reads) {
       expect(read.hasAfter).toBe(false);
       expect(read.root.replyCount).toBe(read.data.length);

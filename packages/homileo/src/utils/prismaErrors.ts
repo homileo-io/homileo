@@ -104,6 +104,34 @@ export function uniqueViolationFields(err: unknown): string[] | null {
   return [];
 }
 
+/**
+ * True if `err` is a unique violation of `table`'s constraint. The adapter names the violated index and table
+ * (`cause.constraint.index`, `cause.table`); `uniqueViolationFields` drops both, and every table's primary key
+ * comes out as `pkey`. A `P2002` carrying only `meta.target` is matched by `columns`.
+ */
+export function isUniqueViolationOn(
+  err: unknown,
+  table: string,
+  columns: string[]
+): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as {
+    meta?: { target?: unknown; driverAdapterError?: { cause?: AdapterCause } };
+    cause?: AdapterCause;
+  };
+  const cause = e.meta?.driverAdapterError?.cause ?? e.cause;
+  if (!isUniqueConstraintError(err)) return false;
+  if (typeof cause?.table === "string" && cause.table !== table) return false;
+  const index = cause?.constraint?.index;
+  if (typeof index === "string") return index.startsWith(`${table}_`);
+  if (typeof cause?.table === "string") return true;
+  const target = cause?.constraint?.fields ?? e.meta?.target;
+  return (
+    Array.isArray(target) &&
+    columns.every((c) => target.map(String).includes(c))
+  );
+}
+
 interface AdapterCause {
   kind?: unknown;
   originalCode?: unknown;
