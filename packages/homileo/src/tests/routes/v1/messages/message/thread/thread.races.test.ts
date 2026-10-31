@@ -50,7 +50,7 @@ describe("GET /v1/messages/:messageId/thread races", () => {
     }
     await posting;
 
-    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.length).toBeGreaterThanOrEqual(3);
     for (const read of reads) {
       expect(read.hasAfter).toBe(false);
       expect(read.root.replyCount).toBe(read.data.length);

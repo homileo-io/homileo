@@ -1,5 +1,5 @@
 import { canReadSpace, joinSpaceOutcome } from "../../../../../policy/index.js";
-import { isUniqueConstraintError } from "../../../../../utils/prismaErrors.js";
+import { uniqueViolationFields } from "../../../../../utils/prismaErrors.js";
 import { joinRequestView, memberView } from "../../../../../views/space.js";
 import { validateParams } from "../../../../../utils/validateReq.js";
 import { withChanges } from "../../../../../utils/transaction.js";
@@ -13,6 +13,16 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "../../../../../utils/errors.js";
+
+/** The primary key of `space_members`: the adapter names it as the index (`pkey`) or as its columns. */
+const isMemberKeyViolation = (err: unknown): boolean => {
+  const fields = uniqueViolationFields(err);
+  return (
+    fields !== null &&
+    (fields.includes("pkey") ||
+      (fields.includes("space_id") && fields.includes("user_id")))
+  );
+};
 
 export const joinSpace = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -77,7 +87,7 @@ export const joinSpace = async (req: Request, res: Response) => {
   try {
     outcome = await run();
   } catch (err) {
-    if (!isUniqueConstraintError(err)) throw err;
+    if (!isMemberKeyViolation(err)) throw err;
     // A simultaneous join by the same caller won; its member is the answer, and this one records nothing.
     const member = await prisma.spaceMember.findUnique({
       where: { spaceId_userId: { spaceId, userId: caller.principalId } },
