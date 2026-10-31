@@ -1,0 +1,243 @@
+Metadata:
+  type: object
+  description: |
+    A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
+    `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+  additionalProperties: true
+  propertyNames:
+    pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'
+  maxProperties: 50
+
+Session:
+  type: object
+  description: A conversation, in a space or on its own (a DM or an ad-hoc group)
+  required:
+    [id, organizationId, spaceId, type, access, name, state, lastSeq, lastMessageAt, externalRef, metadata, createdBy, createdAt, updatedAt, archivedAt]
+  properties:
+    id: { type: string, format: uuid }
+    organizationId: { type: string, format: uuid }
+    spaceId:
+      type: [string, 'null']
+      format: uuid
+      description: The space it belongs to; null for a DM or a group without a space
+    type:
+      type: string
+      enum: [direct, group]
+    access:
+      type: string
+      enum: [space, members]
+      description: |
+        `space`: whoever can read the space can read the session. `members`: its participants, a
+        holder of one of the space's kind grants, and `homileo.chat.admin` (in a space). A session
+        without a space is always `members`.
+    name: { type: [string, 'null'], maxLength: 255 }
+    state:
+      type: [string, 'null']
+      maxLength: 64
+      description: One of the kind's `states`
+    lastSeq:
+      type: integer
+      description: The `seq` of the latest message; 0 for none
+    lastMessageAt: { type: [string, 'null'], format: date-time }
+    externalRef: { type: [string, 'null'], maxLength: 255 }
+    metadata: { $ref: '#/Metadata' }
+    createdBy:
+      type: string
+      format: uuid
+      description: The principal that created it
+    createdAt: { type: string, format: date-time }
+    updatedAt: { type: string, format: date-time }
+    archivedAt: { type: [string, 'null'], format: date-time }
+
+Participant:
+  type: object
+  description: A principal's current participation in a session
+  required: [sessionId, principalId, role, lastReadSeq, notify, joinedAt]
+  properties:
+    sessionId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+    role:
+      type: string
+      enum: [owner, member]
+    lastReadSeq:
+      type: integer
+      description: The `seq` of the last message they have read
+    notify:
+      type: string
+      enum: [all, mentions, none]
+    joinedAt: { type: string, format: date-time }
+
+SessionWithParticipant:
+  allOf:
+    - $ref: '#/Session'
+    - type: object
+      required: [participant]
+      properties:
+        participant:
+          description: The caller's own participation; null when they are not a participant
+          oneOf:
+            - $ref: '#/Participant'
+            - type: 'null'
+
+ListSessionsResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/SessionWithParticipant' }
+    nextCursor: { type: [string, 'null'] }
+
+SessionResponse:
+  type: object
+  required: [session]
+  properties:
+    session: { $ref: '#/Session' }
+
+GetSessionResponse:
+  type: object
+  required: [session, participant]
+  properties:
+    session: { $ref: '#/Session' }
+    participant:
+      description: The caller's own participation; null when they are not a participant
+      oneOf:
+        - $ref: '#/Participant'
+        - type: 'null'
+
+CreateSessionRequest:
+  type: object
+  additionalProperties: false
+  properties:
+    spaceId:
+      type: string
+      format: uuid
+      description: Create the session in this space; omit it for a group of its own
+    name: { type: string, minLength: 1, maxLength: 255 }
+    access:
+      type: string
+      enum: [space, members]
+      description: Defaults to `space`. Ignored without a space, where it is always `members`.
+    participantIds:
+      type: array
+      maxItems: 100
+      uniqueItems: true
+      description: |
+        Principals to add besides the creator. In a space every one must be a member of it; a
+        stranger or an unknown id is `400 invalid_request`, naming it at `participantIds.<index>`.
+      items: { type: string, format: uuid }
+    state:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: One of the space kind's `states`; `400 invalid_state` otherwise
+    externalRef: { type: string, minLength: 1, maxLength: 255 }
+    metadata: { $ref: '#/Metadata' }
+  examples:
+    - spaceId: '0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b'
+      name: Order 1042
+      externalRef: order-1042
+
+DirectSessionRequest:
+  type: object
+  additionalProperties: false
+  required: [principalId]
+  properties:
+    principalId:
+      type: string
+      format: uuid
+      description: The other principal
+  examples:
+    - principalId: '0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b'
+
+UpdateSessionRequest:
+  type: object
+  additionalProperties: false
+  minProperties: 1
+  description: Only the fields given change; `null` clears `name`, `state` and `externalRef`.
+  properties:
+    name: { type: [string, 'null'], minLength: 1, maxLength: 255 }
+    state: { type: [string, 'null'], minLength: 1, maxLength: 64 }
+    externalRef: { type: [string, 'null'], minLength: 1, maxLength: 255 }
+    metadata: { $ref: '#/Metadata' }
+  examples:
+    - name: Order 1042 (shipped)
+      state: closed
+
+SessionEventData:
+  type: object
+  description: The data of `session.created`, `session.updated` and `session.archived`
+  required: [session, eventId]
+  properties:
+    session: { $ref: '#/Session' }
+    eventId: { type: string }
+
+SessionParticipantAddedEventData:
+  type: object
+  required: [sessionId, participant, eventId]
+  properties:
+    sessionId: { type: string, format: uuid }
+    participant: { $ref: '#/Participant' }
+    eventId: { type: string }
+
+ParticipantWithPrincipal:
+  allOf:
+    - $ref: '#/Participant'
+    - type: object
+      required: [principal]
+      properties:
+        principal: { $ref: '../principals/schemas.yaml#/Principal' }
+
+ListParticipantsResponse:
+  type: object
+  required: [data, nextCursor]
+  properties:
+    data:
+      type: array
+      items: { $ref: '#/ParticipantWithPrincipal' }
+    nextCursor: { type: [string, 'null'] }
+
+ParticipantResponse:
+  type: object
+  required: [participant]
+  properties:
+    participant: { $ref: '#/Participant' }
+
+ReadPositionRequest:
+  type: object
+  additionalProperties: false
+  required: [seq]
+  properties:
+    seq:
+      type: integer
+      minimum: 0
+      description: The `seq` of the last message read
+  examples:
+    - seq: 42
+
+ReadPositionResponse:
+  type: object
+  required: [lastReadSeq]
+  properties:
+    lastReadSeq:
+      type: integer
+      description: The position after the request; it never moves back and never passes the session's `lastSeq`
+
+NotifyRequest:
+  type: object
+  additionalProperties: false
+  required: [notify]
+  properties:
+    notify:
+      type: string
+      enum: [all, mentions, none]
+  examples:
+    - notify: mentions
+
+SessionParticipantRemovedEventData:
+  type: object
+  required: [sessionId, principalId, eventId]
+  properties:
+    sessionId: { type: string, format: uuid }
+    principalId: { type: string, format: uuid }
+    eventId: { type: string }

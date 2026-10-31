@@ -1,0 +1,28 @@
+/v1/spaces/{spaceId}/join-requests:
+  get:
+    tags: [Spaces]
+    summary: List a space's join requests
+    description: |
+      The requests in one state (`pending` by default), oldest first. Pages with `cursor` and
+      `limit`.
+
+      **Required permissions:** none; the caller must be able to moderate the space. A caller who
+      can read the space but not moderate it gets 403; one who cannot read it, 404.
+    operationId: listJoinRequests
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+      - $ref: '../../components/spaces/parameters.yaml#/JoinRequestsStatusParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+    responses:
+      '200':
+        description: A page of join requests
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/ListJoinRequestsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

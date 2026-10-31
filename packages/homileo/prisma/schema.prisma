@@ -178,7 +178,6 @@ model Space {
 
   @@unique([organizationId, kind, externalRef])
   @@unique([id, organizationId])
-  @@index([organizationId])
   @@map("spaces")
   @@schema("chat")
 }
@@ -371,6 +370,7 @@ model Attachment {
 
   message Message @relation(fields: [messageId], references: [id])
 
+  @@unique([tereoObjectId])
   @@index([messageId])
   @@map("attachments")
   @@schema("chat")
@@ -386,6 +386,7 @@ model ThreadFollower {
   user       Principal @relation(fields: [userId], references: [id])
 
   @@id([threadRootId, userId])
+  @@index([userId])
   @@map("thread_followers")
   @@schema("chat")
 }

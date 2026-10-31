@@ -1,6 +1,9 @@
 import type { ProvisioningDocument } from "@tereo-io/sdk";
 import { webhookEventTypes } from "@homileo-io/sdk";
 
+/** The tereo bucket that holds message attachments. */
+export const ATTACHMENTS_BUCKET = "homileo-attachments";
+
 /**
  * What Homileo declares to tereo as an app service. Core applies the
  * generated `tereo-provisioning.json` from its provisioning folder.
@@ -46,7 +49,7 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
     ],
     buckets: [
       {
-        bucketName: "homileo-attachments",
+        bucketName: ATTACHMENTS_BUCKET,
         description: "Message attachments",
         policy: "private",
       },

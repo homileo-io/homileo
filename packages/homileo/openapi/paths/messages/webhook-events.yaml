@@ -1,0 +1,132 @@
+homileo.message.created:
+  post:
+    tags: [Messages]
+    summary: Message created
+    description: A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookMessageCreated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.message.created }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.thread.updated:
+  post:
+    tags: [Messages]
+    summary: Thread updated
+    description: A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+    operationId: webhookThreadUpdated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.thread.updated }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ThreadUpdatedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.message.edited:
+  post:
+    tags: [Messages]
+    summary: Message edited
+    description: A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookMessageEdited
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.message.edited }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.message.deleted:
+  post:
+    tags: [Messages]
+    summary: Message deleted
+    description: A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookMessageDeleted
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.message.deleted }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.reaction.added:
+  post:
+    tags: [Messages]
+    summary: Reaction added
+    description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookReactionAdded
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.reaction.added }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.reaction.removed:
+  post:
+    tags: [Messages]
+    summary: Reaction removed
+    description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookReactionRemoved
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.reaction.removed }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

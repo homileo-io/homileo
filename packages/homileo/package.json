@@ -21,6 +21,8 @@
     "test:clean": "../../docker/test/run.sh down -v",
     "cli": "tsx src/cli/index.ts",
     "tereo:provisioning": "tsx scripts/tereo-provisioning.ts",
+    "openapi:lint": "redocly lint",
+    "openapi:build": "redocly lint && redocly bundle",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",
@@ -37,6 +39,13 @@
     "express": "^5.3.0",
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
+    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-gfm-autolink-literal": "^2.0.1",
+    "mdast-util-gfm-strikethrough": "^2.0.1",
+    "mdast-util-gfm-task-list-item": "^2.0.0",
+    "micromark-extension-gfm-autolink-literal": "^2.1.0",
+    "micromark-extension-gfm-strikethrough": "^2.1.0",
+    "micromark-extension-gfm-task-list-item": "^2.1.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0",
@@ -45,13 +54,16 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@redocly/cli": "^2.72.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^25.9.9",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.4",
+    "yaml": "^2.9.0"
   }
 }

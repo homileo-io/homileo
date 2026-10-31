@@ -1,0 +1,26 @@
+/v1/me/mentions:
+  get:
+    tags: [Platform]
+    summary: List the messages that mention the caller
+    description: |
+      Messages and replies that mention the caller, plus `here` and `session` mentions in sessions
+      the caller currently participates in, newest first. Deleted messages, the caller's own
+      messages, other organizations' messages and sessions the caller can no longer read are left
+      out. A message mentioning the caller more than once appears once. The cursor is the id of the
+      last message returned. A page can hold fewer than `limit` items when some are dropped.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: listMeMentions
+    parameters:
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+    responses:
+      '200':
+        description: A page of mentions
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/platform/schemas.yaml#/ListMentionsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

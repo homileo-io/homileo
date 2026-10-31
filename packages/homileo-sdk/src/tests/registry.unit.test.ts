@@ -1,5 +1,10 @@
-import { EVENT_TYPES, webhookEventTypes } from "../events/registry.js";
+import { EVENT_EXAMPLES } from "./resourceFixtures.js";
 import { describe, expect, it } from "vitest";
+import {
+  EVENT_TYPES,
+  webhookEventTypes,
+  type EventType,
+} from "../events/registry.js";
 
 const PERSISTED = [
   "space.created",
@@ -60,5 +65,26 @@ describe("event registry", () => {
     expect(types).toContain("homileo.message.created");
     expect(types).not.toContain("homileo.read.updated");
     expect(types.every((t) => t.startsWith("homileo."))).toBe(true);
+  });
+
+  it("every event type has its own payload schema", () => {
+    for (const [name, def] of Object.entries(EVENT_TYPES)) {
+      expect(def.payload.safeParse({ any: "thing" }).success, name).toBe(false);
+    }
+  });
+
+  it.each(Object.keys(EVENT_EXAMPLES))(
+    "each payload parses its example and rejects {}: %s",
+    (name) => {
+      const def = EVENT_TYPES[name as EventType];
+      expect(def.payload.safeParse(EVENT_EXAMPLES[name]).success).toBe(true);
+      expect(def.payload.safeParse({}).success).toBe(false);
+    }
+  );
+
+  it("has an example for every event type", () => {
+    expect(Object.keys(EVENT_EXAMPLES).sort()).toEqual(
+      Object.keys(EVENT_TYPES).sort()
+    );
   });
 });

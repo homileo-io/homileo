@@ -1,7 +1,7 @@
+import { AppError, ForbiddenError } from "../utils/errors.js";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
-import { AppError } from "../utils/errors.js";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
 
@@ -77,3 +77,17 @@ export const principalOf = (req: Request): Principal => {
   if (!req.principal) throw new Error("principalOf used before authenticate");
   return req.principal;
 };
+
+/** Refuses a caller whose token lacks `permission` (403); needs `authenticate` before it. */
+export const requirePermission =
+  (permission: string): RequestHandler =>
+  (req, _res, next) => {
+    try {
+      if (!hasPermission(callerOf(req).permissions, permission)) {
+        throw new ForbiddenError(`Requires the ${permission} permission`);
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };

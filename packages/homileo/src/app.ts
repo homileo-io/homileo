@@ -26,8 +26,7 @@ app.use(createRequestIdMiddleware());
 // comes with that work.
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: env.CORS_ORIGINS }));
-app.use(express.json({ limit: "1mb" }));
-
+// JSON bodies are parsed per area under /v1, each with its own limit.
 app.use(routes);
 
 app.use(() => {

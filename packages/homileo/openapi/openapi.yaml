@@ -1,0 +1,374 @@
+openapi: 3.1.0
+info:
+  title: Homileo API
+  version: 0.1.0
+  description: |
+    Homileo is a generic chat service for apps built on tereo: spaces, sessions, messages, threads,
+    reactions, mentions, read state and attachments. Each app deploys its own Homileo beside its
+    tereo. Every path in this spec is the full path on the service: the API is versioned under
+    `/v1`, and `GET /health` stays at the root.
+
+    ## Authentication
+
+    Requests carry a tereo access token as `Authorization: Bearer <token>`. Homileo verifies it
+    with tereo's SDK. A service account (a bot) is a principal like any other.
+
+    ## Organizations
+
+    Every space and session belongs to one tereo organization, and every request is limited to the
+    organization in the token's `org_id`. No header names one. A token without an organization gets
+    `400 organization_required` on every `/v1` route.
+
+    ## Permissions and access
+
+    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
+    open to any signed-in caller in an organization, and what the caller may see or do is decided
+    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
+    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
+    the caller can read the resource but may not do the action.
+
+    ## Pagination
+
+    Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
+    `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
+    instead, as their routes describe.
+
+    ## Errors
+
+    An error is `{ "error": "<code>", "error_description": "<text>", ...details }`. A validation
+    failure is `400 invalid_request` with `issues`, a list of `{ path, message }`.
+
+    ## JSON shapes
+
+    Ids are strings, `seq`, `lastSeq` and `lastReadSeq` are JSON numbers, timestamps are ISO 8601
+    strings and event ids are strings.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:4101
+    description: Local development server (each app deploys its own Homileo; substitute its host)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Spaces
+    description: Places that group sessions, with members, a kind and an access policy
+
+  - name: Platform
+    description: Health and the caller's own identity
+
+  - name: Principals
+    description: Users, bots and external identities that take part in chat
+
+  - name: Sessions
+    description: Conversations, in a space or on their own, and direct messages
+
+  - name: Messages
+    description: Messages, thread replies and mentions
+
+x-tagGroups:
+  - name: Spaces
+    tags: [Spaces]
+  - name: Sessions
+    tags: [Sessions]
+  - name: Messages
+    tags: [Messages]
+  - name: Principals
+    tags: [Principals]
+  - name: Platform
+    tags: [Platform]
+
+paths:
+  /health:
+    $ref: './paths/platform/health.yaml#/~1health'
+  /v1/me:
+    $ref: './paths/platform/me.yaml#/~1v1~1me'
+  /v1/me/unread:
+    $ref: './paths/platform/me-unread.yaml#/~1v1~1me~1unread'
+  /v1/me/mentions:
+    $ref: './paths/platform/me-mentions.yaml#/~1v1~1me~1mentions'
+  /v1/spaces:
+    $ref: './paths/spaces/spaces.yaml#/~1v1~1spaces'
+  /v1/spaces/{spaceId}:
+    $ref: './paths/spaces/space.yaml#/~1v1~1spaces~1{spaceId}'
+  /v1/spaces/{spaceId}/archive:
+    $ref: './paths/spaces/archive.yaml#/~1v1~1spaces~1{spaceId}~1archive'
+  /v1/spaces/{spaceId}/members:
+    $ref: './paths/spaces/members.yaml#/~1v1~1spaces~1{spaceId}~1members'
+  /v1/spaces/{spaceId}/members/{principalId}:
+    $ref: './paths/spaces/member.yaml#/~1v1~1spaces~1{spaceId}~1members~1{principalId}'
+  /v1/spaces/{spaceId}/join:
+    $ref: './paths/spaces/join.yaml#/~1v1~1spaces~1{spaceId}~1join'
+  /v1/spaces/{spaceId}/join-requests:
+    $ref: './paths/spaces/join-requests.yaml#/~1v1~1spaces~1{spaceId}~1join-requests'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
+    $ref: './paths/spaces/join-request-approve.yaml#/~1v1~1spaces~1{spaceId}~1join-requests~1{principalId}~1approve'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
+    $ref: './paths/spaces/join-request-deny.yaml#/~1v1~1spaces~1{spaceId}~1join-requests~1{principalId}~1deny'
+  /v1/principals/resolve:
+    $ref: './paths/principals/resolve.yaml#/~1v1~1principals~1resolve'
+  /v1/principals/{principalId}:
+    $ref: './paths/principals/principal.yaml#/~1v1~1principals~1{principalId}'
+
+  /v1/sessions:
+    $ref: './paths/sessions/sessions.yaml#/~1v1~1sessions'
+  /v1/sessions/direct:
+    $ref: './paths/sessions/direct.yaml#/~1v1~1sessions~1direct'
+  /v1/sessions/{sessionId}:
+    $ref: './paths/sessions/session.yaml#/~1v1~1sessions~1{sessionId}'
+  /v1/sessions/{sessionId}/archive:
+    $ref: './paths/sessions/archive.yaml#/~1v1~1sessions~1{sessionId}~1archive'
+  /v1/sessions/{sessionId}/participants:
+    $ref: './paths/sessions/participants.yaml#/~1v1~1sessions~1{sessionId}~1participants'
+  /v1/sessions/{sessionId}/participants/{principalId}:
+    $ref: './paths/sessions/participant.yaml#/~1v1~1sessions~1{sessionId}~1participants~1{principalId}'
+  /v1/sessions/{sessionId}/read:
+    $ref: './paths/sessions/read.yaml#/~1v1~1sessions~1{sessionId}~1read'
+  /v1/sessions/{sessionId}/notify:
+    $ref: './paths/sessions/notify.yaml#/~1v1~1sessions~1{sessionId}~1notify'
+  /v1/sessions/{sessionId}/messages:
+    $ref: './paths/messages/messages.yaml#/~1v1~1sessions~1{sessionId}~1messages'
+  /v1/messages/{messageId}:
+    $ref: './paths/messages/message.yaml#/~1v1~1messages~1{messageId}'
+  /v1/sessions/{sessionId}/attachments:
+    $ref: './paths/messages/attachments.yaml#/~1v1~1sessions~1{sessionId}~1attachments'
+  /v1/messages/{messageId}/attachments/{attachmentId}:
+    $ref: './paths/messages/attachments.yaml#/~1v1~1messages~1{messageId}~1attachments~1{attachmentId}'
+  /v1/messages/{messageId}/revisions:
+    $ref: './paths/messages/revisions.yaml#/~1v1~1messages~1{messageId}~1revisions'
+  /v1/messages/{messageId}/reactions/{emoji}:
+    $ref: './paths/messages/reaction.yaml#/~1v1~1messages~1{messageId}~1reactions~1{emoji}'
+  /v1/messages/{messageId}/thread:
+    $ref: './paths/messages/thread.yaml#/~1v1~1messages~1{messageId}~1thread'
+  /v1/threads/{rootId}/read:
+    $ref: './paths/messages/thread-read.yaml#/~1v1~1threads~1{rootId}~1read'
+  /v1/threads/{rootId}/follow:
+    $ref: './paths/messages/thread-follow.yaml#/~1v1~1threads~1{rootId}~1follow'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      $ref: './components/security.yaml#/BearerAuth'
+  parameters:
+    CursorParam:
+      $ref: './components/parameters.yaml#/CursorParam'
+    LimitParam:
+      $ref: './components/parameters.yaml#/LimitParam'
+  responses:
+    BadRequestResponse:
+      $ref: './components/responses.yaml#/BadRequestResponse'
+    UnauthorizedResponse:
+      $ref: './components/responses.yaml#/UnauthorizedResponse'
+    ForbiddenResponse:
+      $ref: './components/responses.yaml#/ForbiddenResponse'
+    NotFoundResponse:
+      $ref: './components/responses.yaml#/NotFoundResponse'
+    ConflictResponse:
+      $ref: './components/responses.yaml#/ConflictResponse'
+    ServerErrorResponse:
+      $ref: './components/responses.yaml#/ServerErrorResponse'
+    NoContentResponse:
+      $ref: './components/responses.yaml#/NoContentResponse'
+  schemas:
+    Error:
+      $ref: './components/responses.yaml#/Error'
+    HealthStatus:
+      $ref: './components/platform/schemas.yaml#/HealthStatus'
+    MeResponse:
+      $ref: './components/platform/schemas.yaml#/MeResponse'
+    UnreadSession:
+      $ref: './components/platform/schemas.yaml#/UnreadSession'
+    UnreadThread:
+      $ref: './components/platform/schemas.yaml#/UnreadThread'
+    UnreadResponse:
+      $ref: './components/platform/schemas.yaml#/UnreadResponse'
+    MentionItem:
+      $ref: './components/platform/schemas.yaml#/MentionItem'
+    ListMentionsResponse:
+      $ref: './components/platform/schemas.yaml#/ListMentionsResponse'
+    Principal:
+      $ref: './components/principals/schemas.yaml#/Principal'
+    GetPrincipalResponse:
+      $ref: './components/principals/schemas.yaml#/GetPrincipalResponse'
+    ResolvePrincipalsRequest:
+      $ref: './components/principals/schemas.yaml#/ResolvePrincipalsRequest'
+    ResolvePrincipalsResponse:
+      $ref: './components/principals/schemas.yaml#/ResolvePrincipalsResponse'
+    SpaceRole:
+      $ref: './components/spaces/schemas.yaml#/SpaceRole'
+    Space:
+      $ref: './components/spaces/schemas.yaml#/Space'
+    SpaceWithRole:
+      $ref: './components/spaces/schemas.yaml#/SpaceWithRole'
+    SpaceMember:
+      $ref: './components/spaces/schemas.yaml#/SpaceMember'
+    ListSpacesResponse:
+      $ref: './components/spaces/schemas.yaml#/ListSpacesResponse'
+    CreateSpaceRequest:
+      $ref: './components/spaces/schemas.yaml#/CreateSpaceRequest'
+    CreateSpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/CreateSpaceResponse'
+    UpdateSpaceRequest:
+      $ref: './components/spaces/schemas.yaml#/UpdateSpaceRequest'
+    GetSpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/GetSpaceResponse'
+    SpaceResponse:
+      $ref: './components/spaces/schemas.yaml#/SpaceResponse'
+    SpaceEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceEventData'
+    SpaceMemberAddedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberAddedEventData'
+    Metadata:
+      $ref: './components/sessions/schemas.yaml#/Metadata'
+    Session:
+      $ref: './components/sessions/schemas.yaml#/Session'
+    Participant:
+      $ref: './components/sessions/schemas.yaml#/Participant'
+    SessionWithParticipant:
+      $ref: './components/sessions/schemas.yaml#/SessionWithParticipant'
+    ListSessionsResponse:
+      $ref: './components/sessions/schemas.yaml#/ListSessionsResponse'
+    SessionResponse:
+      $ref: './components/sessions/schemas.yaml#/SessionResponse'
+    GetSessionResponse:
+      $ref: './components/sessions/schemas.yaml#/GetSessionResponse'
+    CreateSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/CreateSessionRequest'
+    DirectSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/DirectSessionRequest'
+    UpdateSessionRequest:
+      $ref: './components/sessions/schemas.yaml#/UpdateSessionRequest'
+    SessionEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionEventData'
+    SessionParticipantAddedEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionParticipantAddedEventData'
+    SpaceMemberWithPrincipal:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberWithPrincipal'
+    ListMembersResponse:
+      $ref: './components/spaces/schemas.yaml#/ListMembersResponse'
+    PutMemberRequest:
+      $ref: './components/spaces/schemas.yaml#/PutMemberRequest'
+    SpaceMemberResponse:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberResponse'
+    JoinRequestStatus:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestStatus'
+    JoinRequest:
+      $ref: './components/spaces/schemas.yaml#/JoinRequest'
+    JoinRequestWithPrincipal:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestWithPrincipal'
+    JoinRequestResponse:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestResponse'
+    ListJoinRequestsResponse:
+      $ref: './components/spaces/schemas.yaml#/ListJoinRequestsResponse'
+    SpaceMemberRemovedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberRemovedEventData'
+    SpaceMemberRoleChangedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceMemberRoleChangedEventData'
+    JoinRequestEventData:
+      $ref: './components/spaces/schemas.yaml#/JoinRequestEventData'
+    SessionParticipantRemovedEventData:
+      $ref: './components/sessions/schemas.yaml#/SessionParticipantRemovedEventData'
+    ParticipantWithPrincipal:
+      $ref: './components/sessions/schemas.yaml#/ParticipantWithPrincipal'
+    ListParticipantsResponse:
+      $ref: './components/sessions/schemas.yaml#/ListParticipantsResponse'
+    ParticipantResponse:
+      $ref: './components/sessions/schemas.yaml#/ParticipantResponse'
+    ReadPositionRequest:
+      $ref: './components/sessions/schemas.yaml#/ReadPositionRequest'
+    ReadPositionResponse:
+      $ref: './components/sessions/schemas.yaml#/ReadPositionResponse'
+    NotifyRequest:
+      $ref: './components/sessions/schemas.yaml#/NotifyRequest'
+    Attachment:
+      $ref: './components/messages/schemas.yaml#/Attachment'
+    ReactionsResponse:
+      $ref: './components/messages/schemas.yaml#/ReactionsResponse'
+    ReactionEventData:
+      $ref: './components/messages/schemas.yaml#/ReactionEventData'
+    CreateAttachmentRequest:
+      $ref: './components/messages/schemas.yaml#/CreateAttachmentRequest'
+    CreateAttachmentResponse:
+      $ref: './components/messages/schemas.yaml#/CreateAttachmentResponse'
+    AttachmentResponse:
+      $ref: './components/messages/schemas.yaml#/AttachmentResponse'
+    ReactionSummary:
+      $ref: './components/messages/schemas.yaml#/ReactionSummary'
+    Message:
+      $ref: './components/messages/schemas.yaml#/Message'
+    SendMessageRequest:
+      $ref: './components/messages/schemas.yaml#/SendMessageRequest'
+    MessageResponse:
+      $ref: './components/messages/schemas.yaml#/MessageResponse'
+    DuplicateClientMessageError:
+      $ref: './components/messages/schemas.yaml#/DuplicateClientMessageError'
+    ListMessagesResponse:
+      $ref: './components/messages/schemas.yaml#/ListMessagesResponse'
+    EditMessageRequest:
+      $ref: './components/messages/schemas.yaml#/EditMessageRequest'
+    MessageRevision:
+      $ref: './components/messages/schemas.yaml#/MessageRevision'
+    ListMessageRevisionsResponse:
+      $ref: './components/messages/schemas.yaml#/ListMessageRevisionsResponse'
+    ThreadFollower:
+      $ref: './components/messages/schemas.yaml#/ThreadFollower'
+    ThreadResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadResponse'
+    ThreadReadRequest:
+      $ref: './components/messages/schemas.yaml#/ThreadReadRequest'
+    ThreadReadResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadReadResponse'
+    ThreadFollowRequest:
+      $ref: './components/messages/schemas.yaml#/ThreadFollowRequest'
+    ThreadFollowResponse:
+      $ref: './components/messages/schemas.yaml#/ThreadFollowResponse'
+    MessageEventData:
+      $ref: './components/messages/schemas.yaml#/MessageEventData'
+    ThreadUpdatedEventData:
+      $ref: './components/messages/schemas.yaml#/ThreadUpdatedEventData'
+    WebhookEvent:
+      $ref: './components/webhook-schemas.yaml#/WebhookEvent'
+
+# Each event type's webhook is added by the task that emits it.
+webhooks:
+  homileo.space.created:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.created'
+  homileo.space.updated:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.updated'
+  homileo.space.archived:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.archived'
+  homileo.space.member_added:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_added'
+  homileo.session.created:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.created'
+  homileo.session.updated:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.updated'
+  homileo.session.archived:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.archived'
+  homileo.session.participant_added:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_added'
+  homileo.space.member_removed:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_removed'
+  homileo.space.member_role_changed:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.member_role_changed'
+  homileo.space.join_requested:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_requested'
+  homileo.space.join_decided:
+    $ref: './paths/spaces/webhook-events.yaml#/homileo.space.join_decided'
+  homileo.session.participant_removed:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.session.participant_removed'
+  homileo.message.created:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.message.created'
+  homileo.thread.updated:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.thread.updated'
+  homileo.message.edited:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.message.edited'
+  homileo.message.deleted:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.message.deleted'
+  homileo.reaction.added:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.added'
+  homileo.reaction.removed:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.removed'

@@ -1,0 +1,32 @@
+/v1/threads/{rootId}/read:
+  put:
+    tags: [Messages]
+    summary: Set the caller's thread read position
+    description: |
+      Moves the caller's read position in the thread to `seq`, never backwards and never past the
+      thread's newest reply (the root's `seq` when it has none). A caller with no follower row gets
+      one with `following: false`. Records `read.updated` with `threadRootId` only when the position
+      moved. The message must be a top-level message (`400 reply_to_reply`). Any reader of the
+      session may track a thread; participation is not required.
+
+      **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+    operationId: putThreadRead
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/ThreadIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/messages/schemas.yaml#/ThreadReadRequest'
+    responses:
+      '200':
+        description: The position after the request
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ThreadReadResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

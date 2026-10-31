@@ -1,0 +1,34 @@
+/v1/sessions/{sessionId}/read:
+  put:
+    tags: [Sessions]
+    summary: Set the caller's read position
+    description: |
+      Moves the caller's read position to `seq`, never backwards and never past the session's
+      `lastSeq`. Records `read.updated` only when the position moved. A caller who can read the
+      session but is not a participant gets `403 not_a_participant`.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: putSessionRead
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/sessions/schemas.yaml#/ReadPositionRequest'
+    responses:
+      '200':
+        description: The position after the request
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/ReadPositionResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

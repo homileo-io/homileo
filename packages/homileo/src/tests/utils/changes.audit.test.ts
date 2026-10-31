@@ -2,6 +2,7 @@
 // @module-tag events
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
+import { spacePayload } from "../support/eventPayloads.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { recordChange } from "../../utils/changes.js";
 import { prisma } from "../../utils/db/prisma.js";
@@ -9,6 +10,7 @@ import { v7 as uuidv7 } from "uuid";
 
 const fixtures = chatFixtures();
 const organizationId = uuidv7();
+const otherOrganizationId = uuidv7();
 
 describe("recordChange audit", () => {
   beforeAll(async () => {
@@ -16,8 +18,10 @@ describe("recordChange audit", () => {
   });
 
   afterAll(async () => {
-    await prisma.event.deleteMany({ where: { organizationId } });
-    await prisma.$executeRaw`DELETE FROM "core"."core_outbox" WHERE payload->>'organizationId' = ${organizationId}`;
+    for (const id of [organizationId, otherOrganizationId]) {
+      await prisma.event.deleteMany({ where: { organizationId: id } });
+      await prisma.$executeRaw`DELETE FROM "core"."core_outbox" WHERE payload->>'organizationId' = ${id}`;
+    }
     await fixtures.cleanup();
     await stopTereo();
   });
@@ -33,7 +37,7 @@ describe("recordChange audit", () => {
         organizationId,
         actorId: actor.id,
         entity: { type: "Space", id: entityId },
-        payload: {},
+        payload: spacePayload(),
         audit: { action: "UPDATE", userId, metadata: { reason: "test" } },
       })
     );
@@ -56,23 +60,20 @@ describe("recordChange audit", () => {
 
   it("adds no audit row when audit is omitted", async () => {
     const actor = await fixtures.principal();
-    const other = uuidv7();
 
     await prisma.$transaction((tx) =>
       recordChange(tx, {
         type: "space.archived",
-        organizationId: other,
+        organizationId: otherOrganizationId,
         actorId: actor.id,
         entity: { type: "Space", id: uuidv7() },
-        payload: {},
+        payload: spacePayload(),
       })
     );
 
     const rows = await prisma.$queryRaw<Array<{ destination: string }>>`
       SELECT destination FROM "core"."core_outbox"
-      WHERE payload->>'organizationId' = ${other}`;
+      WHERE payload->>'organizationId' = ${otherOrganizationId}`;
     expect(rows.map((r) => r.destination)).toEqual(["webhook"]);
-    await prisma.event.deleteMany({ where: { organizationId: other } });
-    await prisma.$executeRaw`DELETE FROM "core"."core_outbox" WHERE payload->>'organizationId' = ${other}`;
   });
 });

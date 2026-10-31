@@ -1,0 +1,31 @@
+/v1/threads/{rootId}/follow:
+  put:
+    tags: [Messages]
+    summary: Follow or unfollow a thread
+    description: |
+      Sets whether the caller follows the thread; only followed threads count in `GET /v1/me/unread`.
+      A caller with no row gets one that starts unread. An unfollow stands until the caller replies
+      in the thread. Records no event. The message must be a top-level message (`400
+      reply_to_reply`).
+
+      **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+    operationId: putThreadFollow
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/ThreadIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/messages/schemas.yaml#/ThreadFollowRequest'
+    responses:
+      '200':
+        description: The state after the request
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ThreadFollowResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

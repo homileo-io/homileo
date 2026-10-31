@@ -1,4 +1,5 @@
 import { Response, Request, NextFunction } from "express";
+import { InvalidAuditEntryError } from "@tereo-io/sdk";
 import { logger } from "./logger.js";
 import { ZodError } from "zod";
 import {
@@ -73,6 +74,30 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/** The caller can read the session but takes no part in it. */
+export class NotAParticipantError extends AppError {
+  constructor(message = "You are not a participant of this session") {
+    super(403, "not_a_participant", message);
+    this.name = "NotAParticipantError";
+  }
+}
+
+/** A participant of a space whose post policy is `moderators`, without the right to moderate it. */
+export class PostingRestrictedError extends AppError {
+  constructor(message = "Only the space's moderators can post here") {
+    super(403, "posting_restricted", message);
+    this.name = "PostingRestrictedError";
+  }
+}
+
+/** The kind's edit window has passed for the caller's own message. */
+export class EditWindowClosedError extends AppError {
+  constructor(message = "The edit window for this message has closed") {
+    super(403, "edit_window_closed", message);
+    this.name = "EditWindowClosedError";
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Not found") {
     super(404, "not_found", message);
@@ -84,6 +109,22 @@ export class ConflictError extends AppError {
   constructor(message: string, code = "conflict") {
     super(409, code, message);
     this.name = "ConflictError";
+  }
+}
+
+/** A change to something archived. */
+export class ArchivedError extends ConflictError {
+  constructor(message = "The resource is archived") {
+    super(message, "resource_archived");
+    this.name = "ArchivedError";
+  }
+}
+
+/** Archiving something already archived. */
+export class AlreadyArchivedError extends ConflictError {
+  constructor(message = "The resource is already archived") {
+    super(message, "already_archived");
+    this.name = "AlreadyArchivedError";
   }
 }
 
@@ -225,6 +266,11 @@ const errorResponse = (err: Error): ErrorResponse => {
 
   if (isAppErrorLike(err)) {
     return { status: err.statusCode, code: err.code, message: err.message };
+  }
+
+  // An audit entry the SDK refused before queueing it: the caller's input.
+  if (err instanceof InvalidAuditEntryError) {
+    return { status: 400, code: "invalid_request", message: err.message };
   }
 
   // A write conflict or deadlock (P2034): retryable, so 409 lets clients

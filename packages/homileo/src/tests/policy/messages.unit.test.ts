@@ -1,6 +1,5 @@
 // @module-tag unit
 // @module-tag access
-import { canDeleteMessage, canEditMessage } from "../../policy/index.js";
 import type { MessageFacts } from "../../policy/index.js";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +9,13 @@ import {
   space,
   OTHER_ORG,
 } from "../support/pure/policyFacts.js";
+import {
+  canDeleteMessage,
+  canEditMessage,
+  canReadRevisions,
+  editWindowOpen,
+  isMentionReader,
+} from "../../policy/index.js";
 
 const NOW = new Date("2026-10-30T12:00:00Z");
 const ago = (seconds: number) => new Date(NOW.getTime() - seconds * 1000);
@@ -70,6 +76,16 @@ describe("canEditMessage", () => {
       false,
     ],
     ["sender who lost access", session({ space: space() }), message(), false],
+    [
+      "sender who left an access: space session, still readable",
+      session({
+        access: "space",
+        participantRole: null,
+        space: space({ role: "member" }),
+      }),
+      message(),
+      false,
+    ],
   ])("%s -> %s", (_n, ss, m, want) => {
     expect(canEditMessage(caller(), ss, m, NOW)).toBe(want);
   });
@@ -124,6 +140,23 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(caller(), ss, m)).toBe(want);
   });
 
+  it("refuses a removed participant their own delete, though they can still read", () => {
+    const ss = session({
+      access: "space",
+      participantRole: null,
+      space: space({ role: "member" }),
+    });
+    expect(canDeleteMessage(caller(), ss, message())).toBe(false);
+  });
+
+  it("still lets a moderator who left delete", () => {
+    const ss = session({
+      participantRole: null,
+      space: space({ role: "moderator" }),
+    });
+    expect(canDeleteMessage(caller(), ss, message())).toBe(true);
+  });
+
   it("lets a grant holder delete in a session they can read", () => {
     const k = kind({
       grants: [{ permission: "support.cases.moderate", access: "moderate" }],
@@ -164,5 +197,166 @@ describe("canDeleteMessage", () => {
     expect(canDeleteMessage(c, ss, message({ senderId: "someone" }))).toBe(
       false
     );
+  });
+});
+
+describe("canReadRevisions", () => {
+  const other = message({ senderId: "someone" });
+  it.each([
+    ["sender", inSession(null), message(), caller(), true],
+    [
+      "deleted message, sender",
+      inSession(null),
+      message({ deleted: true }),
+      caller(),
+      true,
+    ],
+    ["non-sender member", inSession(null), other, caller(), false],
+    [
+      "moderator, any message",
+      inSession(null, "moderator"),
+      other,
+      caller(),
+      true,
+    ],
+    [
+      "moderator, deleted message",
+      inSession(null, "moderator"),
+      message({ senderId: "someone", deleted: true }),
+      caller(),
+      true,
+    ],
+    [
+      "sender who left, still readable",
+      session({ participantRole: null, space: space({ role: "member" }) }),
+      message(),
+      caller(),
+      true,
+    ],
+    [
+      "sender who cannot read",
+      session({ space: space() }),
+      message(),
+      caller(),
+      false,
+    ],
+    [
+      "grant moderator",
+      session({
+        space: space({
+          kind: kind({
+            grants: [
+              { permission: "support.cases.moderate", access: "moderate" },
+            ],
+          }),
+        }),
+      }),
+      other,
+      caller({ permissions: ["support.cases.moderate"] }),
+      true,
+    ],
+    [
+      "admin in a space's session",
+      session({ access: "members", space: space() }),
+      other,
+      caller({ isAdmin: true }),
+      true,
+    ],
+    [
+      "space-less owner, not the sender",
+      session({ space: null, participantRole: "owner" }),
+      other,
+      caller(),
+      false,
+    ],
+    [
+      "space-less admin participant, not the sender",
+      session({ space: null, participantRole: "member" }),
+      other,
+      caller({ isAdmin: true }),
+      false,
+    ],
+    [
+      "another organization",
+      session({
+        organizationId: OTHER_ORG,
+        participantRole: "member",
+        space: space({ role: "moderator", organizationId: OTHER_ORG }),
+      }),
+      message(),
+      caller(),
+      false,
+    ],
+  ])("%s -> %s", (_n, ss, m, c, want) => {
+    expect(canReadRevisions(c, ss, m)).toBe(want);
+  });
+});
+
+describe("editWindowOpen", () => {
+  it.each([
+    ["inside", inSession(60), message({ createdAt: ago(30) }), true],
+    ["at the edge", inSession(60), message({ createdAt: ago(60) }), true],
+    ["past", inSession(60), message({ createdAt: ago(61) }), false],
+    ["no limit", inSession(null), message({ createdAt: ago(9e6) }), true],
+    [
+      "space-less",
+      session({ space: null, participantRole: "member" }),
+      message({ createdAt: ago(9e6) }),
+      true,
+    ],
+  ])("%s -> %s", (_n, ss, m, want) => {
+    expect(editWindowOpen(ss, m, NOW)).toBe(want);
+  });
+});
+
+describe("isMentionReader", () => {
+  const spaceSession = (access: "space" | "members", visibility = "public") =>
+    session({ access, space: space({ visibility }) });
+
+  it.each([
+    [
+      "a participant of a space-less session",
+      session({ space: null }),
+      "member",
+      null,
+      true,
+    ],
+    [
+      "a non-participant of a space-less session",
+      session({ space: null }),
+      null,
+      null,
+      false,
+    ],
+    [
+      "a space member in an access: space session",
+      spaceSession("space"),
+      null,
+      "member",
+      true,
+    ],
+    [
+      "a non-member of a public space's access: space session",
+      spaceSession("space"),
+      null,
+      null,
+      false,
+    ],
+    [
+      "a space member in an access: members session",
+      spaceSession("members"),
+      null,
+      "member",
+      false,
+    ],
+    [
+      "a participant of an access: members session",
+      spaceSession("members"),
+      "member",
+      null,
+      true,
+    ],
+  ] as const)("%s → %s", (_name, ss, participantRole, spaceRole, expected) => {
+    expect(isMentionReader(ss, { participantRole, spaceRole })).toBe(expected);
   });
 });

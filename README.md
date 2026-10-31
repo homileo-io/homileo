@@ -52,7 +52,7 @@ Homileo is built in seven plans (design spec, *Architecture*):
 | # | Plan | State |
 |---|------|-------|
 | 1 | Foundation — monorepo, service skeleton, principals and organizations, provisioning, the write path (`recordChange`), the access policy, Docker and CI | **Done** |
-| 2 | Core chat API — spaces, sessions, messages, threads, reactions, read state, OpenAPI | Not started |
+| 2 | Core chat API — spaces, sessions, messages, threads, reactions, read state, attachments, mentions, OpenAPI | **Done** |
 | 3 | Realtime and sync — socket.io, `GET /v1/sync`, event retention | Not started |
 | 4 | Search — Postgres full-text and trigram search | Not started |
 | 5 | SDK and event contract — typed client, AsyncAPI | Not started |

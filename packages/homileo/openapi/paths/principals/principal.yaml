@@ -1,0 +1,26 @@
+/v1/principals/{principalId}:
+  get:
+    tags: [Principals]
+    summary: Get a principal
+    description: |
+      One principal by id. Principals belong to no organization, so any signed-in caller may read
+      any of them.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: getPrincipal
+    parameters:
+      - name: principalId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    responses:
+      '200':
+        description: The principal
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/principals/schemas.yaml#/GetPrincipalResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

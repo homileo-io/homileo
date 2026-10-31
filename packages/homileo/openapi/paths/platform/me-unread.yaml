@@ -1,0 +1,22 @@
+/v1/me/unread:
+  get:
+    tags: [Platform]
+    summary: Get the caller's unread totals
+    description: |
+      Per session the caller currently participates in (and can read), the unread top-level
+      messages above their read position, and the unread mentions; per followed thread in a session
+      the caller can read now (participant or not), the unread replies. The caller's own messages and deleted messages never count. Counts stop at 99, with
+      `unreadCapped: true` past it. Only entries with something unread are listed.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: getMeUnread
+    responses:
+      '200':
+        description: The unread totals
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/platform/schemas.yaml#/UnreadResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

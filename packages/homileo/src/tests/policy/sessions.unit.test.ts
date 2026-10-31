@@ -10,10 +10,16 @@ import {
 } from "../support/pure/policyFacts.js";
 import {
   canAddParticipant,
+  canArchiveSession,
+  canCreateSessionIn,
+  canEditSessionSettings,
   canJoinSession,
+  canLeaveSession,
   canPost,
+  canReact,
   canReadSession,
   canRemoveParticipant,
+  postRefusal,
 } from "../../policy/index.js";
 
 const grants = kind({
@@ -387,5 +393,242 @@ describe("bots and grant holders", () => {
     const ss = session({ space: space({ kind: grants, joinPolicy: "open" }) });
     expect(canReadSession(c, ss)).toBe(false);
     expect(canJoinSession(c, ss)).toBe(false);
+  });
+});
+
+const dm = (o = {}) =>
+  session({ type: "direct", space: null, participantRole: "member", ...o });
+const group = (role: "owner" | "member" | null, o = {}) =>
+  session({ space: null, participantRole: role, ...o });
+
+describe("canArchiveSession", () => {
+  it.each([
+    ["DM participant", dm(), {}, false],
+    ["DM admin", dm({ participantRole: null }), admin, true],
+    ["space-less group owner", group("owner"), {}, true],
+    ["space-less group member", group("member"), {}, false],
+    ["space-less group admin", group(null), admin, true],
+    [
+      "space moderator",
+      session({ space: inSpace({ role: "moderator" }) }),
+      {},
+      true,
+    ],
+    ["space member", session({ space: inSpace() }), {}, false],
+    ["space admin", session({ space: space() }), admin, true],
+    [
+      "other organization",
+      session({
+        organizationId: OTHER_ORG,
+        space: null,
+        participantRole: "owner",
+      }),
+      {},
+      false,
+    ],
+  ])("%s -> %s", (_n, ss, c, want) => {
+    expect(canArchiveSession(caller(c), ss)).toBe(want);
+  });
+});
+
+describe("canLeaveSession", () => {
+  it.each([
+    ["group participant", group("member"), true],
+    ["group owner", group("owner"), true],
+    ["space session participant", session({ participantRole: "member" }), true],
+    ["DM participant", dm(), false],
+    ["not a participant", group(null), false],
+    ["archived", group("member", { archived: true }), true],
+  ])("%s -> %s", (_n, ss, want) => {
+    expect(canLeaveSession(caller(), ss)).toBe(want);
+  });
+});
+
+describe("canReact", () => {
+  it.each([
+    [
+      "participant",
+      session({ participantRole: "member", space: inSpace() }),
+      true,
+    ],
+    [
+      "participant in a moderators posting space",
+      session({
+        participantRole: "member",
+        space: inSpace({ postPolicy: "moderators" }),
+      }),
+      true,
+    ],
+    ["reader who is not a participant", session({ space: inSpace() }), false],
+    [
+      "archived session",
+      session({ participantRole: "member", archived: true, space: inSpace() }),
+      false,
+    ],
+    [
+      "archived space",
+      session({
+        participantRole: "member",
+        space: inSpace({ archived: true }),
+      }),
+      false,
+    ],
+    [
+      "participant who lost read access",
+      session({ participantRole: "member", access: "members", space: space() }),
+      true,
+    ],
+    ["DM participant", dm(), true],
+  ])("%s -> %s", (_n, ss, want) => {
+    expect(canReact(caller(), ss)).toBe(want);
+  });
+});
+
+describe("canEditSessionSettings", () => {
+  it.each([
+    [
+      "space moderator",
+      session({ space: inSpace({ role: "moderator" }) }),
+      {},
+      true,
+    ],
+    ["space member", session({ space: inSpace() }), {}, false],
+    ["space admin", session({ space: space() }), admin, true],
+    [
+      "archived session",
+      session({ archived: true, space: inSpace({ role: "owner" }) }),
+      {},
+      false,
+    ],
+    [
+      "archived space",
+      session({ space: inSpace({ role: "owner", archived: true }) }),
+      {},
+      false,
+    ],
+    ["space-less group owner", group("owner"), {}, true],
+    ["space-less group member", group("member"), {}, false],
+    ["space-less group admin", group(null), admin, false],
+    [
+      "archived space-less group",
+      group("owner", { archived: true }),
+      {},
+      false,
+    ],
+    ["DM participant", dm(), {}, false],
+    ["DM admin", dm({ participantRole: null }), admin, false],
+  ])("%s -> %s", (_n, ss, c, want) => {
+    expect(canEditSessionSettings(caller(c), ss)).toBe(want);
+  });
+});
+
+describe("canCreateSessionIn", () => {
+  it.each([
+    ["member", space({ role: "member" }), {}, true],
+    ["non-member", space(), {}, false],
+    ["moderator", space({ role: "moderator" }), {}, true],
+    ["admin non-member", space(), admin, true],
+    ["archived space", space({ role: "owner", archived: true }), {}, false],
+    [
+      "member of a moderators posting space",
+      space({ role: "member", postPolicy: "moderators" }),
+      {},
+      false,
+    ],
+    [
+      "moderator of a moderators posting space",
+      space({ role: "moderator", postPolicy: "moderators" }),
+      {},
+      true,
+    ],
+    [
+      "other organization",
+      space({ role: "owner", organizationId: OTHER_ORG }),
+      {},
+      false,
+    ],
+  ])("%s -> %s", (_n, s, c, want) => {
+    expect(canCreateSessionIn(caller(c), s)).toBe(want);
+  });
+});
+
+describe("postRefusal", () => {
+  const readable = { participantRole: "member", space: inSpace() };
+  it.each([
+    ["cannot read", session({ space: space() }), {}, "not_found"],
+    [
+      "other organization",
+      session({ organizationId: OTHER_ORG }),
+      {},
+      "not_found",
+    ],
+    [
+      "archived and unreadable reports not_found",
+      session({ archived: true, space: space() }),
+      {},
+      "not_found",
+    ],
+    [
+      "archived session",
+      session({ ...readable, archived: true }),
+      {},
+      "archived",
+    ],
+    [
+      "archived space",
+      session({
+        participantRole: "member",
+        space: inSpace({ archived: true }),
+      }),
+      {},
+      "archived",
+    ],
+    [
+      "archived, not a participant",
+      session({ space: inSpace(), archived: true }),
+      {},
+      "archived",
+    ],
+    [
+      "readable, not a participant",
+      session({ space: inSpace() }),
+      {},
+      "not_a_participant",
+    ],
+    [
+      "moderators posting, plain participant",
+      session({
+        participantRole: "member",
+        space: inSpace({ postPolicy: "moderators" }),
+      }),
+      {},
+      "posting_restricted",
+    ],
+    ["may post", session(readable), {}, null],
+  ])("%s -> %s", (_n, ss, c, want) => {
+    expect(postRefusal(caller(c), ss)).toBe(want);
+  });
+
+  it("is null exactly when canPost is true", () => {
+    const roles = [null, "member", "moderator"];
+    for (const org of [undefined, OTHER_ORG])
+      for (const archived of [false, true])
+        for (const participantRole of [null, "member", "owner"])
+          for (const postPolicy of ["members", "moderators"])
+            for (const role of roles)
+              for (const access of ["space", "members"])
+                for (const hasSpace of [true, false])
+                  for (const c of [{}, admin]) {
+                    const ss = session({
+                      ...(org ? { organizationId: org } : {}),
+                      archived,
+                      participantRole,
+                      access,
+                      space: hasSpace ? space({ role, postPolicy }) : null,
+                    });
+                    expect(postRefusal(caller(c), ss) === null).toBe(
+                      canPost(caller(c), ss)
+                    );
+                  }
   });
 });

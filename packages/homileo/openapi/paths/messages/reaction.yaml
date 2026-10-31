@@ -1,0 +1,62 @@
+/v1/messages/{messageId}/reactions/{emoji}:
+  put:
+    tags: [Messages]
+    summary: React to a message
+    description: |
+      Adds the caller's reaction with this emoji. `201` when it was added, `200` when the caller
+      had already reacted with it (nothing is recorded). Reacting needs participation in the
+      session but not the space's post policy.
+
+      A deleted message, or one in an archived session or space, is `409 resource_archived`. A
+      caller who can read the session but is not a participant gets `403 not_a_participant`; a
+      caller who cannot read the message gets `404`.
+
+      **Required permissions:** none; the caller must be a participant.
+    operationId: addMessageReaction
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+      - $ref: '../../components/messages/parameters.yaml#/ReactionEmojiParam'
+    responses:
+      '200':
+        description: The caller had already reacted with this emoji
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ReactionsResponse'
+      '201':
+        description: The reaction was added
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ReactionsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  delete:
+    tags: [Messages]
+    summary: Remove a reaction
+    description: |
+      Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
+      it. The same checks as adding apply, including `409 resource_archived`.
+
+      **Required permissions:** none; the caller must be a participant.
+    operationId: removeMessageReaction
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+      - $ref: '../../components/messages/parameters.yaml#/ReactionEmojiParam'
+    responses:
+      '200':
+        description: The reaction was removed
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/ReactionsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

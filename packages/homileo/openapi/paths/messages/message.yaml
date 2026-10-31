@@ -1,0 +1,98 @@
+/v1/messages/{messageId}:
+  get:
+    tags: [Messages]
+    summary: Get a message
+    description: |
+      A message the caller can read. A deleted message is returned with `body`, `payload`,
+      `attachments` and `reactions` cleared and `deletedAt` set.
+
+      **Required permissions:** none; the caller must be able to read the message's session.
+      Anything else is `404`.
+    operationId: getMessage
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+    responses:
+      '200':
+        description: The message
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  patch:
+    tags: [Messages]
+    summary: Edit a message
+    description: |
+      Changes a message's `body`, `payload` and `metadata`; give at least one. Only the sender,
+      and only while still a participant, may edit.
+
+      - A changed `body` or `payload` makes a new revision (`revision` + 1, `editedAt` set),
+        keeping the earlier ones, and is checked as when sending: a `text` message takes no
+        `payload` (`400 invalid_payload`), a provisioned type's `payload` must match its schema.
+      - A changed `body` rewrites the message's mentions. Principals newly mentioned (who can read
+        the session) are emailed, as when sending; those mentioned before are not emailed again.
+      - A `metadata`-only change (a whole replacement) makes no revision and leaves `editedAt`.
+      - An edit that changes nothing answers `200` and records nothing.
+      - A deleted message is `409 resource_archived`. Past the space kind's edit window the
+        sender gets `403 edit_window_closed`; any other refusal is `403`.
+
+      Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
+
+      **Required permissions:** none; see above.
+    operationId: editMessage
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/messages/schemas.yaml#/EditMessageRequest'
+    responses:
+      '200':
+        description: The message as edited
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+  delete:
+    tags: [Messages]
+    summary: Delete a message
+    description: |
+      Clears the message's `body` and `payload` and sets `deletedAt` and `deletedBy`; the row, its
+      revisions, reactions and attachments stay (reads show reactions and attachments as empty).
+      Its mentions are removed. Deleting a reply lowers the root's `replyCount`.
+
+      The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
+      already deleted message is `409 resource_archived`; any other refusal is `403`.
+
+      Records `message.deleted` (and `thread.updated` for a reply), emitting
+      `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
+      else's message also writes an audit `DELETE` entry.
+
+      **Required permissions:** none; see above.
+    operationId: deleteMessage
+    parameters:
+      - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
+    responses:
+      '200':
+        description: The message, cleared
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

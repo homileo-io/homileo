@@ -1,0 +1,27 @@
+/v1/spaces/{spaceId}/members:
+  get:
+    tags: [Spaces]
+    summary: List a space's members
+    description: |
+      The members, oldest first (by join time, then principal id), each with its principal.
+      Pages with `cursor` and `limit`.
+
+      **Required permissions:** none; the caller must be able to read the space. A space the
+      caller cannot read is a 404.
+    operationId: listSpaceMembers
+    parameters:
+      - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'
+      - $ref: '../../components/spaces/parameters.yaml#/MembersRoleParam'
+      - $ref: '../../components/parameters.yaml#/LimitParam'
+      - $ref: '../../components/parameters.yaml#/CursorParam'
+    responses:
+      '200':
+        description: A page of members
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/spaces/schemas.yaml#/ListMembersResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

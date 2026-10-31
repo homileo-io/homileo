@@ -1,0 +1,71 @@
+# Shared by every area. Variants that differ per area carry its prefix
+# (SpacesConflictResponse, …) and live in <area>/responses.yaml.
+
+Error:
+  type: object
+  description: Every error body
+  required: [error, error_description]
+  properties:
+    error:
+      type: string
+      description: A stable, machine-readable code
+    error_description:
+      type: string
+      description: A human-readable explanation
+    issues:
+      type: array
+      description: On `invalid_request`, the failed checks
+      items:
+        type: object
+        required: [path, message]
+        properties:
+          path:
+            type: string
+            description: The field, dotted (`metadata.key`); empty for the whole value
+          message:
+            type: string
+
+BadRequestResponse:
+  description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+UnauthorizedResponse:
+  description: Unauthorized - the access token is missing, invalid or expired
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+ForbiddenResponse:
+  description: Forbidden - the caller can read the resource but may not do this (or lacks the permission the route needs)
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+NotFoundResponse:
+  description: Not found - the resource does not exist, is in another organization, or the caller cannot read it (the three look alike)
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+ConflictResponse:
+  description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+ServerErrorResponse:
+  description: Server error
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+NoContentResponse:
+  description: Done; no content

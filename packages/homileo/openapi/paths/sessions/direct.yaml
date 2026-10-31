@@ -1,0 +1,38 @@
+/v1/sessions/direct:
+  post:
+    tags: [Sessions]
+    summary: Find or create a direct session
+    description: |
+      The one DM between the caller and `principalId` in the caller's organization. Answers `200`
+      with the existing session, or `201` when this request created it (concurrent calls for the
+      same pair create one session). Both participants are `member`s. A DM with oneself is
+      `400 cannot_dm_self`; an unknown principal is `404`.
+
+      Only `homileo.chat.admin` can archive a DM, and an admin who is not one of its two
+      participants cannot read it.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: createDirectSession
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/sessions/schemas.yaml#/DirectSessionRequest'
+    responses:
+      '200':
+        description: The DM that already existed
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/SessionResponse'
+      '201':
+        description: The DM this request created
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/sessions/schemas.yaml#/SessionResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

@@ -1,0 +1,175 @@
+homileo.space.created:
+  post:
+    tags: [Spaces]
+    summary: Space created
+    operationId: webhookSpaceCreated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.created }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.updated:
+  post:
+    tags: [Spaces]
+    summary: Space updated
+    operationId: webhookSpaceUpdated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.updated }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.archived:
+  post:
+    tags: [Spaces]
+    summary: Space archived
+    operationId: webhookSpaceArchived
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.archived }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.member_added:
+  post:
+    tags: [Spaces]
+    summary: Member added to a space
+    operationId: webhookSpaceMemberAdded
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.member_added }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceMemberAddedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.member_removed:
+  post:
+    tags: [Spaces]
+    summary: Member removed from a space
+    operationId: webhookSpaceMemberRemoved
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.member_removed }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceMemberRemovedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.member_role_changed:
+  post:
+    tags: [Spaces]
+    summary: Member role changed
+    operationId: webhookSpaceMemberRoleChanged
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.member_role_changed }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceMemberRoleChangedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.join_requested:
+  post:
+    tags: [Spaces]
+    summary: Join requested
+    operationId: webhookSpaceJoinRequested
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.join_requested }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/JoinRequestEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+
+homileo.space.join_decided:
+  post:
+    tags: [Spaces]
+    summary: Join request decided
+    operationId: webhookSpaceJoinDecided
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.space.join_decided }
+                  entityType: { const: space }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/JoinRequestEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

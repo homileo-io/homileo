@@ -1,0 +1,4056 @@
+openapi: 3.1.0
+info:
+  title: Homileo API
+  version: 0.1.0
+  description: |
+    Homileo is a generic chat service for apps built on tereo: spaces, sessions, messages, threads,
+    reactions, mentions, read state and attachments. Each app deploys its own Homileo beside its
+    tereo. Every path in this spec is the full path on the service: the API is versioned under
+    `/v1`, and `GET /health` stays at the root.
+
+    ## Authentication
+
+    Requests carry a tereo access token as `Authorization: Bearer <token>`. Homileo verifies it
+    with tereo's SDK. A service account (a bot) is a principal like any other.
+
+    ## Organizations
+
+    Every space and session belongs to one tereo organization, and every request is limited to the
+    organization in the token's `org_id`. No header names one. A token without an organization gets
+    `400 organization_required` on every `/v1` route.
+
+    ## Permissions and access
+
+    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
+    open to any signed-in caller in an organization, and what the caller may see or do is decided
+    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
+    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
+    the caller can read the resource but may not do the action.
+
+    ## Pagination
+
+    Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
+    `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
+    instead, as their routes describe.
+
+    ## Errors
+
+    An error is `{ "error": "<code>", "error_description": "<text>", ...details }`. A validation
+    failure is `400 invalid_request` with `issues`, a list of `{ path, message }`.
+
+    ## JSON shapes
+
+    Ids are strings, `seq`, `lastSeq` and `lastReadSeq` are JSON numbers, timestamps are ISO 8601
+    strings and event ids are strings.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://localhost:4101
+    description: Local development server (each app deploys its own Homileo; substitute its host)
+security:
+  - BearerAuth: []
+tags:
+  - name: Spaces
+    description: Places that group sessions, with members, a kind and an access policy
+  - name: Platform
+    description: Health and the caller's own identity
+  - name: Principals
+    description: Users, bots and external identities that take part in chat
+  - name: Sessions
+    description: Conversations, in a space or on their own, and direct messages
+  - name: Messages
+    description: Messages, thread replies and mentions
+paths:
+  /health:
+    get:
+      tags:
+        - Platform
+      summary: Health check
+      description: |
+        Whether Postgres and Redis answer. Public: it names no version and takes no token.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: A dependency does not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+  /v1/me:
+    get:
+      tags:
+        - Platform
+      summary: Get the caller
+      description: |
+        The caller's principal, created on the first request of a signed-in tereo user, with the
+        organization and permissions of the token.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getMe
+      responses:
+        '200':
+          description: The caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/me/unread:
+    get:
+      tags:
+        - Platform
+      summary: Get the caller's unread totals
+      description: |
+        Per session the caller currently participates in (and can read), the unread top-level
+        messages above their read position, and the unread mentions; per followed thread in a session
+        the caller can read now (participant or not), the unread replies. The caller's own messages and deleted messages never count. Counts stop at 99, with
+        `unreadCapped: true` past it. Only entries with something unread are listed.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getMeUnread
+      responses:
+        '200':
+          description: The unread totals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/me/mentions:
+    get:
+      tags:
+        - Platform
+      summary: List the messages that mention the caller
+      description: |
+        Messages and replies that mention the caller, plus `here` and `session` mentions in sessions
+        the caller currently participates in, newest first. Deleted messages, the caller's own
+        messages, other organizations' messages and sessions the caller can no longer read are left
+        out. A message mentioning the caller more than once appears once. The cursor is the id of the
+        last message returned. A page can hold fewer than `limit` items when some are dropped.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listMeMentions
+      parameters:
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of mentions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMentionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces:
+    get:
+      tags:
+        - Spaces
+      summary: List spaces
+      description: |
+        Lists spaces of the caller's organization, newest first (`createdAt` then `id`, descending).
+        `membership=member` (the default) lists the spaces the caller belongs to; `readable` also
+        lists the spaces they may read without belonging: `public` ones, ones of a kind whose grant
+        they hold, and, for a `homileo.chat.admin`, all of them. Spaces of other organizations are
+        never listed. Each item carries the caller's `role`, or null.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSpaces
+      parameters:
+        - $ref: '#/components/parameters/SpacesMembershipParam'
+        - $ref: '#/components/parameters/SpacesKindParam'
+        - $ref: '#/components/parameters/SpacesExternalRefParam'
+        - $ref: '#/components/parameters/SpacesIncludeArchivedParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of spaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSpacesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    post:
+      tags:
+        - Spaces
+      summary: Create a space
+      description: |
+        Creates a space in the caller's organization. The caller becomes its `owner`, and the kind's
+        `bots` become `member`s (each is created as a bot principal if Homileo has not seen it).
+        Fields not given take the kind's defaults.
+
+        A `space.created` event is recorded, then a `space.member_added` for each member, the
+        creator first; the `homileo.space.created` and `homileo.space.member_added` webhooks are
+        emitted and an audit entry is written.
+
+        **Required permissions:**
+        - `homileo.spaces.write`
+
+        **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
+        `409 external_ref_taken`.
+      operationId: createSpace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSpaceRequest'
+      responses:
+        '201':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}:
+    get:
+      tags:
+        - Spaces
+      summary: Get a space
+      description: |
+        One space and the caller's role in it. An archived space can still be read.
+
+        **Required permissions:** none; the caller must be able to read the space (a member, any
+        reader of a `public` space, the holder of a grant of its kind, or a `homileo.chat.admin`).
+        A space the caller cannot read is a 404.
+      operationId: getSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    patch:
+      tags:
+        - Spaces
+      summary: Update a space
+      description: |
+        Changes the given fields; `metadata` replaces the whole object. A request that changes
+        nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
+        is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
+
+        **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+        or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
+        A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
+        `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
+        `409 resource_archived`.
+      operationId: updateSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSpaceRequest'
+      responses:
+        '200':
+          description: The space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/archive:
+    post:
+      tags:
+        - Spaces
+      summary: Archive a space
+      description: |
+        Archives the space. Its sessions are not archived; they become read-only because their space
+        is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
+        and an audit entry is written.
+
+        **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+        a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
+        the space, 404.
+
+        **Errors:** `409 already_archived`.
+      operationId: archiveSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The archived space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/members:
+    get:
+      tags:
+        - Spaces
+      summary: List a space's members
+      description: |
+        The members, oldest first (by join time, then principal id), each with its principal.
+        Pages with `cursor` and `limit`.
+
+        **Required permissions:** none; the caller must be able to read the space. A space the
+        caller cannot read is a 404.
+      operationId: listSpaceMembers
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/MembersRoleParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMembersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/members/{principalId}:
+    put:
+      tags:
+        - Spaces
+      summary: Add a member or change a member's role
+      description: |
+        Makes the principal a member with the given role. A new member is `201`; a role change is
+        `200`, and so is a request for the role they already have, which records nothing. An
+        addition records `space.member_added`, a change `space.member_role_changed` (with the
+        previous role); each emits its webhook and writes an audit entry.
+
+        **Required permissions:** none; the caller must be able to moderate the space to add a
+        `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
+        `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
+        who cannot read it, 404.
+
+        **Errors:** `404` for a principal that does not exist, `409 resource_archived` for an
+        archived space (even a request for the role the principal already has), `409 last_owner`
+        for a change that would leave the space without an owner.
+      operationId: putSpaceMember
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutMemberRequest'
+      responses:
+        '200':
+          description: The member, changed or unchanged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '201':
+          description: The member that was added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Spaces
+      summary: Remove a member, or leave a space
+      description: |
+        Removes the member, or, when `principalId` is the caller, lets them leave. They also leave
+        the space's sessions: each records `session.participant_removed`. A principal who can no
+        longer read the space (a `members` space) gets `space.access_revoked`, and one who can no
+        longer read a session they were in gets `session.access_revoked`. For someone else's removal
+        this is judged from membership and visibility alone; their kind grants are not known.
+        Records `space.member_removed`, emits its webhook and writes an audit entry.
+
+        **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+        removes `member`s; removing a moderator or owner needs the `owner` or a
+        `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
+        one who cannot read it, 404.
+
+        **Errors:** `409 resource_archived` for removing someone else from an archived space, `404`
+        when the principal is not a member, `409 last_owner` for the last owner.
+      operationId: removeSpaceMember
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join:
+    post:
+      tags:
+        - Spaces
+      summary: Join a space, or ask to
+      description: |
+        Follows the space's `joinPolicy`. `open`: the caller becomes a `member` (`200`; `200`
+        again, changing nothing, if they already are one) and `space.member_added` is recorded.
+        `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
+        a repeat returns the pending request without a new event. `invite`: 403.
+
+        **Required permissions:** none; the caller must be able to read the space (a space they
+        cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
+      operationId: joinSpace
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+      responses:
+        '200':
+          description: The caller is a member
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpaceMemberResponse'
+        '202':
+          description: A join request is pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests:
+    get:
+      tags:
+        - Spaces
+      summary: List a space's join requests
+      description: |
+        The requests in one state (`pending` by default), oldest first. Pages with `cursor` and
+        `limit`.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+      operationId: listJoinRequests
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/JoinRequestsStatusParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: A page of join requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJoinRequestsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
+    post:
+      tags:
+        - Spaces
+      summary: Approve a join request
+      description: |
+        Approves the applicant's pending request and makes them a `member` (recording `space.member_added`). Records `space.join_decided`, emits its webhook and writes an audit entry.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `404` when the principal has no request, `409 conflict` when their latest
+        request is already decided, `409 resource_archived` for an archived space.
+      operationId: approveJoinRequest
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '200':
+          description: The decided request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
+    post:
+      tags:
+        - Spaces
+      summary: Deny a join request
+      description: |
+        Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
+
+        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        can read the space but not moderate it gets 403; one who cannot read it, 404.
+
+        **Errors:** `404` when the principal has no request, `409 conflict` when their latest
+        request is already decided, `409 resource_archived` for an archived space.
+      operationId: denyJoinRequest
+      parameters:
+        - $ref: '#/components/parameters/SpaceIdParam'
+        - $ref: '#/components/parameters/PrincipalIdParam'
+      responses:
+        '200':
+          description: The decided request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/principals/resolve:
+    post:
+      tags:
+        - Principals
+      summary: Resolve tereo users to principals
+      description: |
+        Returns the principal of each tereo user id, creating it for a user not seen before.
+        Principals already stored are returned as they are; only unseen ids are looked up in tereo,
+        and a user whose tereo account is a service account becomes a bot. Ids tereo does not know
+        are listed in `missing`. `data` keeps the order of the request. Safe to repeat and to call
+        concurrently.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: resolvePrincipals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolvePrincipalsRequest'
+      responses:
+        '200':
+          description: The principals, and the ids tereo does not know
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvePrincipalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/principals/{principalId}:
+    get:
+      tags:
+        - Principals
+      summary: Get a principal
+      description: |
+        One principal by id. Principals belong to no organization, so any signed-in caller may read
+        any of them.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getPrincipal
+      parameters:
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The principal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPrincipalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions:
+    get:
+      tags:
+        - Sessions
+      summary: List sessions
+      description: |
+        Without `spaceId`, the sessions the caller is a participant of. With `spaceId`, the sessions
+        of that space the caller can read: every `access: space` session, and the `members` ones they
+        participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
+        every one). The space itself must be readable, else `404`.
+
+        With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
+        reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+
+        Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
+        first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
+        caller's own `participant`, or `null`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSessions
+      parameters:
+        - name: spaceId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - direct
+              - group
+        - name: externalRef
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSessionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    post:
+      tags:
+        - Sessions
+      summary: Create a session
+      description: |
+        **In a space** (`spaceId`): the caller must be a member of the space (or able to moderate
+        it), the space must not be archived, and when its `postPolicy` is `moderators` the caller
+        must be able to moderate it (`403 posting_restricted`). `access` defaults to `space`. The
+        caller joins as a `member`, together with `participantIds` (all members of the space) and
+        the kind's declared `bots`, which first become members of the space if they are not.
+
+        **Without a space**: a group of the caller's own. The caller is its `owner`,
+        `participantIds` are `member`s, and `access` is stored as `members` whatever was sent.
+
+        Records `session.created` and one `session.participant_added` per participant.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: The new session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/direct:
+    post:
+      tags:
+        - Sessions
+      summary: Find or create a direct session
+      description: |
+        The one DM between the caller and `principalId` in the caller's organization. Answers `200`
+        with the existing session, or `201` when this request created it (concurrent calls for the
+        same pair create one session). Both participants are `member`s. A DM with oneself is
+        `400 cannot_dm_self`; an unknown principal is `404`.
+
+        Only `homileo.chat.admin` can archive a DM, and an admin who is not one of its two
+        participants cannot read it.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: createDirectSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectSessionRequest'
+      responses:
+        '200':
+          description: The DM that already existed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '201':
+          description: The DM this request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}:
+    get:
+      tags:
+        - Sessions
+      summary: Get a session
+      description: |
+        The session and the caller's own participation (`null` when they can read it without being a
+        participant). A session the caller cannot read is `404`, and so is one in another
+        organization.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: getSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    patch:
+      tags:
+        - Sessions
+      summary: Update a session
+      description: |
+        Changes `name`, `state`, `externalRef` or `metadata` (replaced whole). In a space it needs
+        the right to moderate the space; in a group without a space, the participant `owner`. A DM has
+        nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
+        changes nothing records no event. Records `session.updated`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: updateSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSessionRequest'
+      responses:
+        '200':
+          description: The updated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/archive:
+    post:
+      tags:
+        - Sessions
+      summary: Archive a session
+      description: |
+        Archives the session. In a space it needs the right to moderate the space; in a group without
+        a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
+        An admin of the session's organization reaches it without being a participant, though it
+        still cannot read a space-less session. Archiving an archived session is
+        `409 already_archived`. Records `session.archived`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: archiveSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The archived session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/participants:
+    get:
+      tags:
+        - Sessions
+      summary: List a session's participants
+      description: |
+        The current participants, oldest joiner first, each with its `principal`. Participants who
+        left are not listed. Any caller who can read the session may list them.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: listSessionParticipants
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CursorParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of participants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListParticipantsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/participants/{principalId}:
+    put:
+      tags:
+        - Sessions
+      summary: Join a session or add a participant
+      description: |
+        When `principalId` is the caller this is a join: it needs an `access: space` session in an
+        unarchived space the caller can read, and the caller to be a member of the space or the
+        space's `joinPolicy` to be `open`. A non-member joining through an open space also becomes a
+        space `member` (records `space.member_added`). Otherwise it is an add: in a space it needs
+        the right to moderate the space, and the target must already be a space member (`400
+        invalid_request` with an issue at `principalId`); in a group without a space only its
+        `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
+        re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
+        already a current participant. Records `session.participant_added`. An archived session, or
+        one in an archived space, takes neither (`409 resource_archived`).
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionParticipant
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Already a participant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Sessions
+      summary: Leave a session or remove a participant
+      description: |
+        When `principalId` is the caller, they leave: any participant may, except in a DM (`403`),
+        even from an archived session or space. Removing someone else from an archived session, or
+        one in an archived space, is `409 resource_archived`.
+        Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
+        without a space, its `owner` or `homileo.chat.admin` (who reaches it without being a
+        participant, though it still cannot read it). A principal who is not a current participant is `404`. When the last `owner` of a group
+        without a space leaves or is removed, ownership passes to the remaining participant who
+        joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
+        removed principal can no longer read the session. Removing someone else is audited.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: deleteSessionParticipant
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: principalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/read:
+    put:
+      tags:
+        - Sessions
+      summary: Set the caller's read position
+      description: |
+        Moves the caller's read position to `seq`, never backwards and never past the session's
+        `lastSeq`. Records `read.updated` only when the position moved. A caller who can read the
+        session but is not a participant gets `403 not_a_participant`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionRead
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadPositionRequest'
+      responses:
+        '200':
+          description: The position after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadPositionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/notify:
+    put:
+      tags:
+        - Sessions
+      summary: Set the caller's notify level
+      description: |
+        Sets how the caller is notified of this session. A personal setting: records no event. A
+        caller who can read the session but is not a participant gets `403 not_a_participant`.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: putSessionNotify
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotifyRequest'
+      responses:
+        '200':
+          description: The caller's participation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParticipantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/messages:
+    get:
+      tags:
+        - Messages
+      summary: List a session's messages
+      description: |
+        Top-level messages (replies are left out), ascending by `seq`. With none of `before`,
+        `after` and `around`, the latest `limit`. `hasBefore` and `hasAfter` say whether more lie
+        on either side. Giving more than one of the three is `400 invalid_request`.
+
+        **Required permissions:** none; the caller must be able to read the session. A reader who
+        is not a participant may list.
+      operationId: listMessages
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/MessagesBeforeParam'
+        - $ref: '#/components/parameters/MessagesAfterParam'
+        - $ref: '#/components/parameters/MessagesAroundParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: A page of messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMessagesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    post:
+      tags:
+        - Messages
+      summary: Send a message
+      description: |
+        Sends a message, or a reply with `threadRootId`. The session assigns the next `seq`;
+        concurrent sends get distinct, gap-free values.
+
+        - A repeat of `clientMessageId` by the same sender in the session is
+          `409 duplicate_client_message`, whose body carries the existing `message`; nothing is
+          recorded and no `seq` is used.
+        - The caller must be a participant (`403 not_a_participant`) and, in a space whose
+          `postPolicy` is `moderators`, able to moderate it (`403 posting_restricted`). An archived
+          session or space is `409 resource_archived`.
+        - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
+          its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
+        - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
+          `400 attachment_not_uploaded`); they are kept once the message is sent.
+        - A reply's root must be a top-level, undeleted message of the same session:
+          `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
+          The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
+          thread.
+        - `<@principal-id>` mentions are stored for current participants and, in an
+          `access: space` session, members of the space; the others stay plain text, as do tokens
+          that are not UUIDs and any distinct ids past the first 100. Each mentioned reader is emailed through tereo
+          unless their `notify` is `none`, they are the sender, or they are a bot. `<!here>` and
+          `<!session>` are stored but send no email.
+        - A top-level message moves the session's `lastMessageAt` and the sender's `lastReadSeq`
+          to it; a reply moves the sender's read position in the thread instead.
+
+        Records `message.created` (and `thread.updated` for a reply), emitting
+        `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
+
+        **Required permissions:** none; the caller must be able to read the session.
+      operationId: sendMessage
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: The new message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          description: '`duplicate_client_message` with the existing message, or `resource_archived`'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DuplicateClientMessageError'
+                  - $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}:
+    get:
+      tags:
+        - Messages
+      summary: Get a message
+      description: |
+        A message the caller can read. A deleted message is returned with `body`, `payload`,
+        `attachments` and `reactions` cleared and `deletedAt` set.
+
+        **Required permissions:** none; the caller must be able to read the message's session.
+        Anything else is `404`.
+      operationId: getMessage
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      responses:
+        '200':
+          description: The message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    patch:
+      tags:
+        - Messages
+      summary: Edit a message
+      description: |
+        Changes a message's `body`, `payload` and `metadata`; give at least one. Only the sender,
+        and only while still a participant, may edit.
+
+        - A changed `body` or `payload` makes a new revision (`revision` + 1, `editedAt` set),
+          keeping the earlier ones, and is checked as when sending: a `text` message takes no
+          `payload` (`400 invalid_payload`), a provisioned type's `payload` must match its schema.
+        - A changed `body` rewrites the message's mentions. Principals newly mentioned (who can read
+          the session) are emailed, as when sending; those mentioned before are not emailed again.
+        - A `metadata`-only change (a whole replacement) makes no revision and leaves `editedAt`.
+        - An edit that changes nothing answers `200` and records nothing.
+        - A deleted message is `409 resource_archived`. Past the space kind's edit window the
+          sender gets `403 edit_window_closed`; any other refusal is `403`.
+
+        Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
+
+        **Required permissions:** none; see above.
+      operationId: editMessage
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditMessageRequest'
+      responses:
+        '200':
+          description: The message as edited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Messages
+      summary: Delete a message
+      description: |
+        Clears the message's `body` and `payload` and sets `deletedAt` and `deletedBy`; the row, its
+        revisions, reactions and attachments stay (reads show reactions and attachments as empty).
+        Its mentions are removed. Deleting a reply lowers the root's `replyCount`.
+
+        The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
+        already deleted message is `409 resource_archived`; any other refusal is `403`.
+
+        Records `message.deleted` (and `thread.updated` for a reply), emitting
+        `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
+        else's message also writes an audit `DELETE` entry.
+
+        **Required permissions:** none; see above.
+      operationId: deleteMessage
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      responses:
+        '200':
+          description: The message, cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sessions/{sessionId}/attachments:
+    post:
+      tags:
+        - Messages
+      summary: Start an attachment upload
+      description: |
+        Creates an empty placeholder object in tereo's `homileo-attachments` bucket, under
+        `sessions/<sessionId>/<principalId>/<id>`, and returns a presigned URL to `PUT` the file
+        to (valid 15 minutes). Name the returned `objectId` in `attachments` when sending a
+        message. A placeholder no message claims is removed by tereo after 24 hours.
+
+        Checked as sending is: the caller must be a participant (`403 not_a_participant`) and,
+        where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
+        archived session or space is `409 resource_archived`. Records no event.
+
+        **Required permissions:** none; the caller must be able to read the session.
+      operationId: createAttachmentUpload
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAttachmentRequest'
+      responses:
+        '201':
+          description: The placeholder and its upload URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAttachmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/attachments/{attachmentId}:
+    get:
+      tags:
+        - Messages
+      summary: Get an attachment's download URL
+      description: |
+        The attachment and a presigned URL to download it, valid 5 minutes.
+
+        **Required permissions:** none; the caller must be able to read the message's session.
+        Anything else is `404`: an unreadable session, a deleted message, an attachment of another
+        message, or a file tereo no longer has.
+      operationId: getAttachment
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The attachment and its URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/revisions:
+    get:
+      tags:
+        - Messages
+      summary: List a message's revisions
+      description: |
+        Every revision of the message, oldest first; revision 1 is the original. Deleted messages
+        keep theirs.
+
+        **Required permissions:** none; the caller must be the message's sender or able to
+        moderate its space (`403` for any other reader). A caller who cannot read the message gets
+        `404`.
+      operationId: listMessageRevisions
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      responses:
+        '200':
+          description: The revisions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMessageRevisionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/reactions/{emoji}:
+    put:
+      tags:
+        - Messages
+      summary: React to a message
+      description: |
+        Adds the caller's reaction with this emoji. `201` when it was added, `200` when the caller
+        had already reacted with it (nothing is recorded). Reacting needs participation in the
+        session but not the space's post policy.
+
+        A deleted message, or one in an archived session or space, is `409 resource_archived`. A
+        caller who can read the session but is not a participant gets `403 not_a_participant`; a
+        caller who cannot read the message gets `404`.
+
+        **Required permissions:** none; the caller must be a participant.
+      operationId: addMessageReaction
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - $ref: '#/components/parameters/ReactionEmojiParam'
+      responses:
+        '200':
+          description: The caller had already reacted with this emoji
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '201':
+          description: The reaction was added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+    delete:
+      tags:
+        - Messages
+      summary: Remove a reaction
+      description: |
+        Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
+        it. The same checks as adding apply, including `409 resource_archived`.
+
+        **Required permissions:** none; the caller must be a participant.
+      operationId: removeMessageReaction
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - $ref: '#/components/parameters/ReactionEmojiParam'
+      responses:
+        '200':
+          description: The reaction was removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/messages/{messageId}/thread:
+    get:
+      tags:
+        - Messages
+      summary: Read a thread
+      description: |
+        The thread's root and its replies from `after` (a reply `seq`; default 0), ascending, with the
+        caller's follower row. The message must be a top-level message: a reply is `400
+        reply_to_reply`. A deleted root is still viewable, with its content cleared. Deleted replies
+        stay in the list, cleared.
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: getThread
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+        - name: after
+          in: query
+          required: false
+          description: Return replies with a `seq` above this
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: The thread
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/threads/{rootId}/read:
+    put:
+      tags:
+        - Messages
+      summary: Set the caller's thread read position
+      description: |
+        Moves the caller's read position in the thread to `seq`, never backwards and never past the
+        thread's newest reply (the root's `seq` when it has none). A caller with no follower row gets
+        one with `following: false`. Records `read.updated` with `threadRootId` only when the position
+        moved. The message must be a top-level message (`400 reply_to_reply`). Any reader of the
+        session may track a thread; participation is not required.
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: putThreadRead
+      parameters:
+        - $ref: '#/components/parameters/ThreadIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadReadRequest'
+      responses:
+        '200':
+          description: The position after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadReadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+  /v1/threads/{rootId}/follow:
+    put:
+      tags:
+        - Messages
+      summary: Follow or unfollow a thread
+      description: |
+        Sets whether the caller follows the thread; only followed threads count in `GET /v1/me/unread`.
+        A caller with no row gets one that starts unread. An unfollow stands until the caller replies
+        in the thread. Records no event. The message must be a top-level message (`400
+        reply_to_reply`).
+
+        **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      operationId: putThreadFollow
+      parameters:
+        - $ref: '#/components/parameters/ThreadIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadFollowRequest'
+      responses:
+        '200':
+          description: The state after the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadFollowResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+webhooks:
+  homileo.space.created:
+    post:
+      tags:
+        - Spaces
+      summary: Space created
+      operationId: webhookSpaceCreated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.created
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.updated:
+    post:
+      tags:
+        - Spaces
+      summary: Space updated
+      operationId: webhookSpaceUpdated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.updated
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.archived:
+    post:
+      tags:
+        - Spaces
+      summary: Space archived
+      operationId: webhookSpaceArchived
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.archived
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_added:
+    post:
+      tags:
+        - Spaces
+      summary: Member added to a space
+      operationId: webhookSpaceMemberAdded
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_added
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberAddedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.created:
+    post:
+      tags:
+        - Sessions
+      summary: Session created
+      operationId: webhookSessionCreated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.created
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.updated:
+    post:
+      tags:
+        - Sessions
+      summary: Session updated
+      operationId: webhookSessionUpdated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.updated
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.archived:
+    post:
+      tags:
+        - Sessions
+      summary: Session archived
+      operationId: webhookSessionArchived
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.archived
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.participant_added:
+    post:
+      tags:
+        - Sessions
+      summary: Participant added to a session
+      operationId: webhookSessionParticipantAdded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.participant_added
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantAddedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_removed:
+    post:
+      tags:
+        - Spaces
+      summary: Member removed from a space
+      operationId: webhookSpaceMemberRemoved
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_removed
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberRemovedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.member_role_changed:
+    post:
+      tags:
+        - Spaces
+      summary: Member role changed
+      operationId: webhookSpaceMemberRoleChanged
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.member_role_changed
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/SpaceMemberRoleChangedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.join_requested:
+    post:
+      tags:
+        - Spaces
+      summary: Join requested
+      operationId: webhookSpaceJoinRequested
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.join_requested
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/JoinRequestEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.space.join_decided:
+    post:
+      tags:
+        - Spaces
+      summary: Join request decided
+      operationId: webhookSpaceJoinDecided
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.space.join_decided
+                    entityType:
+                      const: space
+                    data:
+                      $ref: '#/components/schemas/JoinRequestEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.session.participant_removed:
+    post:
+      tags:
+        - Sessions
+      summary: Participant removed from a session
+      operationId: webhookSessionParticipantRemoved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.session.participant_removed
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantRemovedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.message.created:
+    post:
+      tags:
+        - Messages
+      summary: Message created
+      description: A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookMessageCreated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.message.created
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.thread.updated:
+    post:
+      tags:
+        - Messages
+      summary: Thread updated
+      description: A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+      operationId: webhookThreadUpdated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.thread.updated
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ThreadUpdatedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.message.edited:
+    post:
+      tags:
+        - Messages
+      summary: Message edited
+      description: A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookMessageEdited
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.message.edited
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.message.deleted:
+    post:
+      tags:
+        - Messages
+      summary: Message deleted
+      description: A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookMessageDeleted
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.message.deleted
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.reaction.added:
+    post:
+      tags:
+        - Messages
+      summary: Reaction added
+      description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookReactionAdded
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.reaction.added
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.reaction.removed:
+    post:
+      tags:
+        - Messages
+      summary: Reaction removed
+      description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookReactionRemoved
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.reaction.removed
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        A tereo access token. Homileo verifies it with tereo's SDK and takes the caller's user id,
+        permissions and organization (`org_id`) from it. A token without an organization is refused
+        with `400 organization_required`.
+
+        The one permission a route asks of the token is `homileo.spaces.write`, on `POST /v1/spaces`.
+        Permissions are tereo's dotted, hierarchical form: `write` covers `read`, and a domain's
+        `admin` covers all of it. Everything else is decided by the access rules for the resource.
+  parameters:
+    CursorParam:
+      name: cursor
+      in: query
+      description: |
+        Opaque cursor for keyset pagination: the `nextCursor` of the previous page. Omit it on the
+        first request. A malformed cursor is `400 invalid_request`.
+      required: false
+      schema:
+        type: string
+    LimitParam:
+      name: limit
+      in: query
+      description: Maximum number of items per page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    SpacesMembershipParam:
+      name: membership
+      in: query
+      required: false
+      description: |
+        `member` (the default) lists the spaces the caller is a member of. `readable` adds the
+        `public` spaces, the spaces of kinds whose grant the caller holds, and, for a
+        `homileo.chat.admin`, every space of the organization.
+      schema:
+        type: string
+        enum:
+          - member
+          - readable
+        default: member
+    SpacesKindParam:
+      name: kind
+      in: query
+      required: false
+      description: Only spaces of this kind
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    SpacesExternalRefParam:
+      name: externalRef
+      in: query
+      required: false
+      description: Only the space with this external reference
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    SpacesIncludeArchivedParam:
+      name: includeArchived
+      in: query
+      required: false
+      description: Also list archived spaces
+      schema:
+        type: boolean
+        default: false
+    SpaceIdParam:
+      name: spaceId
+      in: path
+      required: true
+      description: The space's id. A value that is not a UUID is `400 invalid_request`.
+      schema:
+        type: string
+        format: uuid
+    MembersRoleParam:
+      name: role
+      in: query
+      required: false
+      description: Only members with this role
+      schema:
+        $ref: '#/components/schemas/SpaceRole'
+    PrincipalIdParam:
+      name: principalId
+      in: path
+      required: true
+      description: The principal's id (a member's, or the applicant's of a join request). A value that is not a UUID is `400 invalid_request`.
+      schema:
+        type: string
+        format: uuid
+    JoinRequestsStatusParam:
+      name: status
+      in: query
+      required: false
+      description: Only requests in this state
+      schema:
+        type: string
+        enum:
+          - pending
+          - approved
+          - denied
+        default: pending
+    MessagesBeforeParam:
+      name: before
+      in: query
+      required: false
+      description: The `limit` top-level messages just below this `seq`. At most one of `before`, `after` and `around`.
+      schema:
+        type: integer
+        minimum: 0
+    MessagesAfterParam:
+      name: after
+      in: query
+      required: false
+      description: The `limit` top-level messages just above this `seq`. At most one of `before`, `after` and `around`.
+      schema:
+        type: integer
+        minimum: 0
+    MessagesAroundParam:
+      name: around
+      in: query
+      required: false
+      description: |
+        Up to `limit / 2` top-level messages on each side of this `seq`, the message at `seq` included
+        (with an odd `limit`, the extra one is on the newer side). Opens a search hit in context. At
+        most one of `before`, `after` and `around`.
+      schema:
+        type: integer
+        minimum: 0
+    MessageIdParam:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReactionEmojiParam:
+      name: emoji
+      in: path
+      required: true
+      description: URL-encoded. One emoji sequence (a skin tone or a ZWJ sequence counts as one), or a `:shortcode:` of 1-62 lower-case letters, digits, `_`, `+` or `-`; 64 characters at most.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+    ThreadIdParam:
+      name: rootId
+      in: path
+      required: true
+      description: The thread's root message, a top-level message
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequestResponse:
+      description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnauthorizedResponse:
+      description: Unauthorized - the access token is missing, invalid or expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ForbiddenResponse:
+      description: Forbidden - the caller can read the resource but may not do this (or lacks the permission the route needs)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFoundResponse:
+      description: Not found - the resource does not exist, is in another organization, or the caller cannot read it (the three look alike)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ConflictResponse:
+      description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServerErrorResponse:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NoContentResponse:
+      description: Done; no content
+  schemas:
+    Error:
+      type: object
+      description: Every error body
+      required:
+        - error
+        - error_description
+      properties:
+        error:
+          type: string
+          description: A stable, machine-readable code
+        error_description:
+          type: string
+          description: A human-readable explanation
+        issues:
+          type: array
+          description: On `invalid_request`, the failed checks
+          items:
+            type: object
+            required:
+              - path
+              - message
+            properties:
+              path:
+                type: string
+                description: The field, dotted (`metadata.key`); empty for the whole value
+              message:
+                type: string
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - postgres
+        - redis
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        postgres:
+          type: string
+          enum:
+            - ok
+            - fail
+        redis:
+          type: string
+          enum:
+            - ok
+            - fail
+    MeResponse:
+      type: object
+      required:
+        - principal
+        - organizationId
+        - permissions
+      properties:
+        principal:
+          $ref: '#/components/schemas/MePrincipal'
+        organizationId:
+          type: string
+          format: uuid
+          description: The organization of the token
+        permissions:
+          type: array
+          description: The token's tereo permissions
+          items:
+            type: string
+    UnreadSession:
+      type: object
+      required:
+        - sessionId
+        - unread
+        - unreadCapped
+        - mentions
+        - lastSeq
+        - lastReadSeq
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        unread:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: Top-level messages above the caller's read position, not their own; at most 99
+        unreadCapped:
+          type: boolean
+          description: There are more than 99 unread messages
+        mentions:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: |
+            Unread top-level messages and replies that mention the caller, or carry `here` or `session`,
+            not the caller's own; at most 99
+        lastSeq:
+          type: integer
+        lastReadSeq:
+          type: integer
+    UnreadThread:
+      type: object
+      required:
+        - rootId
+        - sessionId
+        - unread
+        - unreadCapped
+      properties:
+        rootId:
+          type: string
+          format: uuid
+          description: The thread's root message
+        sessionId:
+          type: string
+          format: uuid
+        unread:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: Replies above the caller's thread read position, not their own; at most 99
+        unreadCapped:
+          type: boolean
+    UnreadResponse:
+      type: object
+      description: |
+        Only entries with something unread (or, for sessions, a mention), in the caller's organization,
+        for sessions they currently participate in and can read.
+      required:
+        - sessions
+        - threads
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnreadSession'
+        threads:
+          type: array
+          description: Followed threads only
+          items:
+            $ref: '#/components/schemas/UnreadThread'
+      examples:
+        - sessions:
+            - sessionId: 0192f3a0-0000-7000-8000-000000000001
+              unread: 99
+              unreadCapped: true
+              mentions: 2
+              lastSeq: 240
+              lastReadSeq: 100
+          threads:
+            - rootId: 0192f3a0-0000-7000-8000-000000000002
+              sessionId: 0192f3a0-0000-7000-8000-000000000001
+              unread: 3
+              unreadCapped: false
+    MentionItem:
+      type: object
+      required:
+        - message
+        - session
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        session:
+          $ref: '#/components/schemas/Session'
+    ListMentionsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          description: Newest first
+          items:
+            $ref: '#/components/schemas/MentionItem'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: The cursor of the next page, `null` on the last
+    Principal:
+      type: object
+      description: A user, bot or external identity that sends messages and joins spaces and sessions
+      required:
+        - id
+        - kind
+        - tereoUserId
+        - isBot
+        - displayName
+        - avatarUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier
+        kind:
+          type: string
+          enum:
+            - user
+            - external
+        tereoUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The tereo user the principal is, for a `user`
+        isBot:
+          type: boolean
+          description: True for a tereo service account
+        displayName:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        avatarUrl:
+          type:
+            - string
+            - 'null'
+    GetPrincipalResponse:
+      type: object
+      required:
+        - principal
+      properties:
+        principal:
+          $ref: '#/components/schemas/Principal'
+    ResolvePrincipalsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - tereoUserIds
+      properties:
+        tereoUserIds:
+          type: array
+          description: Tereo user ids, without duplicates
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+      examples:
+        - tereoUserIds:
+            - 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+    ResolvePrincipalsResponse:
+      type: object
+      required:
+        - data
+        - missing
+      properties:
+        data:
+          type: array
+          description: The principals of the users tereo knows, in the order asked
+          items:
+            $ref: '#/components/schemas/Principal'
+        missing:
+          type: array
+          description: The ids tereo does not know; no principal is created for them
+          items:
+            type: string
+            format: uuid
+    SpaceRole:
+      type: string
+      enum:
+        - owner
+        - moderator
+        - member
+    Space:
+      type: object
+      description: A place that groups sessions and has members, in one organization
+      required:
+        - id
+        - organizationId
+        - kind
+        - name
+        - description
+        - visibility
+        - joinPolicy
+        - postPolicy
+        - state
+        - externalRef
+        - metadata
+        - createdBy
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier
+        organizationId:
+          type: string
+          format: uuid
+          description: The tereo organization it belongs to
+        kind:
+          type: string
+          description: The space kind, `default` or a provisioned one (`<app>:<name>`)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type:
+            - string
+            - 'null'
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: '`public` spaces can be read by anyone in the organization; `members` only by members, kind grants and admins'
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Who may start a session in the space
+        state:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+          description: One of the kind's declared states, or null
+        externalRef:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+          description: The app's own id for the space; unique within the organization and kind
+        metadata:
+          $ref: '#/components/schemas/Metadata-2'
+        createdBy:
+          type: string
+          format: uuid
+          description: The creator's principal id
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    SpaceWithRole:
+      description: A space with the caller's role in it
+      allOf:
+        - $ref: '#/components/schemas/Space'
+        - type: object
+          required:
+            - role
+          properties:
+            role:
+              oneOf:
+                - $ref: '#/components/schemas/SpaceRole'
+                - type: 'null'
+              description: The caller's role, or null when they read the space without being a member
+    SpaceMember:
+      type: object
+      required:
+        - spaceId
+        - principalId
+        - role
+        - joinedAt
+      properties:
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/SpaceRole'
+        joinedAt:
+          type: string
+          format: date-time
+    ListSpacesResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpaceWithRole'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    CreateSpaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: An active kind; `default` when omitted. An unknown or retired kind is `400 kind_not_found`.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `visibility`
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `join`
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Takes the kind's default when omitted; a value is `400 setting_not_overridable` unless the kind lets spaces override `posting`
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+          description: Null or one of the kind's states, else `400 invalid_state`
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+          description: Unique per organization and kind, else `409 external_ref_taken`
+        metadata:
+          $ref: '#/components/schemas/Metadata-2'
+      examples:
+        - kind: support:case
+          name: Case 4821
+          externalRef: case-4821
+          metadata:
+            priority: high
+    CreateSpaceResponse:
+      type: object
+      required:
+        - space
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+    UpdateSpaceRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Every field is optional, but at least one is required. `metadata` replaces the whole object.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Trimmed
+        description:
+          type:
+            - string
+            - 'null'
+          maxLength: 10000
+        visibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: Needs the kind to let spaces override `visibility`
+        joinPolicy:
+          type: string
+          enum:
+            - open
+            - request
+            - invite
+          description: Needs the kind to let spaces override `join`
+        postPolicy:
+          type: string
+          enum:
+            - members
+            - moderators
+          description: Needs the kind to let spaces override `posting`
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata-2'
+      examples:
+        - name: Case 4821 (resolved)
+          state: resolved
+    GetSpaceResponse:
+      type: object
+      required:
+        - space
+        - role
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+        role:
+          oneOf:
+            - $ref: '#/components/schemas/SpaceRole'
+            - type: 'null'
+          description: The caller's role, or null when they read the space without being a member
+    SpaceResponse:
+      type: object
+      required:
+        - space
+      properties:
+        space:
+          $ref: '#/components/schemas/Space'
+    SpaceEventData:
+      type: object
+      description: The payload of `space.created`, `space.updated` and `space.archived`, with the event's id
+      required:
+        - eventId
+        - space
+      properties:
+        eventId:
+          type: string
+        space:
+          $ref: '#/components/schemas/Space'
+    SpaceMemberAddedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - member
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        member:
+          $ref: '#/components/schemas/SpaceMember'
+    Metadata:
+      type: object
+      description: |
+        A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+      additionalProperties: true
+      propertyNames:
+        pattern: ^[A-Za-z][A-Za-z0-9_.-]{0,63}$
+      maxProperties: 50
+    Session:
+      type: object
+      description: A conversation, in a space or on its own (a DM or an ad-hoc group)
+      required:
+        - id
+        - organizationId
+        - spaceId
+        - type
+        - access
+        - name
+        - state
+        - lastSeq
+        - lastMessageAt
+        - externalRef
+        - metadata
+        - createdBy
+        - createdAt
+        - updatedAt
+        - archivedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        spaceId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The space it belongs to; null for a DM or a group without a space
+        type:
+          type: string
+          enum:
+            - direct
+            - group
+        access:
+          type: string
+          enum:
+            - space
+            - members
+          description: |
+            `space`: whoever can read the space can read the session. `members`: its participants, a
+            holder of one of the space's kind grants, and `homileo.chat.admin` (in a space). A session
+            without a space is always `members`.
+        name:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        state:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+          description: One of the kind's `states`
+        lastSeq:
+          type: integer
+          description: The `seq` of the latest message; 0 for none
+        lastMessageAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        externalRef:
+          type:
+            - string
+            - 'null'
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        createdBy:
+          type: string
+          format: uuid
+          description: The principal that created it
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    Participant:
+      type: object
+      description: A principal's current participation in a session
+      required:
+        - sessionId
+        - principalId
+        - role
+        - lastReadSeq
+        - notify
+        - joinedAt
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+            - owner
+            - member
+        lastReadSeq:
+          type: integer
+          description: The `seq` of the last message they have read
+        notify:
+          type: string
+          enum:
+            - all
+            - mentions
+            - none
+        joinedAt:
+          type: string
+          format: date-time
+    SessionWithParticipant:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required:
+            - participant
+          properties:
+            participant:
+              description: The caller's own participation; null when they are not a participant
+              oneOf:
+                - $ref: '#/components/schemas/Participant'
+                - type: 'null'
+    ListSessionsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionWithParticipant'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    SessionResponse:
+      type: object
+      required:
+        - session
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+    GetSessionResponse:
+      type: object
+      required:
+        - session
+        - participant
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        participant:
+          description: The caller's own participation; null when they are not a participant
+          oneOf:
+            - $ref: '#/components/schemas/Participant'
+            - type: 'null'
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        spaceId:
+          type: string
+          format: uuid
+          description: Create the session in this space; omit it for a group of its own
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        access:
+          type: string
+          enum:
+            - space
+            - members
+          description: Defaults to `space`. Ignored without a space, where it is always `members`.
+        participantIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          description: |
+            Principals to add besides the creator. In a space every one must be a member of it; a
+            stranger or an unknown id is `400 invalid_request`, naming it at `participantIds.<index>`.
+          items:
+            type: string
+            format: uuid
+        state:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: One of the space kind's `states`; `400 invalid_state` otherwise
+        externalRef:
+          type: string
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - spaceId: 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+          name: Order 1042
+          externalRef: order-1042
+    DirectSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - principalId
+      properties:
+        principalId:
+          type: string
+          format: uuid
+          description: The other principal
+      examples:
+        - principalId: 0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b
+    UpdateSessionRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Only the fields given change; `null` clears `name`, `state` and `externalRef`.
+      properties:
+        name:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        state:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 64
+        externalRef:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 255
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - name: Order 1042 (shipped)
+          state: closed
+    SessionEventData:
+      type: object
+      description: The data of `session.created`, `session.updated` and `session.archived`
+      required:
+        - session
+        - eventId
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        eventId:
+          type: string
+    SessionParticipantAddedEventData:
+      type: object
+      required:
+        - sessionId
+        - participant
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        participant:
+          $ref: '#/components/schemas/Participant'
+        eventId:
+          type: string
+    SpaceMemberWithPrincipal:
+      description: A member and the principal behind them
+      allOf:
+        - $ref: '#/components/schemas/SpaceMember'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
+    ListMembersResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpaceMemberWithPrincipal'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    PutMemberRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+      properties:
+        role:
+          $ref: '#/components/schemas/SpaceRole'
+      examples:
+        - role: moderator
+    SpaceMemberResponse:
+      type: object
+      required:
+        - member
+      properties:
+        member:
+          $ref: '#/components/schemas/SpaceMember'
+    JoinRequestStatus:
+      type: string
+      enum:
+        - pending
+        - approved
+        - denied
+    JoinRequest:
+      type: object
+      description: A principal's request to join a `request` space
+      required:
+        - id
+        - spaceId
+        - principalId
+        - status
+        - createdAt
+        - decidedBy
+        - decidedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+          description: The applicant
+        status:
+          $ref: '#/components/schemas/JoinRequestStatus'
+        createdAt:
+          type: string
+          format: date-time
+        decidedBy:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The moderator's principal id
+        decidedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    JoinRequestWithPrincipal:
+      description: A join request and the applicant's principal
+      allOf:
+        - $ref: '#/components/schemas/JoinRequest'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
+    JoinRequestResponse:
+      type: object
+      required:
+        - request
+      properties:
+        request:
+          $ref: '#/components/schemas/JoinRequest'
+    ListJoinRequestsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/JoinRequestWithPrincipal'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Pass it as `cursor` for the next page; null on the last page
+    SpaceMemberRemovedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - principalId
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+    SpaceMemberRoleChangedEventData:
+      type: object
+      required:
+        - eventId
+        - spaceId
+        - member
+        - previousRole
+      properties:
+        eventId:
+          type: string
+        spaceId:
+          type: string
+          format: uuid
+        member:
+          $ref: '#/components/schemas/SpaceMember'
+        previousRole:
+          $ref: '#/components/schemas/SpaceRole'
+    JoinRequestEventData:
+      type: object
+      description: The payload of `space.join_requested` and `space.join_decided`, with the event's id
+      required:
+        - eventId
+        - request
+      properties:
+        eventId:
+          type: string
+        request:
+          $ref: '#/components/schemas/JoinRequest'
+    SessionParticipantRemovedEventData:
+      type: object
+      required:
+        - sessionId
+        - principalId
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+    ParticipantWithPrincipal:
+      allOf:
+        - $ref: '#/components/schemas/Participant'
+        - type: object
+          required:
+            - principal
+          properties:
+            principal:
+              $ref: '#/components/schemas/Principal'
+    ListParticipantsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParticipantWithPrincipal'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+    ParticipantResponse:
+      type: object
+      required:
+        - participant
+      properties:
+        participant:
+          $ref: '#/components/schemas/Participant'
+    ReadPositionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - seq
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: The `seq` of the last message read
+      examples:
+        - seq: 42
+    ReadPositionResponse:
+      type: object
+      required:
+        - lastReadSeq
+      properties:
+        lastReadSeq:
+          type: integer
+          description: The position after the request; it never moves back and never passes the session's `lastSeq`
+    NotifyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - notify
+      properties:
+        notify:
+          type: string
+          enum:
+            - all
+            - mentions
+            - none
+      examples:
+        - notify: mentions
+    Attachment:
+      type: object
+      required:
+        - id
+        - filename
+        - contentType
+        - size
+        - position
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        contentType:
+          type: string
+        size:
+          type: integer
+          description: Bytes
+        position:
+          type: integer
+          description: Its place among the message's attachments, from 0
+    ReactionsResponse:
+      type: object
+      required:
+        - reactions
+      properties:
+        reactions:
+          type: array
+          description: The message's reactions after the change
+          items:
+            $ref: '#/components/schemas/ReactionSummary'
+    ReactionEventData:
+      type: object
+      description: The data of `reaction.added` and `reaction.removed`
+      required:
+        - sessionId
+        - messageId
+        - principalId
+        - emoji
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        principalId:
+          type: string
+          format: uuid
+        emoji:
+          type: string
+        eventId:
+          type: string
+    CreateAttachmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - filename
+        - contentType
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: ^[^/\x00-\x1f\x7f]+$
+          description: Kept as the attachment's default filename; no slash or control characters
+        contentType:
+          type: string
+          minLength: 1
+          maxLength: 255
+    CreateAttachmentResponse:
+      type: object
+      required:
+        - objectId
+        - uploadUrl
+        - expiresAt
+      properties:
+        objectId:
+          type: string
+          format: uuid
+          description: Names the upload in `attachments` when sending
+        uploadUrl:
+          type: string
+          description: A presigned URL to `PUT` the file's bytes to
+        expiresAt:
+          type: string
+          format: date-time
+          description: When `uploadUrl` stops working
+    AttachmentResponse:
+      type: object
+      required:
+        - attachment
+        - url
+        - expiresAt
+      properties:
+        attachment:
+          $ref: '#/components/schemas/Attachment'
+        url:
+          type: string
+          description: A presigned download URL
+        expiresAt:
+          type: string
+          format: date-time
+          description: When `url` stops working
+    ReactionSummary:
+      type: object
+      required:
+        - emoji
+        - count
+        - principalIds
+      properties:
+        emoji:
+          type: string
+        count:
+          type: integer
+        principalIds:
+          type: array
+          maxItems: 50
+          description: The first 50 to react, oldest first
+          items:
+            type: string
+            format: uuid
+    Message:
+      type: object
+      description: |
+        A message in a session. A reply has `threadRootId`; a deleted message has an empty `body`,
+        `deletedAt` set, and no attachments or reactions.
+      required:
+        - id
+        - sessionId
+        - seq
+        - senderId
+        - clientMessageId
+        - type
+        - body
+        - payload
+        - metadata
+        - threadRootId
+        - replyCount
+        - lastReplyAt
+        - revision
+        - createdAt
+        - editedAt
+        - deletedAt
+        - deletedBy
+        - attachments
+        - reactions
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+          description: Its place in the session, from 1, gap-free; replies take a `seq` too
+        senderId:
+          type: string
+          format: uuid
+        clientMessageId:
+          type: string
+          maxLength: 128
+        type:
+          type: string
+          description: '`text`, or a message type an app provisioned'
+        body:
+          type:
+            - string
+            - 'null'
+          description: Markdown (CommonMark with GFM strikethrough, task lists and autolinks), with mentions as `<@principal-id>`, `<!here>` and `<!session>`
+        payload:
+          description: A provisioned type's data, valid against its schema; `null` for `text`
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        threadRootId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The root message, for a reply
+        replyCount:
+          type: integer
+          description: How many replies the message has, as a thread's root
+        lastReplyAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        revision:
+          type: integer
+          description: 1, plus one per edit
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        deletedAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        deletedBy:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+        reactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReactionSummary'
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - clientMessageId
+      description: |
+        A `text` message (the default type) needs `body` or `attachments` and takes no `payload`. A message of a
+        provisioned type needs `payload`; its `body`, if given, is the fallback rendering.
+      properties:
+        clientMessageId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The client's own id for the message; a repeat in the same session from the same sender is `409 duplicate_client_message`
+        type:
+          type: string
+          minLength: 1
+          maxLength: 64
+          default: text
+        body:
+          type: string
+          minLength: 1
+          maxLength: 40000
+        payload:
+          description: Any JSON value except `null`, at most 64 KiB serialized
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        threadRootId:
+          type: string
+          format: uuid
+          description: Send as a reply to this top-level, undeleted message of the same session
+        attachments:
+          type: array
+          maxItems: 10
+          description: |
+            Files uploaded through `POST /v1/sessions/{sessionId}/attachments` by this sender for
+            this session, in display order. Each `objectId` must be unique, uploaded (not empty) and
+            not on another message, else `400 attachment_not_uploaded` or `400 attachment_not_found`.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - objectId
+            properties:
+              objectId:
+                type: string
+                format: uuid
+              filename:
+                type: string
+                minLength: 1
+                maxLength: 255
+                description: Overrides the filename given at upload
+      examples:
+        - clientMessageId: 7f1c2a9e-local-1
+          body: Shipped today, <@0198c3a4-5b6d-7a10-8f2e-3c4d5e6f7a8b>
+        - clientMessageId: 7f1c2a9e-local-2
+          type: support:order-card
+          payload:
+            orderId: '1042'
+            status: shipped
+          body: Order 1042 shipped
+    MessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+    DuplicateClientMessageError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required:
+            - message
+          properties:
+            error:
+              const: duplicate_client_message
+            message:
+              $ref: '#/components/schemas/Message'
+    ListMessagesResponse:
+      type: object
+      required:
+        - data
+        - hasBefore
+        - hasAfter
+      properties:
+        data:
+          type: array
+          description: Top-level messages, ascending by `seq`
+          items:
+            $ref: '#/components/schemas/Message'
+        hasBefore:
+          type: boolean
+          description: Older top-level messages exist
+        hasAfter:
+          type: boolean
+          description: Newer top-level messages exist
+    EditMessageRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        At least one field. A `text` message takes no `payload`; the `body` of a `text` message
+        cannot be removed.
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 40000
+        payload:
+          description: Any JSON value except `null`, at most 64 KiB serialized
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      examples:
+        - body: Shipped today (corrected)
+    MessageRevision:
+      type: object
+      required:
+        - revision
+        - body
+        - payload
+        - editedBy
+        - editedAt
+      properties:
+        revision:
+          type: integer
+          description: 1 for the original
+        body:
+          type:
+            - string
+            - 'null'
+        payload: {}
+        editedBy:
+          type: string
+          format: uuid
+          description: The principal who made this revision
+        editedAt:
+          type: string
+          format: date-time
+    ListMessageRevisionsResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          description: Oldest first
+          items:
+            $ref: '#/components/schemas/MessageRevision'
+    ThreadFollower:
+      type: object
+      required:
+        - following
+        - lastReadSeq
+      properties:
+        following:
+          type: boolean
+        lastReadSeq:
+          type: integer
+          description: The `seq` of the last reply the caller has read
+    ThreadResponse:
+      type: object
+      required:
+        - root
+        - data
+        - hasAfter
+        - follower
+      properties:
+        root:
+          $ref: '#/components/schemas/Message'
+        data:
+          type: array
+          description: Replies, ascending by `seq`
+          items:
+            $ref: '#/components/schemas/Message'
+        hasAfter:
+          type: boolean
+          description: Newer replies exist
+        follower:
+          description: The caller's row for this thread, or `null` when they have none
+          oneOf:
+            - $ref: '#/components/schemas/ThreadFollower'
+            - type: 'null'
+    ThreadReadRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - seq
+      properties:
+        seq:
+          type: integer
+          minimum: 0
+          description: The `seq` of the last reply read
+      examples:
+        - seq: 42
+    ThreadReadResponse:
+      type: object
+      required:
+        - lastReadSeq
+      properties:
+        lastReadSeq:
+          type: integer
+          description: The position after the request; it never moves back and never passes the thread's newest reply
+    ThreadFollowRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - following
+      properties:
+        following:
+          type: boolean
+      examples:
+        - following: false
+    ThreadFollowResponse:
+      type: object
+      required:
+        - following
+      properties:
+        following:
+          type: boolean
+    MessageEventData:
+      type: object
+      description: The data of `message.created`
+      required:
+        - message
+        - eventId
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        eventId:
+          type: string
+    ThreadUpdatedEventData:
+      type: object
+      required:
+        - sessionId
+        - rootId
+        - replyCount
+        - lastReplyAt
+        - eventId
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        rootId:
+          type: string
+          format: uuid
+        replyCount:
+          type: integer
+        lastReplyAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        eventId:
+          type: string
+    WebhookEvent:
+      type: object
+      description: |
+        The envelope of every webhook delivery, as tereo's webhooks service builds and signs it. A
+        delivery's headers and signature are tereo's: see its documentation for how to verify one.
+      required:
+        - id
+        - eventType
+        - entityType
+        - entityId
+        - data
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier of this payload, per subscribed endpoint
+        organizationId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The organization the event belongs to
+        eventType:
+          type: string
+          description: The event type, `homileo.<area>.<verb>`
+        entityType:
+          type: string
+          description: The kind of entity the event is about
+        entityId:
+          type: string
+          description: The entity's id
+        occurredAt:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: The event's payload, with its `eventId` (the id of the event in Homileo's own log)
+          required:
+            - eventId
+          properties:
+            eventId:
+              type: string
+              description: Id of the event row; the same id realtime delivery and `GET /v1/sync` carry
+          additionalProperties: true
+    MePrincipal:
+      type: object
+      description: The caller's principal
+      required:
+        - id
+        - kind
+        - tereoUserId
+        - isBot
+        - displayName
+        - avatarUrl
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - user
+            - external
+        tereoUserId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: The tereo user the principal is, for a `user`
+        isBot:
+          type: boolean
+          description: True for a tereo service account
+        displayName:
+          type:
+            - string
+            - 'null'
+        avatarUrl:
+          type:
+            - string
+            - 'null'
+    Metadata-2:
+      type: object
+      description: |
+        A flat object of the caller's choosing: at most 50 keys, each matching
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. An update replaces it whole.
+      additionalProperties: true
+      examples:
+        - team: core
+          priority: 2
+x-tagGroups:
+  - name: Spaces
+    tags:
+      - Spaces
+  - name: Sessions
+    tags:
+      - Sessions
+  - name: Messages
+    tags:
+      - Messages
+  - name: Principals
+    tags:
+      - Principals
+  - name: Platform
+    tags:
+      - Platform

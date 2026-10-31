@@ -1,0 +1,29 @@
+/v1/principals/resolve:
+  post:
+    tags: [Principals]
+    summary: Resolve tereo users to principals
+    description: |
+      Returns the principal of each tereo user id, creating it for a user not seen before.
+      Principals already stored are returned as they are; only unseen ids are looked up in tereo,
+      and a user whose tereo account is a service account becomes a bot. Ids tereo does not know
+      are listed in `missing`. `data` keeps the order of the request. Safe to repeat and to call
+      concurrently.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: resolvePrincipals
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../../components/principals/schemas.yaml#/ResolvePrincipalsRequest'
+    responses:
+      '200':
+        description: The principals, and the ids tereo does not know
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/principals/schemas.yaml#/ResolvePrincipalsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
