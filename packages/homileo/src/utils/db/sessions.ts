@@ -62,23 +62,11 @@ export const addParticipants = async (
 };
 
 /**
- * Locks the session's space row, which comes before the session row in the lock order. `share`
- * keeps the space as it is while a session-level change runs, and lets such changes in different
- * sessions of the space run together; `update` is for changing the space or its members.
+ * Locks the session's space row `FOR SHARE`, which comes before the session row in the lock
+ * order: the space stays as it is while a session-level change runs, and such changes in
+ * different sessions of the space run together.
  */
-export const lockSpaceOf = async (
-  tx: Tx,
-  sessionId: string,
-  mode: "share" | "update"
-): Promise<void> => {
-  if (mode === "update") {
-    await tx.$queryRaw`
-      SELECT sp.id FROM "chat"."spaces" sp
-      JOIN "chat"."sessions" s ON s.space_id = sp.id
-      WHERE s.id = ${sessionId}::uuid
-      FOR UPDATE OF sp`;
-    return;
-  }
+export const lockSpaceOf = async (tx: Tx, sessionId: string): Promise<void> => {
   await tx.$queryRaw`
     SELECT sp.id FROM "chat"."spaces" sp
     JOIN "chat"."sessions" s ON s.space_id = sp.id

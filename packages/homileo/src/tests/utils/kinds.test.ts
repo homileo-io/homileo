@@ -2,6 +2,7 @@
 // @module-tag provisioning
 import { BUILTIN_KIND } from "../../definitions/builtins.js";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { withChanges } from "../../utils/transaction.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -9,6 +10,7 @@ import {
   getKind,
   invalidateKinds,
   kindsGrantingRead,
+  warmKinds,
 } from "../../utils/kinds.js";
 
 const names: string[] = [];
@@ -184,5 +186,28 @@ describe("kinds", () => {
 
       expect(retireFinished).toBe(true);
     });
+  });
+
+  it("serves the cached kinds, without a reload, to a load that falls due inside a transaction", async () => {
+    invalidateKinds();
+    await warmKinds();
+    const load = vi.spyOn(prisma.provisionedSpaceKind, "findMany");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 120_000);
+      await withChanges(async () => {
+        await getKind("default");
+      });
+      // withChanges warmed (reloaded) the stale cache before fn; age it again inside.
+      const before = load.mock.calls.length;
+      await withChanges(async () => {
+        vi.setSystemTime(Date.now() + 120_000);
+        expect(await getKind("default")).toEqual(BUILTIN_KIND);
+      });
+      expect(load.mock.calls.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+      load.mockRestore();
+    }
   });
 });

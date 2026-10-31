@@ -1,9 +1,8 @@
 import { recordChange, type ChangeEvent, type ChangeInput } from "./changes.js";
+import { setInTransaction, warmKinds } from "./kinds.js";
+import { publishCommitted } from "./changeBus.js";
 import type { Prisma } from "./db/prisma.js";
-import { changeBus } from "./changeBus.js";
 import { prisma } from "./db/prisma.js";
-import { warmKinds } from "./kinds.js";
-import { logger } from "./logger.js";
 
 /**
  * Runs `fn` in one transaction. `record` writes a change in it; once the
@@ -21,20 +20,18 @@ export const withChanges = async <T>(
 ): Promise<T> => {
   await warmKinds();
   const events: ChangeEvent[] = [];
-  const result = await prisma.$transaction(async (tx) =>
-    fn(tx, async (change) => {
-      const event = await recordChange(tx, change);
-      events.push(event);
-      return event;
-    })
-  );
-  if (events.length > 0) {
-    // The change is committed: a failing listener must not turn it into an error.
+  const result = await prisma.$transaction(async (tx) => {
+    setInTransaction(1);
     try {
-      changeBus.emit("committed", events);
-    } catch (err) {
-      logger.error({ err }, "A change bus listener failed");
+      return await fn(tx, async (change) => {
+        const event = await recordChange(tx, change);
+        events.push(event);
+        return event;
+      });
+    } finally {
+      setInTransaction(-1);
     }
-  }
+  });
+  if (events.length > 0) publishCommitted(events);
   return result;
 };
