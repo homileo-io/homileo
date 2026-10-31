@@ -131,7 +131,9 @@ export const eventAudience = (
 
 /**
  * Whether `/sync` returns the event to this reader: the same readers
- * `eventAudience` reaches, judged by what they can read now.
+ * `eventAudience` reaches, judged by what they can read now. The principal an
+ * event names (`TARGET_PATHS`) gets it regardless; a revocation only once it
+ * really lost access.
  */
 export const isRelevantTo = (e: ChangeEvent, r: ReaderFacts): boolean => {
   if (e.organizationId !== r.organizationId) return false;
@@ -149,26 +151,22 @@ export const isRelevantTo = (e: ChangeEvent, r: ReaderFacts): boolean => {
       const spaceId = field(e.payload, ["spaceId"]);
       return spaceId !== null && !r.canReadSpace(spaceId);
     }
-    return e.sessionId !== null && r.canReadSession(e.sessionId);
+    return true;
   }
+
+  // The principal a member, join-request or participant event names gets it
+  // whatever it can read now: the payload is ids or its own record (R9).
+  if (target === r.principalId) return true;
 
   if (channel === "space") {
     const spaceId = e.spaceId;
     if (!spaceId || !r.canReadSpace(spaceId)) return false;
-    return (
-      target === r.principalId ||
-      r.memberOf.has(spaceId) ||
-      r.watchedSpaces.has(spaceId)
-    );
+    return r.memberOf.has(spaceId) || r.watchedSpaces.has(spaceId);
   }
 
   const sessionId = e.sessionId;
   if (!sessionId || !r.canReadSession(sessionId)) return false;
-  if (
-    target === r.principalId ||
-    r.participantOf.has(sessionId) ||
-    r.watchedSessions.has(sessionId)
-  ) {
+  if (r.participantOf.has(sessionId) || r.watchedSessions.has(sessionId)) {
     return true;
   }
   const spaceId = audienceSpaceOf(e);

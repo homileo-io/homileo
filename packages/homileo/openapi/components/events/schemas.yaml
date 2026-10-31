@@ -9,7 +9,7 @@ EventEnvelope:
   properties:
     id:
       type: string
-      pattern: '^\d+$'
+      pattern: '^\d{1,20}$'
       description: The event id, a decimal string. A client drops an id it has already applied.
       examples: ['1042']
     type:

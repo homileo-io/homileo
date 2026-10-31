@@ -405,6 +405,17 @@ describe("isRelevantTo", () => {
       );
     });
 
+    it("participant events reach the participant they name even when it can no longer read the session (R9)", () => {
+      const e = event("session.participant_removed", {
+        ...inSpaceSession,
+        payload: { sessionId: SESSION, principalId: ME },
+      });
+
+      expect(isRelevantTo(e, reader({ canReadSession: () => false }))).toBe(
+        true
+      );
+    });
+
     it("participant events reach the participant they name", () => {
       const e = event("session.participant_removed", {
         ...inSession,
@@ -438,6 +449,21 @@ describe("isRelevantTo", () => {
       expect(isRelevantTo(spaceEvent, r)).toBe(false);
     });
 
+    it("member events reach the member they name even when it can no longer read the space (R9)", () => {
+      const e = event("space.member_removed", {
+        ...inSpace,
+        payload: { spaceId: SPACE, principalId: ME },
+      });
+
+      expect(isRelevantTo(e, reader({ canReadSpace: () => false }))).toBe(true);
+      expect(
+        isRelevantTo(
+          e,
+          reader({ organizationId: OTHER_ORG, canReadSpace: () => false })
+        )
+      ).toBe(false);
+    });
+
     it("member events reach the member they name", () => {
       const e = event("space.join_decided", {
         ...inSpace,
@@ -465,10 +491,10 @@ describe("isRelevantTo", () => {
       expect(isRelevantTo(read(TARGET), r)).toBe(false);
     });
 
-    it("never reach a target who cannot read the session", () => {
+    it("reach their target even when it cannot read the session (R9)", () => {
       expect(
         isRelevantTo(read(ME), reader({ canReadSession: () => false }))
-      ).toBe(false);
+      ).toBe(true);
     });
   });
 
@@ -515,5 +541,112 @@ describe("isRelevantTo", () => {
     });
 
     expect(isRelevantTo(messageEvent, r)).toBe(false);
+  });
+});
+
+/**
+ * A reader's situation, as the sockets of one principal would hold rooms and
+ * as `/sync` would load its facts. One `canRead` covers the session and its
+ * space: the table's lifecycle rows that reach a space are `access: space`.
+ */
+interface Situation {
+  name: string;
+  principalId: string;
+  participant?: boolean;
+  member?: boolean;
+  watchesSession?: boolean;
+  watchesSpace?: boolean;
+  canRead: boolean;
+}
+
+const SITUATIONS: Situation[] = [
+  {
+    name: "a participant and member",
+    principalId: ME,
+    participant: true,
+    member: true,
+    canRead: true,
+  },
+  { name: "a member only", principalId: ME, member: true, canRead: true },
+  {
+    name: "a watcher of the session",
+    principalId: ME,
+    watchesSession: true,
+    canRead: true,
+  },
+  {
+    name: "a watcher of the space",
+    principalId: ME,
+    watchesSpace: true,
+    canRead: true,
+  },
+  { name: "a reader with no tie", principalId: ME, canRead: true },
+  {
+    name: "a participant who lost access",
+    principalId: ME,
+    participant: true,
+    member: true,
+    canRead: false,
+  },
+  { name: "the target, reading", principalId: TARGET, canRead: true },
+  {
+    name: "the target, no longer reading",
+    principalId: TARGET,
+    canRead: false,
+  },
+  {
+    name: "the mentioned member",
+    principalId: MENTIONED,
+    member: true,
+    canRead: true,
+  },
+];
+
+/**
+ * The rooms the principal's socket is in when the event is emitted. Rooms of
+ * resources it cannot read have been left by a re-check; watching is an
+ * explicit subscription, which needs read access.
+ */
+const socketRooms = (s: Situation): Set<string> => {
+  const rooms = new Set([userRoom(ORG, s.principalId)]);
+  if (!s.canRead) return rooms;
+  if (s.member || s.watchesSpace) rooms.add(SPACE_ROOM);
+  if (s.participant) rooms.add(spaceOfRoom(SPACE));
+  if (s.participant || s.watchesSession) rooms.add(SESSION_ROOM);
+  return rooms;
+};
+
+const factsOf = (s: Situation): ReaderFacts =>
+  reader({
+    principalId: s.principalId,
+    participantOf: new Set(s.participant ? [SESSION] : []),
+    memberOf: new Set(s.member ? [SPACE] : []),
+    watchedSessions: new Set(s.watchesSession ? [SESSION] : []),
+    watchedSpaces: new Set(s.watchesSpace ? [SPACE] : []),
+    // The table passes MENTIONED as the mention reader of every message row.
+    mentionedIn: new Set(s.principalId === MENTIONED ? [MESSAGE] : []),
+    canReadSession: () => s.canRead,
+    canReadSpace: () => s.canRead,
+  });
+
+/** Whether the socket path delivers the event to the principal. */
+const socketDelivers = (a: Audience, s: Situation): boolean => {
+  // A revocation is emitted to a re-checked target that really lost access.
+  if (a.recheck.includes(s.principalId)) return !s.canRead;
+  const rooms = socketRooms(s);
+  for (const j of a.join)
+    if (j.principalId === s.principalId) rooms.add(j.room);
+  return a.rooms.some((room) => rooms.has(room));
+};
+
+describe("eventAudience and isRelevantTo agree", () => {
+  const cases = TABLE.flatMap(([name, e, mentioned]) =>
+    SITUATIONS.map((s) => [`${name}, for ${s.name}`, e, mentioned, s] as const)
+  );
+
+  it.each(cases)("%s", (_name, e, mentioned, s) => {
+    const delivered = socketDelivers(eventAudience(e, mentioned), s);
+
+    expect(isRelevantTo(e, factsOf(s))).toBe(delivered);
   });
 });

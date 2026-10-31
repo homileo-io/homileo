@@ -68,6 +68,7 @@ tags:
 
   - name: Messages
     description: Messages, thread replies and mentions
+
   - name: Events
     description: Catching up on the events the socket delivers
 

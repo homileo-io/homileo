@@ -48,6 +48,7 @@ const prefilter = (
     ([type, path]) =>
       Prisma.sql`(type = ${type} AND payload #>> ${path}::text[] = ${principalId})`
   );
+  const events = Prisma.raw(db.events.EVENTS_ALIAS);
   return Prisma.sql`organization_id = ${organizationId}::uuid AND (
     (session_id = ANY(${sessionIds}::uuid[]) AND type = ANY(${SESSION_TYPES}::text[]))
     OR (space_id = ANY(${spaceIds}::uuid[]) AND type = ANY(${SPACE_TYPES}::text[]))
@@ -55,7 +56,7 @@ const prefilter = (
     OR (type = ANY(${MENTION_EVENTS}::text[]) AND EXISTS (
       SELECT 1 FROM "chat"."message_mentions" m
       WHERE m.user_id = ${principalId}::uuid
-        AND m.message_id::text = "events".payload #>> '{message,id}'))
+        AND m.message_id::text = ${events}.payload #>> '{message,id}'))
   )`;
 };
 

@@ -101,7 +101,7 @@ describe("GET /v1/sync access", () => {
     ).toEqual([sent.body.message.id]);
   });
 
-  it("returns a members space's events only while the caller can read it", async () => {
+  it("returns a members space's events only while the caller can read it, and the removal naming them after (R9)", async () => {
     const space = await fixtures.space({ org, visibility: "members" });
     const session = await fixtures.session({ space, access: "space" });
     await fixtures.member(space, bob.principal, "owner");
@@ -126,7 +126,9 @@ describe("GET /v1/sync access", () => {
     );
     expect(mine.map((e) => e.type).sort()).toEqual([
       "session.access_revoked",
+      "session.participant_removed",
       "space.access_revoked",
+      "space.member_removed",
     ]);
     for (const e of mine) {
       expect(e.payload.principalId).toBe(alice.principal.id);
@@ -172,6 +174,7 @@ describe("GET /v1/sync access", () => {
       toGranted.map((e) => [e.type, e.payload.principalId])
     ).toContainEqual(["session.participant_removed", granted.principal.id]);
     expect(toAlice.map((e) => [e.type, e.payload.principalId])).toEqual([
+      ["session.participant_removed", alice.principal.id],
       ["session.access_revoked", alice.principal.id],
     ]);
   });

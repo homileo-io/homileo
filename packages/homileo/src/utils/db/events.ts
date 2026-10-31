@@ -107,10 +107,15 @@ export const head = async (): Promise<SyncPosition> => {
   return { txId: BigInt(row.tx_id), id: 0n, at: row.at };
 };
 
+/** The alias `readFrom` gives `chat.events`; its `where` may qualify columns with it. */
+export const EVENTS_ALIAS = "ev";
+
 /**
- * Events after `after` in commit order, matching `where` (SQL over the
- * `chat.events` columns). Only transactions older than every running one are
- * read, so a transaction that commits later can never land behind the cursor.
+ * Events after `after` in commit order, matching `where`: SQL over the
+ * `chat.events` columns, unqualified or qualified as `ev` (`EVENTS_ALIAS`),
+ * which a correlated subquery in it must use. Only transactions older than
+ * every running one are read, so a transaction that commits later can never
+ * land behind the cursor.
  */
 export const readFrom = async (
   after: SyncPosition,
@@ -131,7 +136,7 @@ export const readFrom = async (
       -- Native xid8 and bigint, so both sorts are numeric.
       SELECT id, created_at, type, organization_id, space_id, session_id,
              actor_id, payload, tx_id
-      FROM "chat"."events"
+      FROM "chat"."events" AS ${Prisma.raw(EVENTS_ALIAS)}
       WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
         AND tx_id < pg_snapshot_xmin(pg_current_snapshot())
         AND (${where})
