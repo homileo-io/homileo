@@ -36,6 +36,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
+| 410 | `resync_required` |
 | 409 | `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `external_ref_taken`, `managed_by_provisioning` |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
@@ -163,6 +164,15 @@ answers `external_ref_taken`.
 An attachment's upload URL stays valid until it expires (15 minutes), and the bytes behind it can be
 replaced through it until then, even after a message names the attachment. Pinning the version a
 message was sent with is planned.
+
+### Sync
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /sync` | readable resources only, by the audience rule in [realtime.md](realtime.md) | `400 invalid_request` (also a bad cursor), `410 resync_required` | |
+
+Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessionIds` and
+`spaceIds` (each up to 50 comma-separated ids). Answers `{ events, next, hasMore }`.
 
 ### Messages and threads
 
