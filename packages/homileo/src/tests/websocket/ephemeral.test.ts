@@ -68,6 +68,119 @@ afterAll(async () => {
   await fixtures.cleanup();
 });
 
+const pair = async () => {
+  const org = uuidv7();
+  const [alice, bob] = [await fixtures.principal(), await fixtures.principal()];
+  const session = await fixtures.session({ org, type: "group" });
+  await fixtures.participant(session, alice);
+  await fixtures.participant(session, bob);
+  return {
+    org,
+    alice,
+    bob,
+    session,
+    aliceSocket: await connect(alice, org),
+    bobSocket: await connect(bob, org),
+  };
+};
+
+describe("typing", () => {
+  it("reaches the other participant with its expiry, and not the sender", async () => {
+    const { alice, session, aliceSocket, bobSocket } = await pair();
+    const received = nextEvent(bobSocket, "typing");
+    const echoed = noEvent(aliceSocket, "typing");
+
+    const ack = await request(aliceSocket, "typing.start", {
+      sessionId: session.id,
+    });
+
+    expect(ack).toEqual({ ok: true });
+    expect(await received).toEqual({
+      sessionId: session.id,
+      principalId: alice.id,
+      typing: true,
+      expiresInMs: 6000,
+    });
+    await echoed;
+  });
+
+  it("broadcasts typing.stop with typing false", async () => {
+    const { alice, session, aliceSocket, bobSocket } = await pair();
+    const received = nextEvent(bobSocket, "typing");
+
+    const ack = await request(aliceSocket, "typing.stop", {
+      sessionId: session.id,
+    });
+
+    expect(ack).toEqual({ ok: true });
+    expect(await received).toEqual({
+      sessionId: session.id,
+      principalId: alice.id,
+      typing: false,
+      expiresInMs: 6000,
+    });
+  });
+
+  it("acks not_found to a reader who is not a participant, and broadcasts nothing", async () => {
+    const { org, bobSocket } = await pair();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const outsider = await connect(await fixtures.principal(), org);
+    expect(
+      await request(outsider, "subscribe", { sessionId: session.id })
+    ).toEqual({ ok: true });
+    expect(
+      await request(bobSocket, "subscribe", { sessionId: session.id })
+    ).toEqual({ ok: true });
+    const heard = noEvent(bobSocket, "typing");
+
+    const ack = await request(outsider, "typing.start", {
+      sessionId: session.id,
+    });
+
+    expect(ack).toMatchObject({ ok: false, error: { code: "not_found" } });
+    await heard;
+  });
+
+  it("acks not_found for a session that does not exist, invalid_request for junk", async () => {
+    const { aliceSocket } = await pair();
+
+    expect(
+      await request(aliceSocket, "typing.start", { sessionId: uuidv7() })
+    ).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(
+      await request(aliceSocket, "typing.start", { sessionId: "nope" })
+    ).toMatchObject({ ok: false, error: { code: "invalid_request" } });
+  });
+
+  it("acks a second typing.start within 2 s but does not rebroadcast it", async () => {
+    const { session, aliceSocket, bobSocket } = await pair();
+    const first = nextEvent(bobSocket, "typing");
+    await request(aliceSocket, "typing.start", { sessionId: session.id });
+    await first;
+    const second = noEvent(bobSocket, "typing", 500);
+
+    const ack = await request(aliceSocket, "typing.start", {
+      sessionId: session.id,
+    });
+
+    expect(ack).toEqual({ ok: true });
+    await second;
+  });
+
+  it("broadcasts typing.stop even right after a start", async () => {
+    const { session, aliceSocket, bobSocket } = await pair();
+    const first = nextEvent(bobSocket, "typing");
+    await request(aliceSocket, "typing.start", { sessionId: session.id });
+    await first;
+    const stop = nextEvent<{ typing: boolean }>(bobSocket, "typing");
+
+    await request(aliceSocket, "typing.stop", { sessionId: session.id });
+
+    expect((await stop).typing).toBe(false);
+  });
+});
+
 describe("presence", () => {
   it("tells watchers when a principal's first socket connects, and not for the second", async () => {
     const org = newOrg();

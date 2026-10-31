@@ -82,6 +82,27 @@ export const roomsOnConnect = async (c: Caller): Promise<string[]> => {
 };
 
 /**
+ * The spaces of the session rooms `socket` joined after `snapshot` was taken: they were
+ * checked by whatever joined them, and keep their `spaceof:` room.
+ */
+const spacesJoinedSince = async (
+  socket: AppSocket | AppRemoteSocket,
+  snapshot: string[]
+): Promise<string[]> => {
+  const before = new Set(snapshot);
+  const sessionIds = [...socket.rooms].flatMap((room) => {
+    const id = before.has(room) ? null : sessionIdOf(room);
+    return id ? [id] : [];
+  });
+  if (sessionIds.length === 0) return [];
+  const rows = await prisma.session.findMany({
+    where: { id: { in: sessionIds } },
+    select: { spaceId: true },
+  });
+  return rows.flatMap((r) => (r.spaceId ? [r.spaceId] : []));
+};
+
+/**
  * Re-checks each socket's `session:` and `space:` rooms with the socket's own caller, loading
  * the facts for all of them at once, and leaves those it can no longer read, with `spaceof:`
  * once no session room of that space remains. Returns the rooms left, by socket id.
@@ -179,9 +200,17 @@ export const recheckSockets = async (
         if (!facts || !canReadSpace(c, facts)) leaving.push(room);
       }
     }
-    for (const room of rooms) {
+    const dropping = rooms.filter((room) => {
       const spaceId = spaceOfIdOf(room);
-      if (spaceId && !keptSpaces.has(spaceId)) leaving.push(room);
+      return spaceId !== null && !keptSpaces.has(spaceId);
+    });
+    if (dropping.length > 0) {
+      for (const spaceId of await spacesJoinedSince(socket, rooms)) {
+        keptSpaces.add(spaceId);
+      }
+    }
+    for (const room of dropping) {
+      if (!keptSpaces.has(spaceOfIdOf(room) ?? "")) leaving.push(room);
     }
     for (const room of leaving) {
       await socket.leave(room);

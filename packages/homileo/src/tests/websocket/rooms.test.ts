@@ -118,6 +118,28 @@ describe("recheckSockets", () => {
     expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
   });
 
+  it("keeps spaceof while a session room of that space joined during the check remains", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const lost = await fixtures.session({ space, access: "members" });
+    const joined = await fixtures.session({ space, access: "space" });
+    await fixtures.participant(lost, who);
+    const server = serverSocket(await connectAs(who, org));
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+    await prisma.sessionParticipant.deleteMany({
+      where: { sessionId: lost.id },
+    });
+
+    const checking = recheckSockets([server]);
+    await server.join(sessionRoom(joined.id));
+    const left = await checking;
+
+    expect(left.get(server.id)).toEqual([sessionRoom(lost.id)]);
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+    expect(server.rooms.has(sessionRoom(joined.id))).toBe(true);
+  });
+
   it("drops a left room from the socket's explicit subscriptions", async () => {
     const org = uuidv7();
     const who = await fixtures.principal();

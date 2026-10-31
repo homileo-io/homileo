@@ -66,4 +66,33 @@ describe("createSocketServer", () => {
           ?.rooms.has(sessionRoom(session.id)) === false
     );
   });
+
+  it("joins a participation added between the handshake's load and the joins", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const session = await fixtures.session({ org, type: "group" });
+    await fixtures.participant(session, who);
+    // As if the handshake read the participations just before this one was added.
+    vi.mocked(roomsOnConnect).mockImplementationOnce(async (c) =>
+      (
+        await vi
+          .importActual<typeof rooms>("../../websocket/rooms.js")
+          .then((m) => m.roomsOnConnect(c))
+      ).filter((room) => room !== sessionRoom(session.id))
+    );
+
+    const socket = await openSocket(
+      personToken({ userId: who.tereoUserId!, org }),
+      local.url
+    );
+    opened.push(socket);
+
+    await eventually(
+      () =>
+        local.io
+          .of("/")
+          .sockets.get(socket.id!)
+          ?.rooms.has(sessionRoom(session.id)) === true
+    );
+  });
 });

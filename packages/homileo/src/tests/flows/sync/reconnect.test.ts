@@ -27,7 +27,7 @@ afterAll(async () => {
 
 // Against the shared server: its own sockets, fan-out and /sync.
 describe("reconnecting through /sync", () => {
-  it("recovers every message in commit order from the socket's events and a replay from the first cursor", async () => {
+  it("recovers every message in commit order from the socket's events, a replay from the first cursor and the events buffered during it", async () => {
     const org = api.organization();
     const owner = await api.actor(org);
     const alice = await api.actor(org);
@@ -54,21 +54,24 @@ describe("reconnecting through /sync", () => {
     await send("four");
     await send("five");
 
+    // Connected and buffering before the replay, as Decision 2 has the client do; a message
+    // sent during the replay reaches the buffer, the replay, or both.
     const again = await openSocket(alice.token);
     opened.push(again);
-    const { events } = await drainSync(alice.token, first);
+    const buffered = collect<JsonResponse["body"]>(again, "message.created");
+    const [{ events }] = await Promise.all([
+      drainSync(alice.token, first),
+      send("six"),
+    ]);
+    await eventually(() => buffered.length === 1);
 
     const seen = new Set<string>();
-    const applied = [...live, ...events].filter((e) => {
+    const applied = [...live, ...events, ...buffered].filter((e) => {
       if (e.type !== "message.created" || seen.has(e.id)) return false;
       seen.add(e.id);
       return true;
     });
     expect(applied.map((e) => e.payload.message.id)).toEqual(sentIds);
-    expect(applied.map((e) => BigInt(e.id))).toEqual(
-      events
-        .filter((e) => e.type === "message.created")
-        .map((e) => BigInt(e.id))
-    );
+    expect(buffered.map((e) => e.payload.message.id)).toEqual([sentIds[5]]);
   });
 });

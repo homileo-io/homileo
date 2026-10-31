@@ -76,9 +76,35 @@ const adapterKey = () =>
 
 const connectChecks = new WeakMap<AppSocket, Promise<void>>();
 
-/** Settles once the re-check a socket gets right after joining its rooms has run. */
+/** Settles once a new socket's rooms have been reloaded and re-checked (`settleRooms`). */
 export const connectCheckOf = (socket: AppSocket): Promise<void> =>
   connectChecks.get(socket) ?? Promise.resolve();
+
+/**
+ * Changes committed between the handshake's load and the joins on connect fanned out before
+ * the socket was in its rooms, its personal room included: a participation added then was
+ * never joined, and a revocation never re-checked. Loads the rooms again, joins the new
+ * ones, then re-checks them all.
+ */
+const settleRooms = async (socket: AppSocket): Promise<void> => {
+  const principalId = socket.data.caller.principalId;
+  try {
+    const rooms = await roomsOnConnect(socket.data.caller);
+    // Joining after the disconnect would leave the id in the adapter's rooms.
+    if (socket.disconnected) return;
+    await socket.join(rooms);
+  } catch (err) {
+    logger.error({ err, principalId }, "Reloading a new socket's rooms failed");
+  }
+  try {
+    await recheckSockets([socket]);
+  } catch (err) {
+    logger.error(
+      { err, principalId },
+      "Re-checking a new socket's rooms failed"
+    );
+  }
+};
 
 interface Instance {
   pub: Redis;
@@ -135,20 +161,7 @@ export const createSocketServer = async (
   io.on("connection", (socket: AppSocket) => {
     void socket.join(initialRooms.get(socket) ?? []);
     initialRooms.delete(socket);
-    // A revocation between the handshake's load and the joins above re-checked the
-    // principal's sockets before this one was in those rooms: check once more.
-    connectChecks.set(
-      socket,
-      recheckSockets([socket]).then(
-        () => undefined,
-        (err: unknown) => {
-          logger.error(
-            { err, principalId: socket.data.caller.principalId },
-            "Re-checking a new socket's rooms failed"
-          );
-        }
-      )
-    );
+    connectChecks.set(socket, settleRooms(socket));
     closeAtExpiry(socket);
     limitEvents(socket);
     handleSubscriptions(socket);

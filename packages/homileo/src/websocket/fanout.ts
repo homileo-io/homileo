@@ -41,12 +41,19 @@ const revokedRooms = (e: ChangeEvent): string[] => {
   return spaceId ? [spaceRoom(spaceId), spaceOfRoom(spaceId)] : [];
 };
 
-/** The rooms whose sockets an update may have locked out. */
+/**
+ * The rooms whose sockets an update may have locked out. The payload holds only the new
+ * state, so an update that leaves a space members-only (a rename, say) still re-checks;
+ * one that leaves it public, or a session's read following its space, cannot lock anyone out.
+ */
 const updatedRooms = (e: ChangeEvent): string[] => {
+  const state = (e.payload as Record<string, unknown> | null) ?? {};
   if (e.type === "space.updated" && e.spaceId) {
+    if (field(state.space, "visibility") === "public") return [];
     return [spaceRoom(e.spaceId), spaceOfRoom(e.spaceId)];
   }
   if (e.type === "session.updated" && e.sessionId) {
+    if (field(state.session, "access") === "space") return [];
     return [sessionRoom(e.sessionId)];
   }
   return [];
@@ -57,12 +64,41 @@ const socketsIn = (
   rooms: string[]
 ): Promise<(AppSocket | AppRemoteSocket)[]> => io.in(rooms).fetchSockets();
 
+/** Runs one step of an event's fan-out; a failure is logged and the rest go on. */
+const step = async (
+  e: ChangeEvent,
+  name: string,
+  run: () => Promise<void>
+): Promise<void> => {
+  try {
+    await run();
+  } catch (err) {
+    logger.error(
+      { err, eventId: e.id.toString(), type: e.type, step: name },
+      "A step of pushing an event to sockets failed"
+    );
+  }
+};
+
+/** Stored mentions name only principals who could read the session when it was written. */
+const loadMentions = async (
+  events: ChangeEvent[]
+): Promise<Map<string, string[]>> => {
+  try {
+    return await db.messages.mentionedUserIdsOf(
+      prisma,
+      events.flatMap((e) => mentionedMessageOf(e) ?? [])
+    );
+  } catch (err) {
+    // The messages still reach their sessions' rooms; mentioned readers outside them
+    // catch up through /sync.
+    logger.error({ err }, "Loading the mentions to push failed");
+    return new Map();
+  }
+};
+
 const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
-  // Stored mentions name only principals who could read the session when it was written.
-  const mentions = await db.messages.mentionedUserIdsOf(
-    prisma,
-    events.flatMap((e) => mentionedMessageOf(e) ?? [])
-  );
+  const mentions = await loadMentions(events);
 
   for (const e of events) {
     const messageId = mentionedMessageOf(e);
@@ -72,35 +108,44 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
     );
     const view = eventView(e);
 
-    for (const { principalId, room } of audience.join) {
-      const owner = userRoom(e.organizationId, principalId);
-      // Synchronous for this node's sockets, so the emit below finds them in the room.
-      io.in(owner).socketsJoin(room);
-      // The room is now the principal's own, not a subscription. Other nodes' lists are
-      // out of reach: their `unsubscribe` checks participation and membership instead.
-      for (const socket of await io.local.in(owner).fetchSockets()) {
-        socket.data.subscriptions.delete(room);
+    await step(e, "join", async () => {
+      for (const { principalId, room } of audience.join) {
+        const owner = userRoom(e.organizationId, principalId);
+        // Synchronous for this node's sockets, so the emit below finds them in the room.
+        io.in(owner).socketsJoin(room);
+        // The room is now the principal's own, not a subscription. Other nodes' lists are
+        // out of reach: their `unsubscribe` checks participation and membership instead.
+        for (const socket of await io.local.in(owner).fetchSockets()) {
+          socket.data.subscriptions.delete(room);
+        }
       }
-    }
+    });
 
     // socket.io sends once per socket across the union of the rooms.
     if (audience.rooms.length > 0) io.to(audience.rooms).emit(e.type, view);
 
-    // After the emit above: a removal reaches its target before the rooms are left.
-    for (const principalId of audience.recheck) {
-      const sockets = await socketsIn(io, [
-        userRoom(e.organizationId, principalId),
-      ]);
-      const left = await recheckSockets(sockets);
-      const reported = revokedRooms(e);
-      const lost = [...left]
-        .filter(([, rooms]) => rooms.some((r) => reported.includes(r)))
-        .map(([id]) => id);
-      if (lost.length > 0) io.to(lost).emit(e.type, view);
-    }
+    // A revocation goes to no room: only to the sockets that really lost the resource.
+    // Its removal event comes earlier in the batch, so the target has that already.
+    await step(e, "revocation", async () => {
+      for (const principalId of audience.recheck) {
+        const sockets = await socketsIn(io, [
+          userRoom(e.organizationId, principalId),
+        ]);
+        const left = await recheckSockets(sockets);
+        const reported = revokedRooms(e);
+        const lost = [...left]
+          .filter(([, rooms]) => rooms.some((r) => reported.includes(r)))
+          .map(([id]) => id);
+        if (lost.length > 0) io.to(lost).emit(e.type, view);
+      }
+    });
 
     const updated = updatedRooms(e);
-    if (updated.length > 0) await recheckSockets(await socketsIn(io, updated));
+    if (updated.length > 0) {
+      await step(e, "update recheck", async () => {
+        await recheckSockets(await socketsIn(io, updated));
+      });
+    }
   }
 };
 
