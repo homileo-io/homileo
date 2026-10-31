@@ -1,4 +1,5 @@
 import { claimSocketSlot, limitEvents, MAX_PACKET_BYTES } from "./limits.js";
+import { handleEphemeral, startPresenceSweep } from "./ephemeral.js";
 import { authenticateSocket, closeAtExpiry } from "./auth.js";
 import { redisRetryStrategy } from "../utils/redisRetry.js";
 import { closeRedisClient, redis } from "../utils/redis.js";
@@ -130,6 +131,7 @@ export const createSocketServer = async (
     closeAtExpiry(socket);
     limitEvents(socket);
     handleSubscriptions(socket);
+    handleEphemeral(socket);
   });
 
   return io;
@@ -154,11 +156,13 @@ export const closeSocketServer = async (io: IOServer): Promise<void> => {
 };
 
 let io: IOServer | null = null;
+let stopPresenceSweep: (() => void) | null = null;
 
 /** Attaches the node's socket server to `http`; call before `listen`. */
 export const attachSockets = async (http: HttpServer): Promise<void> => {
   if (io) throw new Error("Sockets are already attached");
   io = await createSocketServer(http);
+  stopPresenceSweep = startPresenceSweep(io);
   logger.info("Socket server attached on /ws");
 };
 
@@ -171,6 +175,8 @@ export const closeSockets = async (): Promise<void> => {
   if (!io) return;
   const closing = io;
   io = null;
+  stopPresenceSweep?.();
+  stopPresenceSweep = null;
   await closeSocketServer(closing);
 };
 

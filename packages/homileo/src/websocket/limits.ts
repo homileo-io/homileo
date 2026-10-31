@@ -8,6 +8,7 @@ export const MAX_PACKET_BYTES = 16 * 1024;
 /** Client events one socket may send in any one second. */
 export const MAX_EVENTS_PER_SECOND = 20;
 export const MAX_SUBSCRIPTIONS = 200;
+export const MAX_WATCHED = 200;
 
 const socketsPerPrincipal = new Map<string, number>();
 
