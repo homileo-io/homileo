@@ -122,11 +122,15 @@ export const readFrom = async (
   const found = await prisma.$queryRaw<
     Array<Partial<RawEventRow> & { at: Date }>
   >`
-    SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at, page.*
+    SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at,
+           page.id, page.created_at, page.type, page.organization_id,
+           page.space_id, page.session_id, page.actor_id, page.payload,
+           page.tx_id::text AS tx_id
     FROM (SELECT 1) AS one
     LEFT JOIN (
+      -- Native xid8 and bigint, so both sorts are numeric.
       SELECT id, created_at, type, organization_id, space_id, session_id,
-             actor_id, payload, tx_id::text AS tx_id
+             actor_id, payload, tx_id
       FROM "chat"."events"
       WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
         AND tx_id < pg_snapshot_xmin(pg_current_snapshot())

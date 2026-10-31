@@ -133,6 +133,51 @@ describe("event positions", () => {
     );
   });
 
+  it("orders numerically across a digit boundary in id", async () => {
+    // The sequence only moves forward: to just under the next power of ten.
+    const [{ last }] = await prisma.$queryRaw<Array<{ last: bigint }>>`
+      SELECT last_value AS last
+      FROM pg_sequences WHERE schemaname = 'chat' AND sequencename = 'events_id_seq'`;
+    const boundary = 10n ** BigInt(last.toString().length);
+    await prisma.$queryRaw`SELECT setval('chat.events_id_seq', ${boundary - 3n})`;
+    const start = await db.events.head();
+    await prisma.$transaction(async (tx) => {
+      for (let n = 0; n < 4; n++) await db.events.insert(tx, input(n));
+    });
+
+    const page = await db.events.readFrom(start, mine, 10);
+
+    expect(page.rows.map((r) => r.id)).toEqual([
+      boundary - 2n,
+      boundary - 1n,
+      boundary,
+      boundary + 1n,
+    ]);
+    expect(page.next.id).toBe(boundary + 1n);
+  });
+
+  it("orders numerically across a digit boundary in tx_id", async () => {
+    // Explicit transaction ids far below any running one: a read that sorted
+    // them as text would put 100 before 99.
+    const org = uuidv7();
+    for (const tx of [100, 9, 10, 99]) {
+      await prisma.$executeRaw`
+        INSERT INTO "chat"."events" (type, organization_id, actor_id, payload, tx_id)
+        VALUES ('message.created', ${org}::uuid, ${actorId}::uuid, '{}'::jsonb, ${tx}::text::xid8)`;
+    }
+
+    const page = await db.events.readFrom(
+      { txId: 0n, id: 0n, at: new Date() },
+      Prisma.sql`organization_id = ${org}::uuid`,
+      3
+    );
+
+    expect(page.rows.map((r) => r.txId)).toEqual([9n, 10n, 99n]);
+    expect(page.hasMore).toBe(true);
+    expect(page.next.txId).toBe(99n);
+    await prisma.event.deleteMany({ where: { organizationId: org } });
+  });
+
   it("returns a head whose id is zero", async () => {
     const head = await db.events.head();
 
