@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sweepPresence } from "../../websocket/ephemeral.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { personToken } from "../support/tokens.js";
+import { prisma } from "../../utils/db/prisma.js";
 import { redis } from "../../utils/redis.js";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -167,6 +168,41 @@ describe("typing", () => {
 
     expect(ack).toEqual({ ok: true });
     await second;
+  });
+
+  it("broadcasts a typing.start right after a typing.stop", async () => {
+    const { session, aliceSocket, bobSocket } = await pair();
+    const first = nextEvent(bobSocket, "typing");
+    await request(aliceSocket, "typing.start", { sessionId: session.id });
+    await first;
+    const stop = nextEvent(bobSocket, "typing");
+    await request(aliceSocket, "typing.stop", { sessionId: session.id });
+    await stop;
+    const again = nextEvent<{ typing: boolean }>(bobSocket, "typing");
+
+    await request(aliceSocket, "typing.start", { sessionId: session.id });
+
+    expect((await again).typing).toBe(true);
+  });
+
+  it("acks a throttled typing.start without reading the session again", async () => {
+    const { alice, session, aliceSocket, bobSocket } = await pair();
+    const first = nextEvent(bobSocket, "typing");
+    await request(aliceSocket, "typing.start", { sessionId: session.id });
+    await first;
+    // Would be not_found if read: the throttled start is answered before any read.
+    await prisma.sessionParticipant.updateMany({
+      where: { sessionId: session.id, userId: alice.id },
+      data: { leftAt: new Date() },
+    });
+    const silent = noEvent(bobSocket, "typing", 500);
+
+    const ack = await request(aliceSocket, "typing.start", {
+      sessionId: session.id,
+    });
+
+    expect(ack).toEqual({ ok: true });
+    await silent;
   });
 
   it("broadcasts typing.stop even right after a start", async () => {

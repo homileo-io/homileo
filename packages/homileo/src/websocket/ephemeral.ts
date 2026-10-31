@@ -43,6 +43,13 @@ const typing =
     }
     const { sessionId } = parsed.data;
     const { caller } = socket.data;
+    const now = Date.now();
+    if (isTyping) {
+      for (const [id, at] of lastStart)
+        if (now - at >= TYPING_THROTTLE_MS) lastStart.delete(id);
+      // Not broadcast, so not worth a read.
+      if (lastStart.has(sessionId)) return OK;
+    }
     try {
       const { facts } = await readableSession(caller, sessionId);
       // Not being allowed to post answers like not being able to read: nothing leaks.
@@ -54,11 +61,12 @@ const typing =
       throw err;
     }
     if (isTyping) {
-      const now = Date.now();
-      for (const [id, at] of lastStart)
-        if (now - at >= TYPING_THROTTLE_MS) lastStart.delete(id);
+      // Another start may have passed the check during the read.
       if (lastStart.has(sessionId)) return OK;
       lastStart.set(sessionId, now);
+    } else {
+      // A stop ends the burst: the next start is sent at once.
+      lastStart.delete(sessionId);
     }
     socket.to(sessionRoom(sessionId)).emit("typing", {
       sessionId,

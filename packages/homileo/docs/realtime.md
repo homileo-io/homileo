@@ -153,10 +153,10 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
 ## Typing and presence
 
 - **Typing** is for sessions the caller can post in; otherwise `not_found`. `typing.start` is
-  throttled to one every 2 s per socket and session (the rest are acked `ok` and not sent). The
-  signal expires after `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends
-  `typing.stop` when done, and hides the indicator on expiry or on a `message.created` from that
-  sender.
+  throttled to one every 2 s per socket and session (the rest are acked `ok` and not sent); a
+  `typing.stop` ends the throttle, so the next start is sent at once. The signal expires after
+  `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends `typing.stop` when
+  done, and hides the indicator on expiry or on a `message.created` from that sender.
 - **Presence** is per organization and by request. `presence.watch { principalIds }` replaces the
   socket's watched set (at most 200, else `too_many_watched`) and acks the current statuses. Changes
   go out as `presence` events to the watchers. A client sends `presence.heartbeat` every 25 s; a
