@@ -93,6 +93,9 @@ export const AREA_BY_PATH: ReadonlyArray<
   ["cli", "provisioning"],
   ["utils/changes", "events"],
   ["jobs/eventPartitions", "events"],
+  ["jobs/eventRetention", "events"],
+  ["utils/db/events", "events"],
+  ["realtime/syncCursor", "events"],
   ["routes/health", "platform"],
   ...AREA_TAGS.map((a) => [`flows/${a}`, a] as const),
 ];

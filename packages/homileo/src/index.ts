@@ -3,12 +3,15 @@ import { closeHttpServer, tuneServerKeepAlive } from "./utils/httpServer.js";
 import { ProvisioningError, provision } from "./utils/provisioning/index.js";
 import { closeRedisConnection, initializeRedis } from "./utils/redis.js";
 import { getTereo, initializeTereo, stopTereo } from "./utils/tereo.js";
-import { ensureEventPartitions } from "./utils/partitions.js";
 import { disconnectDatabase } from "./utils/db/prisma.js";
 import { startWorker, stopWorker } from "./worker.js";
 import { createServer, type Server } from "http";
 import { logger } from "./utils/logger.js";
 import env from "./env.js";
+import {
+  assertCurrentPartitions,
+  ensureEventPartitions,
+} from "./utils/partitions.js";
 
 // In-flight HTTP requests get this long before connections are forced closed.
 // The rest of the shutdown (Redis, the database) takes a moment more, so the
@@ -55,6 +58,9 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
         // Events recorded today and tomorrow need their partitions even while
         // the worker, which creates them a week ahead, is down.
         await ensureEventPartitions();
+        // It gives up quietly when the table is locked; serving without
+        // today's partition would fail every write.
+        await assertCurrentPartitions();
 
         // Imported after Redis is up, as the modules behind it may resolve the
         // client when they load.

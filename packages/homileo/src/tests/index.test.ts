@@ -1,7 +1,9 @@
 // @module-tag int
 // @module-tag platform
+import { MS_PER_DAY, partitionName, utcDay } from "../utils/partitions.js";
 import { getTereo, initializeTereo } from "../utils/tereo.js";
 import { describe, expect, it, vi } from "vitest";
+import * as eventsDb from "../utils/db/events.js";
 import { prisma } from "../utils/db/prisma.js";
 import { createAppServer } from "../index.js";
 import { fetchJson } from "./support/http.js";
@@ -19,6 +21,7 @@ const packageRoot = path.resolve(
 const basePort = Number(process.env.PORT);
 const apiPort = basePort + 1;
 const stopPort = basePort + 2;
+const failPort = basePort + 3;
 
 describe("ROLE=api", () => {
   // A process of its own: the role is read from the environment when the
@@ -64,6 +67,39 @@ describe("ROLE=api", () => {
     } finally {
       child.kill("SIGTERM");
       expect(await exited).toBe(0);
+    }
+  });
+});
+
+describe("start", () => {
+  // Before the "stop" tests: a failed start leaves Redis and tereo up, which
+  // they start again themselves, and stopping would close the pool they use.
+  it("fails when today's partition cannot be created", async () => {
+    const today = utcDay();
+    const name = partitionName(today);
+    const day = (d: Date) => d.toISOString().split("T")[0];
+    await eventsDb.createPartition(
+      name,
+      day(today),
+      day(new Date(today.getTime() + MS_PER_DAY))
+    );
+    // Gone from the table as far as pg_inherits knows, and the create stubbed
+    // to give up as it does when the lock is not granted in time.
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "chat"."events" DETACH PARTITION "chat"."${name}"`
+    );
+    const create = vi
+      .spyOn(eventsDb, "createPartition")
+      .mockResolvedValue(false);
+    try {
+      await expect(createAppServer(failPort).start()).rejects.toThrow(
+        /partition/i
+      );
+    } finally {
+      create.mockRestore();
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "chat"."events" ATTACH PARTITION "chat"."${name}" FOR VALUES FROM ('${day(today)}') TO ('${day(new Date(today.getTime() + MS_PER_DAY))}')`
+      );
     }
   });
 });

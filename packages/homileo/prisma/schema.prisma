@@ -408,11 +408,13 @@ model Event {
   sessionId      String?  @map("session_id") @db.Uuid
   actorId        String?  @map("actor_id") @db.Uuid
   payload        Json
+  // The writing transaction's id: /sync reads in commit order, by (tx_id, id).
+  txId           Unsupported("xid8") @default(dbgenerated("pg_current_xact_id()")) @map("tx_id")
 
   actor Principal? @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@id([id, createdAt])
-  @@index([organizationId, id])
+  @@index([organizationId, txId, id])
   @@index([sessionId, id])
   @@map("events")
   @@schema("chat")
