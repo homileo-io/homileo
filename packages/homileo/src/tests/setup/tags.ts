@@ -10,6 +10,8 @@ export const AREA_TAGS = [
   "provisioning",
   "access",
   "platform",
+  "websocket",
+  "sync",
 ] as const;
 export const DETAIL_TAGS = [
   "race",
@@ -61,6 +63,8 @@ export const TAGS: TestTagDefinition[] = [
   },
   { name: "access", description: "The access policy module" },
   { name: "platform", description: "Health, startup and shutdown" },
+  { name: "websocket", description: "Sockets, their rooms and subscriptions" },
+  { name: "sync", description: "Catching up on events through /v1/sync" },
   { name: "race", description: "Concurrent requests or processes" },
   { name: "job", description: "Background jobs and schedulers" },
   { name: "security", description: "Security properties and attack paths" },
@@ -97,5 +101,7 @@ export const AREA_BY_PATH: ReadonlyArray<
   ["utils/db/events", "events"],
   ["realtime/syncCursor", "events"],
   ["routes/health", "platform"],
+  ["websocket", "websocket"],
+  ["routes/v1/sync", "sync"],
   ...AREA_TAGS.map((a) => [`flows/${a}`, a] as const),
 ];

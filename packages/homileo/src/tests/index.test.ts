@@ -1,14 +1,18 @@
 // @module-tag int
 // @module-tag platform
 import { MS_PER_DAY, partitionName, utcDay } from "../utils/partitions.js";
+import { disconnected, openSocket } from "./support/sockets.js";
 import { getTereo, initializeTereo } from "../utils/tereo.js";
 import { describe, expect, it, vi } from "vitest";
 import * as eventsDb from "../utils/db/events.js";
+import { personToken } from "./support/tokens.js";
 import { prisma } from "../utils/db/prisma.js";
 import { createAppServer } from "../index.js";
 import { fetchJson } from "./support/http.js";
+import { getIO } from "../websocket/index.js";
 import { redis } from "../utils/redis.js";
 import { spawn } from "child_process";
+import { v7 as uuidv7 } from "uuid";
 import { fileURLToPath } from "url";
 import path from "path";
 
@@ -107,7 +111,7 @@ describe("start", () => {
 });
 
 describe("stop", () => {
-  it("starts and stops the tereo client once, and drains and closes Postgres and Redis", async () => {
+  it("starts and stops the tereo client once, closes sockets, and drains and closes Postgres and Redis", async () => {
     // Created here so the spies are in place before start() runs;
     // start() then finds the client and uses it.
     await initializeTereo();
@@ -120,8 +124,20 @@ describe("stop", () => {
       (await fetchJson("GET", `http://localhost:${stopPort}/health`, null))
         .status
     ).toBe(200);
+    const redisAtDisconnect: string[] = [];
+    getIO().on("connection", (socket) => {
+      socket.on("disconnect", () => redisAtDisconnect.push(redis.status));
+    });
+    const client = await openSocket(
+      personToken({ org: uuidv7() }),
+      `http://localhost:${stopPort}`
+    );
+    const closed = disconnected(client, 5000);
 
     await server.stop();
+
+    expect(await closed).toBe("io server disconnect");
+    expect(redisAtDisconnect).toEqual(["ready"]);
 
     expect(tereoStop).toHaveBeenCalledTimes(1);
     expect(server.isRunning()).toBe(false);

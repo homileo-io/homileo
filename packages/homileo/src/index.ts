@@ -12,6 +12,11 @@ import {
   assertCurrentPartitions,
   ensureEventPartitions,
 } from "./utils/partitions.js";
+import {
+  attachSockets,
+  closeSockets,
+  disconnectSockets,
+} from "./websocket/index.js";
 
 // In-flight HTTP requests get this long before connections are forced closed.
 // The rest of the shutdown (Redis, the database) takes a moment more, so the
@@ -67,6 +72,7 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
         const { default: app } = await import("./app.js");
         server = createServer(app);
         tuneServerKeepAlive(server);
+        await attachSockets(server);
 
         const listening = server;
         await new Promise<void>((resolve, reject) => {
@@ -104,11 +110,14 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
         if (server) {
           const closing = server;
           server = null;
+          // The HTTP server's close waits on upgraded connections, so the
+          // sockets close alongside it; their Redis clients stay up until it drains.
           await step("http", async () => {
-            await closeHttpServer(closing, async () => {}, DRAIN_TIMEOUT_MS);
+            await closeHttpServer(closing, disconnectSockets, DRAIN_TIMEOUT_MS);
             logger.info("HTTP server closed");
           });
         }
+        await step("sockets", closeSockets);
         await step("worker", stopWorker);
         await step("tereo", stopTereo);
         await step("redis", closeRedisConnection);

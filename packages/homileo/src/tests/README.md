@@ -92,6 +92,8 @@ line silently drop all but the first):
 | `provisioning`  | area   | Provisioning documents and the tereo declaration  |
 | `access`        | area   | The access policy module                          |
 | `platform`      | area   | Health, startup and shutdown                      |
+| `websocket`     | area   | Sockets, their rooms and subscriptions            |
+| `sync`          | area   | Catching up on events through /v1/sync            |
 | `race`          | detail | Concurrent requests or processes                  |
 | `job`           | detail | Background jobs and schedulers                    |
 | `security`      | detail | Security properties and attack paths              |
