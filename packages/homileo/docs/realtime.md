@@ -16,7 +16,8 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 
 - The token is a tereo access token in the handshake's `auth.token`, checked as a request's is. A
   refusal is a `connect_error` whose message is the code: `unauthorized` (missing or bad token),
-  `organization_required`, `too_many_connections`, `shutting_down` or `internal_error`.
+  `organization_required`, `too_many_connections`, `connection_closed` (the connection closed
+  while the handshake was checked), `shutting_down` or `internal_error`.
 - A socket belongs to the token's organization and sees nothing of another.
 - At most 20 sockets per principal per node. Packets over 16 KiB close the connection.
 - The socket closes when the token's `exp` passes. The client reconnects with a fresh token, which
@@ -109,21 +110,23 @@ More precisely:
 - **Mentions:** `message.created` and `message.edited` also go to the personal room of each mentioned
   user (the stored mentions name only principals who could read the session when it was written).
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that
-  principal can currently read (R9): `space.member_added`, `space.member_role_changed`,
+  principal can currently read: `space.member_added`, `space.member_role_changed`,
   `space.member_removed`, `space.join_requested`, `space.join_decided`,
   `session.participant_added`, `session.participant_removed`, `read.updated` and the revocations.
   Channel `user` events (`read.updated` and the revocations) go to that principal only.
 - **Revocations** (`session.access_revoked`, `space.access_revoked`) go to no room. They are
   delivered only to sockets that, re-checked with their own token's permissions, really lost the
-  resource, and `/sync` drops one when the reader can still read it. This corrects plan 2's
-  revocations, which judged the target without their kind grants.
+  resource, and `/sync` drops one when the reader can still read it. Kind grants count: a
+  principal who still reads the resource through one is not told they lost it.
 - **Your own send** records no `read.updated`. Your other devices get the `message.created` (you
   are a participant) and treat its `seq` as read for its sender.
 - **`/me/unread`** counts mentions from the session's unread messages (`seq > last_read_seq`), not
-  from `message_mentions`; `/me/mentions` reads `message_mentions` (R7).
+  from `message_mentions`; `/me/mentions` reads `message_mentions`.
 
-Fan-out runs per node on `changeBus`, one committed transaction after another in commit order, and
-reaches other nodes through the Redis adapter. A failed step is logged and the rest go on.
+Fan-out runs on the node that committed, on `changeBus`, one transaction after another in the
+order their commits completed on that node, and reaches other nodes through the Redis adapter.
+Transactions committed on different nodes reach a socket in no guaranteed order between them;
+`/sync` returns events in commit order. A failed step is logged and the rest go on.
 
 ## Losing access
 
@@ -134,9 +137,10 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
   drops an explicit subscription to it too: to keep following it, the client subscribes again.
   The removal event itself still reaches them.
 - After a revocation for a principal, every socket of theirs is re-checked, and each `session:` or
-  `space:` room it can no longer read is left. The revocation goes to each socket of theirs that,
-  judged by its own token, cannot read the resource, whether or not it was following it. A space revocation therefore also drops that space's
-  session rooms, and `spaceof:` once no session room of the space remains.
+  `space:` room it can no longer read is left. A space revocation therefore also drops that space's
+  session rooms, and `spaceof:` once no session room of the space remains. The revocation goes to
+  each socket of theirs that, judged by its own token, cannot read the resource, whether or not it
+  was following it.
 - After `space.updated` or `session.updated`, the sockets in that resource's room (and `spaceof:`
   for a space) are re-checked before the update is sent, so a socket that lost access with it does
   not receive it. The payload holds only the new state, so the re-check runs only when the new
@@ -173,8 +177,8 @@ the catch-up must reach). It answers
 { "events": [ { "id": "…" } ], "next": "<cursor>", "hasMore": false }
 ```
 
-- **The cursor is opaque** (Decision 1). Event ids come from one sequence but are not in commit
-  order, so "the highest id seen" would skip an event that commits late. `next` is base64url JSON of
+- **The cursor is opaque.** Event ids come from one sequence but are not in commit order, so "the
+  highest id seen" would skip an event that commits late. `next` is base64url JSON of
   `[txId, id, at]`: the transaction id and event id as decimal strings, and the database time in ms
   when it was issued. Events are read in `(txId, id)` order, only from transactions older than
   every transaction still running (`pg_snapshot_xmin`), so a late commit cannot land behind it.
@@ -182,20 +186,20 @@ the catch-up must reach). It answers
   (typically before it loads its initial state, so nothing in between is missed).
 - **`hasMore`** is true when more matching events remain. A page can be short or empty while later
   events exist, because filtering by audience drops rows after the page is cut; keep calling until
-  `hasMore` is false. While `hasMore` is true the cursor's `at` stays that of the cursor sent
-  (R8); it refreshes only when a page reaches the horizon.
+  `hasMore` is false. While `hasMore` is true the cursor's `at` stays that of the cursor sent; it
+  refreshes only when a page reaches the horizon.
 - **`until`** is the `until` of the socket's `ready`, or of its last `subscribe` ack (each is at
-  least as late as the one before). While a
-  transaction older than it is still running, the response has `hasMore: true`, even with no
-  events, and `next` holds the progress so far: such a transaction may have committed before the
-  socket was in its rooms, so only `/sync` can deliver it. Once the horizon has passed `until` and
-  the page drains, `hasMore` is false. An `until` past what the database has issued is
-  `400 invalid_request`; without `since` it is ignored.
+  least as late as the one before). While a transaction older than it is still running, the
+  response has `hasMore: true`, even with no events, and `next` holds the progress so far: such a
+  transaction may have committed before the socket was in its rooms, so only `/sync` can deliver
+  it. Once the horizon has reached `until` and the page drains, `hasMore` is false. An `until`
+  past what the database has issued is `400 invalid_request`; without `since` it is ignored.
 - **`410 resync_required`** when the cursor's `at` is earlier than the oldest retained partition's
   lower bound, or, once retention has dropped a day, earlier than that bound plus 10 minutes: no
   transaction outlives that margin, so none still open at `at` wrote into a dropped day. Before
   retention has dropped anything (a deploy younger than `EVENT_RETENTION_DAYS`) the margin does not
-  apply. Reload state and start again without `since`. A malformed cursor, or one from the future, is `400 invalid_request`.
+  apply. Reload state and start again without `since`. A malformed cursor, or one from the
+  future, is `400 invalid_request`.
 - Events are filtered by the audience rule above, against what the caller can read now, and by
   organization. Mention parity uses the current mention rows: an edit that adds or removes a mention
   changes whether the earlier `message.created` is returned. Clients drop events whose `id` they
@@ -214,7 +218,7 @@ Limits of the implementation:
 ## Reconnecting
 
 The socket is connected and buffering before `/sync` starts, and `/sync` runs until it reaches
-the position the server gave the socket, so nothing falls between them (Decision 2).
+the position the server gave the socket, so nothing falls between them.
 
 ```ts
 let cursor = loadSavedCursor();           // the last `next`, or from /sync with no since
@@ -246,8 +250,8 @@ socket.on("ready", async ({ until }) => {
 const apply = (e) => { if (applied.has(e.id)) return; applied.add(e.id); /* update state */ };
 ```
 
-Pass the subscribed resources in
-`sessionIds`/`spaceIds` so `/sync` covers what they missed. An empty page with `hasMore` means an
-older transaction is still open: back off briefly and call again. After a long gap, or on `410`,
+Pass the subscribed resources in `sessionIds`/`spaceIds` so `/sync` covers what they missed. An
+empty page with `hasMore` means an older transaction is still open: back off briefly and call
+again. After a long gap, or on `410`,
 reload state from the REST routes instead. Events pushed on the socket carry no cursor; keep the
 `next` from `/sync`, since socket events do not advance it.

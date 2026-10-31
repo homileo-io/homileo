@@ -106,6 +106,10 @@ Partitions are named `events_YYYY_MM_DD` (UTC days). An insert for a day with no
   down. `src/jobs/eventPartitions.ts` wraps it as the worker's daily job.
 - Creating a partition takes a lock on `chat.events`; it waits at most
   `PARTITION_DDL_LOCK_TIMEOUT_MS` (5 s by default) and then leaves the day for the next run.
+  While it waits, inserts into `chat.events` queue behind it, so a long read on the table can
+  hold every write up to that long. Dropping a partition for retention does the same.
+- The migration that adds `tx_id` (`20261031125557_events_tx_id`) rewrites `chat.events` under
+  an exclusive lock, blocking writes for as long as that takes on a large table.
 
 ## Retention
 
