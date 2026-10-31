@@ -42,3 +42,32 @@ export const decodeSyncCursor = (cursor: string): SyncPosition => {
   }
   return { txId: decimal(txId), id: decimal(id), at: new Date(at) };
 };
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** No transaction outlives this past the oldest retained day (Decision 3). */
+export const RESYNC_MARGIN_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a cursor issued at `at` may have missed events that retention dropped, given the
+ * oldest retained day's lower bound. A cursor before that day always may. Within the margin
+ * after it, a transaction still open across the boundary may have written into a dropped
+ * day: that applies only once retention has dropped one, which leaves the oldest day at or
+ * before the cutoff; a fresh deploy's oldest day is well after it.
+ */
+export const tooOldToSync = (
+  at: Date,
+  oldest: Date | null,
+  now: Date,
+  retentionDays: number
+): boolean => {
+  if (!oldest) return false;
+  if (at.getTime() < oldest.getTime()) return true;
+  const today = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  );
+  const dropped = oldest.getTime() <= today - retentionDays * MS_PER_DAY;
+  return dropped && at.getTime() < oldest.getTime() + RESYNC_MARGIN_MS;
+};

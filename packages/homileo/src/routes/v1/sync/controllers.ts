@@ -9,9 +9,11 @@ import { eventView } from "../../../views/event.js";
 import type { Request, Response } from "express";
 import { db } from "../../../utils/db/index.js";
 import { SyncQuerySchema } from "./schemas.js";
+import env from "../../../env.js";
 import {
   decodeSyncCursor,
   encodeSyncCursor,
+  tooOldToSync,
 } from "../../../realtime/syncCursor.js";
 import {
   isRelevantTo,
@@ -21,9 +23,6 @@ import {
   TARGET_PATHS,
   type ReaderFacts,
 } from "../../../realtime/audience.js";
-
-/** No transaction outlives this past the oldest retained day (Decision 3). */
-const RESYNC_MARGIN_MS = 10 * 60 * 1000;
 
 const typesOf = (channel: "space" | "session"): EventType[] =>
   (Object.keys(EVENT_TYPES) as EventType[]).filter(
@@ -73,7 +72,7 @@ export const sync = async (req: Request, res: Response) => {
   }
   const after = decodeSyncCursor(query.since);
   const oldest = await db.events.oldestRetainedDay();
-  if (oldest && after.at.getTime() < oldest.getTime() + RESYNC_MARGIN_MS) {
+  if (tooOldToSync(after.at, oldest, new Date(), env.EVENT_RETENTION_DAYS)) {
     throw new ResyncRequiredError();
   }
 

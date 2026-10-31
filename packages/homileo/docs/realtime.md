@@ -192,8 +192,10 @@ the catch-up must reach). It answers
   the page drains, `hasMore` is false. An `until` past what the database has issued is
   `400 invalid_request`; without `since` it is ignored.
 - **`410 resync_required`** when the cursor's `at` is earlier than the oldest retained partition's
-  lower bound plus 10 minutes (Decision 3). No transaction outlives that margin. Reload state and
-  start again without `since`. A malformed cursor, or one from the future, is `400 invalid_request`.
+  lower bound, or, once retention has dropped a day, earlier than that bound plus 10 minutes: no
+  transaction outlives that margin, so none still open at `at` wrote into a dropped day. Before
+  retention has dropped anything (a deploy younger than `EVENT_RETENTION_DAYS`) the margin does not
+  apply. Reload state and start again without `since`. A malformed cursor, or one from the future, is `400 invalid_request`.
 - Events are filtered by the audience rule above, against what the caller can read now, and by
   organization. Mention parity uses the current mention rows: an edit that adds or removes a mention
   changes whether the earlier `message.created` is returned. Clients drop events whose `id` they

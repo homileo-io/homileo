@@ -111,4 +111,4 @@ Partitions are named `events_YYYY_MM_DD` (UTC days). An insert for a day with no
 
 The worker's daily job (`src/jobs/eventRetention.ts`) drops partitions older than
 `EVENT_RETENTION_DAYS` (30 by default). A `/sync` cursor older than the oldest retained partition
-(plus a 10-minute margin) is `410 resync_required`.
+(plus a 10-minute margin once retention has dropped a day) is `410 resync_required`.

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeSyncCursor,
   encodeSyncCursor,
+  tooOldToSync,
 } from "../../realtime/syncCursor.js";
 
 describe("sync cursor", () => {
@@ -64,5 +65,45 @@ describe("sync cursor", () => {
 
     expect(() => decodeSyncCursor(future)).toThrow("Invalid cursor");
     expect(() => decodeSyncCursor(near)).not.toThrow();
+  });
+});
+
+describe("tooOldToSync", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const MINUTE = 60 * 1000;
+  const now = new Date("2026-10-31T12:00:00.000Z");
+  const today = new Date("2026-10-31T00:00:00.000Z");
+  const daysAgo = (n: number) => new Date(today.getTime() - n * DAY);
+  const after = (d: Date, ms: number) => new Date(d.getTime() + ms);
+
+  it("accepts any cursor when no partition exists", () => {
+    expect(tooOldToSync(daysAgo(400), null, now, 30)).toBe(false);
+  });
+
+  it("accepts a cursor within the margin of the oldest day when retention has dropped nothing", () => {
+    // A fresh deploy: the oldest partition is yesterday's, well inside retention.
+    expect(
+      tooOldToSync(after(daysAgo(1), 5 * MINUTE), daysAgo(1), now, 30)
+    ).toBe(false);
+  });
+
+  it("refuses a cursor within the margin of the oldest day once retention has dropped days", () => {
+    expect(
+      tooOldToSync(after(daysAgo(30), 5 * MINUTE), daysAgo(30), now, 30)
+    ).toBe(true);
+    expect(
+      tooOldToSync(after(daysAgo(31), 5 * MINUTE), daysAgo(31), now, 30)
+    ).toBe(true);
+  });
+
+  it("accepts a cursor past the margin once retention has dropped days", () => {
+    expect(
+      tooOldToSync(after(daysAgo(30), 11 * MINUTE), daysAgo(30), now, 30)
+    ).toBe(false);
+  });
+
+  it("refuses a cursor older than the oldest retained day", () => {
+    expect(tooOldToSync(after(daysAgo(2), 0), daysAgo(1), now, 30)).toBe(true);
+    expect(tooOldToSync(daysAgo(40), daysAgo(30), now, 30)).toBe(true);
   });
 });
