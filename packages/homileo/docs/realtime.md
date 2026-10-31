@@ -22,6 +22,10 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 - The socket closes when the token's `exp` passes. The client reconnects with a fresh token, which
   refreshes the permissions the socket is judged by.
 - Connecting counts as a presence heartbeat.
+- The server accepts the `websocket` and `polling` transports. Polling sends each request of one
+  connection separately, so with more than one api replica behind a load balancer, either route a
+  client to the same replica (sticky sessions, e.g. by the `sid` query parameter or a cookie) or
+  have clients connect with `transports: ["websocket"]`. One replica needs neither.
 - Once its rooms are joined and re-checked, the server sends the socket `ready`:
   `{ until: <sync cursor> }`. Every transaction that starts after `until` was taken fans out to
   the socket's rooms; `until` is where a catch-up through `/sync` must reach (see
