@@ -54,33 +54,38 @@ describe("event positions", () => {
       },
       { timeout: 30_000 }
     );
-    await aInserted.promise;
-    await prisma.$transaction(async (tx) => {
-      bRow = await db.events.insert(tx, input(2));
-    });
-    expect(bRow.id).toBeGreaterThan(aRow.id);
+    try {
+      await aInserted.promise;
+      await prisma.$transaction(async (tx) => {
+        bRow = await db.events.insert(tx, input(2));
+      });
+      expect(bRow.id).toBeGreaterThan(aRow.id);
 
-    const held = await db.events.readFrom(before, mine, 10);
+      const held = await db.events.readFrom(before, mine, 10);
 
-    expect(held.rows).toEqual([]);
-    expect(held.hasMore).toBe(false);
-    expect(held.next.txId).toBe(before.txId);
-    expect(held.next.id).toBe(before.id);
+      expect(held.rows).toEqual([]);
+      expect(held.hasMore).toBe(false);
+      expect(held.next.txId).toBe(before.txId);
+      expect(held.next.id).toBe(before.id);
 
-    commitA.resolve();
-    await a;
+      commitA.resolve();
+      await a;
 
-    const released = await db.events.readFrom(before, mine, 10);
-    expect(released.rows.map((r) => r.id)).toEqual([aRow.id, bRow.id]);
-    expect(released.rows[0].txId).toBeLessThan(released.rows[1].txId);
-    expect(released.hasMore).toBe(false);
-    expect(released.next.id).toBe(bRow.id);
-    expect(released.next.txId).toBe(released.rows[1].txId);
+      const released = await db.events.readFrom(before, mine, 10);
+      expect(released.rows.map((r) => r.id)).toEqual([aRow.id, bRow.id]);
+      expect(released.rows[0].txId).toBeLessThan(released.rows[1].txId);
+      expect(released.hasMore).toBe(false);
+      expect(released.next.id).toBe(bRow.id);
+      expect(released.next.txId).toBe(released.rows[1].txId);
 
-    const after = await db.events.readFrom(released.next, mine, 10);
-    expect(after.rows).toEqual([]);
-    expect(after.next.txId).toBe(released.next.txId);
-    expect(after.next.id).toBe(released.next.id);
+      const after = await db.events.readFrom(released.next, mine, 10);
+      expect(after.rows).toEqual([]);
+      expect(after.next.txId).toBe(released.next.txId);
+      expect(after.next.id).toBe(released.next.id);
+    } finally {
+      commitA.resolve();
+      await a.catch(() => {});
+    }
   });
 
   it("orders by (tx_id, id) within a transaction, pages with hasMore, and reports the database's time", async () => {
@@ -106,6 +111,25 @@ describe("event positions", () => {
     expect(second.hasMore).toBe(false);
     expect(Math.abs(second.next.at.getTime() - Date.now())).toBeLessThan(
       60_000
+    );
+  });
+
+  it("keeps the cursor's time while pages remain and refreshes it on the last", async () => {
+    const start = await db.events.head();
+    const old = { ...start, at: new Date(start.at.getTime() - 3_600_000) };
+    await prisma.$transaction(async (tx) => {
+      await db.events.insert(tx, input(1));
+      await db.events.insert(tx, input(2));
+    });
+
+    const first = await db.events.readFrom(old, mine, 1);
+    const last = await db.events.readFrom(first.next, mine, 1);
+
+    expect(first.hasMore).toBe(true);
+    expect(first.next.at).toEqual(old.at);
+    expect(last.hasMore).toBe(false);
+    expect(last.next.at.getTime()).toBeGreaterThan(
+      old.at.getTime() + 3_000_000
     );
   });
 

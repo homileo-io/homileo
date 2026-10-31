@@ -117,30 +117,38 @@ export const readFrom = async (
   where: Prisma.Sql,
   limit: number
 ): Promise<{ rows: EventRow[]; next: SyncPosition; hasMore: boolean }> => {
-  const found = await prisma.$queryRaw<RawEventRow[]>`
-    SELECT id, created_at, type, organization_id, space_id, session_id,
-           actor_id, payload, tx_id::text AS tx_id
-    FROM "chat"."events"
-    WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
-      AND tx_id < pg_snapshot_xmin(pg_current_snapshot())
-      AND (${where})
-    ORDER BY tx_id, id
-    LIMIT ${limit + 1}`;
-  const hasMore = found.length > limit;
-  const rows = found.slice(0, limit).map(toEventRow);
+  // `at` rides in the same statement as the rows; the join keeps one row
+  // when the page is empty.
+  const found = await prisma.$queryRaw<
+    Array<Partial<RawEventRow> & { at: Date }>
+  >`
+    SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at, page.*
+    FROM (SELECT 1) AS one
+    LEFT JOIN (
+      SELECT id, created_at, type, organization_id, space_id, session_id,
+             actor_id, payload, tx_id::text AS tx_id
+      FROM "chat"."events"
+      WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
+        AND tx_id < pg_snapshot_xmin(pg_current_snapshot())
+        AND (${where})
+      ORDER BY tx_id, id
+      LIMIT ${limit + 1}
+    ) AS page ON true
+    ORDER BY page.tx_id, page.id`;
+  const now = found[0].at;
+  const matched = found.filter((r) => r.id != null) as RawEventRow[];
+  const hasMore = matched.length > limit;
+  const rows = matched.slice(0, limit).map(toEventRow);
   const last = rows.at(-1);
-  if (last) {
-    return {
-      rows,
-      next: {
-        txId: last.txId,
-        id: last.id,
-        at: (await head()).at,
-      },
-      hasMore,
-    };
-  }
-  return { rows, next: { ...after, at: (await head()).at }, hasMore: false };
+  // Until the page drains to the horizon, what is left may be committed
+  // backlog of any age, so the cursor keeps the time it was issued: a
+  // retention drop in between must still read as too old.
+  const at = hasMore ? after.at : now;
+  return {
+    rows,
+    next: last ? { txId: last.txId, id: last.id, at } : { ...after, at },
+    hasMore,
+  };
 };
 
 export interface Partition {
@@ -204,6 +212,8 @@ export const dropPartition = async (name: string): Promise<boolean> => {
     if (pgErrorCodes(err).some((code) => RETRY_LATER.includes(code))) {
       return false;
     }
+    // Another replica's run dropped it first.
+    if (pgErrorCodes(err).includes("42P01")) return true;
     throw err;
   }
 };

@@ -71,6 +71,12 @@ describe("dropExpiredPartitions", () => {
     expect(await remaining()).toHaveLength(38);
   });
 
+  it("treats a partition another replica already dropped as dropped", async () => {
+    await expect(db.events.dropPartition("events_2020_01_01")).resolves.toBe(
+      true
+    );
+  });
+
   it("drops a partition that holds rows", async () => {
     const d = day(-35);
     await createPartition(

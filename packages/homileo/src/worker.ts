@@ -2,8 +2,8 @@ import { processEventPartitions } from "./jobs/eventPartitions.js";
 import { processEventRetention } from "./jobs/eventRetention.js";
 import { logger } from "./utils/logger.js";
 
-// Background work: daily event partitions and their retention. Runs in processes started with
-// ROLE=worker or ROLE=all. The tereo client, whose outbox reaper is gated by
+// Background work: daily event partitions and their retention. Runs in
+// processes started with ROLE=worker or ROLE=all. The tereo client, whose outbox reaper is gated by
 // ROLE, starts and stops in createAppServer for every role.
 
 const DAY_MS = 24 * 60 * 60 * 1000;

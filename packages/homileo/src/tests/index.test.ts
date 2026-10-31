@@ -83,15 +83,17 @@ describe("start", () => {
       day(today),
       day(new Date(today.getTime() + MS_PER_DAY))
     );
-    // Gone from the table as far as pg_inherits knows, and the create stubbed
-    // to give up as it does when the lock is not granted in time.
-    await prisma.$executeRawUnsafe(
-      `ALTER TABLE "chat"."events" DETACH PARTITION "chat"."${name}"`
-    );
+    // The partition is missing, and the create gives up as it does when its
+    // lock is not granted in time (stubbed: it would otherwise skip the
+    // detached table by name, so the stub is what makes this the "gave up"
+    // path rather than a lucky one).
     const create = vi
       .spyOn(eventsDb, "createPartition")
       .mockResolvedValue(false);
     try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "chat"."events" DETACH PARTITION "chat"."${name}"`
+      );
       await expect(createAppServer(failPort).start()).rejects.toThrow(
         /partition/i
       );
