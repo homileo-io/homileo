@@ -15,7 +15,7 @@ import {
   userRoom,
 } from "../../realtime/rooms.js";
 import {
-  openSocket,
+  openLocalSocket,
   request,
   startSocketServer,
   type ClientSocket,
@@ -27,9 +27,9 @@ let local: LocalSocketServer;
 const opened: ClientSocket[] = [];
 
 const connectAs = async (who: Principal, org: string, perms: string[] = []) => {
-  const socket = await openSocket(
+  const socket = await openLocalSocket(
     personToken({ userId: who.tereoUserId!, org, perms }),
-    local.url
+    local
   );
   opened.push(socket);
   return socket;
@@ -100,6 +100,22 @@ describe("recheckSockets", () => {
     expect(adminSocket.rooms.has(spaceRoom(space.id))).toBe(true);
     expect(left.get(plainSocket.id)).toEqual([spaceRoom(space.id)]);
     expect(plainSocket.rooms.has(spaceRoom(space.id))).toBe(false);
+  });
+
+  it("judges only the rooms the socket was in when called, keeping one joined while it loads", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    await fixtures.member(space, who);
+    const session = await fixtures.session({ space, access: "space" });
+    const server = serverSocket(await connectAs(who, org));
+
+    const checking = recheckSockets([server]);
+    await server.join(sessionRoom(session.id));
+    const left = await checking;
+
+    expect(left.get(server.id)).toEqual([]);
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
   });
 
   it("drops a left room from the socket's explicit subscriptions", async () => {

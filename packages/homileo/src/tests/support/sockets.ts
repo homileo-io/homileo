@@ -1,9 +1,11 @@
 import { io as connect, type Socket as ClientSocket } from "socket.io-client";
+import { startFanout, stopFanout } from "../../websocket/fanout.js";
 import { initializeTereo } from "../../utils/tereo.js";
 import { createServer } from "http";
 import env from "../../env.js";
 import {
   closeSocketServer,
+  connectCheckOf,
   createSocketServer,
   type IOServer,
 } from "../../websocket/index.js";
@@ -99,22 +101,41 @@ export interface LocalSocketServer {
 /**
  * A socket server in the test's own process, on an ephemeral port, sharing Redis with the
  * shared server. Tests that inspect rooms or server-side sockets connect here: the shared
- * server runs in vitest's main process, out of reach.
+ * server runs in vitest's main process, out of reach. With `fanout`, it pushes the changes
+ * committed in this process (through `startV1App`), as the node that made them.
  */
-export const startSocketServer = async (): Promise<LocalSocketServer> => {
+export const startSocketServer = async (
+  o: { fanout?: boolean } = {}
+): Promise<LocalSocketServer> => {
   await initializeTereo();
   const http = createServer();
   const io = await createSocketServer(http);
+  if (o.fanout) startFanout(io);
   await new Promise<void>((resolve) => http.listen(0, resolve));
   const { port } = http.address() as { port: number };
   return {
     io,
     url: `http://localhost:${port}`,
     close: async () => {
+      await stopFanout(io);
       await closeSocketServer(io);
       await new Promise((resolve) => http.close(resolve));
     },
   };
+};
+
+/**
+ * A socket connected to `server` with `token`, once the re-check it gets after joining its
+ * rooms has run: a test that changes access next would otherwise race it.
+ */
+export const openLocalSocket = async (
+  token: string | null,
+  server: LocalSocketServer
+): Promise<ClientSocket> => {
+  const socket = await openSocket(token, server.url);
+  const onServer = server.io.of("/").sockets.get(socket.id!);
+  if (onServer) await connectCheckOf(onServer);
+  return socket;
 };
 
 /** The ids of this node's sockets in `room`. */
@@ -123,3 +144,25 @@ export const socketsIn = async (
   room: string
 ): Promise<string[]> =>
   (await io.local.in(room).fetchSockets()).map((s) => s.id).sort();
+
+/** Every `type` event `socket` receives from now on, in arrival order. */
+export const collect = <T = unknown>(
+  socket: ClientSocket,
+  type: string
+): T[] => {
+  const received: T[] = [];
+  socket.on(type, (payload: T) => received.push(payload));
+  return received;
+};
+
+/** Resolves once `check` holds, polling every 20 ms; rejects after `timeoutMs`. */
+export const eventually = async (
+  check: () => boolean | Promise<boolean>,
+  timeoutMs = 2000
+): Promise<void> => {
+  const until = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > until) throw new Error(`not within ${timeoutMs} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};

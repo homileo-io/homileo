@@ -91,10 +91,13 @@ export const recheckSockets = async (
 ): Promise<Map<string, string[]>> => {
   const left = new Map<string, string[]>();
   const targets = sockets.filter((s) => s.data?.caller);
+  // Rooms joined while the facts load were checked by whatever joined them, and have no
+  // facts loaded here: judging them would leave them.
+  const roomsOf = new Map(targets.map((s) => [s.id, [...s.rooms]]));
   const sessionIds = new Set<string>();
   const spaceIds = new Set<string>();
   for (const socket of targets) {
-    for (const room of socket.rooms) {
+    for (const room of roomsOf.get(socket.id) ?? []) {
       const sessionId = sessionIdOf(room);
       if (sessionId) sessionIds.add(sessionId);
       const spaceId = spaceIdOf(room);
@@ -147,7 +150,8 @@ export const recheckSockets = async (
     const leaving: string[] = [];
     // Spaces with a session room the socket keeps.
     const keptSpaces = new Set<string>();
-    for (const room of socket.rooms) {
+    const rooms = roomsOf.get(socket.id) ?? [];
+    for (const room of rooms) {
       const sessionId = sessionIdOf(room);
       if (sessionId) {
         const session = sessionOf.get(sessionId);
@@ -175,7 +179,7 @@ export const recheckSockets = async (
         if (!facts || !canReadSpace(c, facts)) leaving.push(room);
       }
     }
-    for (const room of socket.rooms) {
+    for (const room of rooms) {
       const spaceId = spaceOfIdOf(room);
       if (spaceId && !keptSpaces.has(spaceId)) leaving.push(room);
     }

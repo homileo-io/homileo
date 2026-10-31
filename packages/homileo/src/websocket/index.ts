@@ -3,12 +3,13 @@ import { handleEphemeral, startPresenceSweep } from "./ephemeral.js";
 import { authenticateSocket, closeAtExpiry } from "./auth.js";
 import { redisRetryStrategy } from "../utils/redisRetry.js";
 import { closeRedisClient, redis } from "../utils/redis.js";
+import { recheckSockets, roomsOnConnect } from "./rooms.js";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { handleSubscriptions } from "./subscriptions.js";
 import type { AppSocket, IOServer } from "./types.js";
+import { startFanout, stopFanout } from "./fanout.js";
 import type { Server as HttpServer } from "http";
 import { logger } from "../utils/logger.js";
-import { roomsOnConnect } from "./rooms.js";
 import type { Redis } from "ioredis";
 import { Server } from "socket.io";
 import env from "../env.js";
@@ -73,6 +74,12 @@ const createRedisClient = (role: "pub" | "sub"): Redis => {
 const adapterKey = () =>
   `${env.SERVICE_NAME}:${redis.options.db ?? 0}:socket.io`;
 
+const connectChecks = new WeakMap<AppSocket, Promise<void>>();
+
+/** Settles once the re-check a socket gets right after joining its rooms has run. */
+export const connectCheckOf = (socket: AppSocket): Promise<void> =>
+  connectChecks.get(socket) ?? Promise.resolve();
+
 interface Instance {
   pub: Redis;
   sub: Redis;
@@ -128,6 +135,20 @@ export const createSocketServer = async (
   io.on("connection", (socket: AppSocket) => {
     void socket.join(initialRooms.get(socket) ?? []);
     initialRooms.delete(socket);
+    // A revocation between the handshake's load and the joins above re-checked the
+    // principal's sockets before this one was in those rooms: check once more.
+    connectChecks.set(
+      socket,
+      recheckSockets([socket]).then(
+        () => undefined,
+        (err: unknown) => {
+          logger.error(
+            { err, principalId: socket.data.caller.principalId },
+            "Re-checking a new socket's rooms failed"
+          );
+        }
+      )
+    );
     closeAtExpiry(socket);
     limitEvents(socket);
     handleSubscriptions(socket);
@@ -163,6 +184,7 @@ export const attachSockets = async (http: HttpServer): Promise<void> => {
   if (io) throw new Error("Sockets are already attached");
   io = await createSocketServer(http);
   stopPresenceSweep = startPresenceSweep(io);
+  startFanout(io);
   logger.info("Socket server attached on /ws");
 };
 
@@ -177,6 +199,7 @@ export const closeSockets = async (): Promise<void> => {
   io = null;
   stopPresenceSweep?.();
   stopPresenceSweep = null;
+  await stopFanout(closing);
   await closeSocketServer(closing);
 };
 

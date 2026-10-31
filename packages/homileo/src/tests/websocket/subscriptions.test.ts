@@ -12,7 +12,7 @@ import {
   userRoom,
 } from "../../realtime/rooms.js";
 import {
-  openSocket,
+  openLocalSocket,
   request,
   socketsIn,
   startSocketServer,
@@ -25,9 +25,9 @@ let local: LocalSocketServer;
 const opened: ClientSocket[] = [];
 
 const connectAs = async (who: Principal, org: string) => {
-  const socket = await openSocket(
+  const socket = await openLocalSocket(
     personToken({ userId: who.tereoUserId!, org }),
-    local.url
+    local
   );
   opened.push(socket);
   return socket;
@@ -278,5 +278,27 @@ describe("unsubscribe", () => {
     expect(rooms.has(sessionRoom(session.id))).toBe(true);
     expect(rooms.has(spaceOfRoom(space.id))).toBe(true);
     expect(rooms.has(spaceRoom(space.id))).toBe(true);
+  });
+
+  it("keeps a subscribed room once its subscriber became a participant or member there, though still listed", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const socket = await connectAs(who, org);
+    await request(socket, "subscribe", { sessionId: session.id });
+    await request(socket, "subscribe", { spaceId: space.id });
+    // Joined for this on another node, which could not touch this socket's list.
+    await fixtures.participant(session, who);
+    await fixtures.member(space, who);
+
+    await request(socket, "unsubscribe", { sessionId: session.id });
+    await request(socket, "unsubscribe", { spaceId: space.id });
+
+    const server = serverSocket(socket);
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+    expect(server.rooms.has(spaceRoom(space.id))).toBe(true);
+    expect(server.data.subscriptions.size).toBe(0);
   });
 });

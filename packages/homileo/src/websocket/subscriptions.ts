@@ -84,6 +84,26 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
   return OK;
 };
 
+/** Whether the socket's principal takes part in the session, or is a member of the space. */
+const joinedForAccess = async (
+  socket: AppSocket,
+  target: { sessionId: string } | { spaceId: string }
+): Promise<boolean> => {
+  const userId = socket.data.caller.principalId;
+  if ("sessionId" in target) {
+    const participant = await prisma.sessionParticipant.findFirst({
+      where: { sessionId: target.sessionId, userId, leftAt: null },
+      select: { userId: true },
+    });
+    return participant !== null;
+  }
+  const member = await prisma.spaceMember.findUnique({
+    where: { spaceId_userId: { spaceId: target.spaceId, userId } },
+    select: { userId: true },
+  });
+  return member !== null;
+};
+
 const unsubscribe = async (
   socket: AppSocket,
   payload: unknown
@@ -96,6 +116,8 @@ const unsubscribe = async (
       : spaceRoom(target.spaceId);
   // Rooms joined for membership or participation are never left here.
   if (!socket.data.subscriptions.delete(room)) return OK;
+  // Another node may have joined it for either since: it could not update this list.
+  if (await joinedForAccess(socket, target)) return OK;
   await socket.leave(room);
 
   if ("sessionId" in target) {
