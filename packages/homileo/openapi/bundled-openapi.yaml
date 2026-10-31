@@ -31,7 +31,7 @@ info:
 
     Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
     `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
-    instead, as their routes describe.
+    instead, as their routes describe, and `GET /v1/sync` by its own `since` cursor.
 
     ## Errors
 
@@ -61,6 +61,8 @@ tags:
     description: Conversations, in a space or on their own, and direct messages
   - name: Messages
     description: Messages, thread replies and mentions
+  - name: Events
+    description: Catching up on the events the socket delivers
 paths:
   /health:
     get:
@@ -1709,6 +1711,51 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+  /v1/sync:
+    get:
+      tags:
+        - Events
+      summary: Catch up on events
+      description: |
+        The events the caller would have received on the socket after `since`, with the same ids, in
+        commit order. A client calls it on reconnect, with the socket already connected and
+        buffering, until `hasMore` is false, then applies the buffered socket events, skipping ids it
+        has seen. Without `since` it returns no events and the head as `next`.
+
+        An event is returned when the caller can read its session or space **now** and is one of:
+        - a current participant of the event's session (session events);
+        - a member of the event's space (space events, and `session.created`, `session.updated` and
+          `session.archived` of an `access: space` session in it);
+        - the principal a member, join-request or participant event names;
+        - the target of a personal event (`read.updated`, the access revocations); a revocation is
+          left out while the caller can still read the resource;
+        - mentioned in a `message.created` or `message.edited`;
+        - or the session or space is named in `sessionIds` / `spaceIds`.
+
+        Events of other organizations are never returned.
+
+        **Required permissions:** none; any signed-in caller in an organization.
+      operationId: sync
+      parameters:
+        - $ref: '#/components/parameters/SyncSinceParam'
+        - $ref: '#/components/parameters/SyncLimitParam'
+        - $ref: '#/components/parameters/SyncSessionIdsParam'
+        - $ref: '#/components/parameters/SyncSpaceIdsParam'
+      responses:
+        '200':
+          description: A page of the caller's events and the cursor to continue from
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '410':
+          $ref: '#/components/responses/SyncResyncRequiredResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -2346,6 +2393,52 @@ components:
       schema:
         type: string
         format: uuid
+    SyncSinceParam:
+      name: since
+      in: query
+      required: false
+      description: |
+        The `next` of the previous `/v1/sync` response, as it was returned: an opaque cursor. Omit it
+        to get the head, the position a reader starting now begins from. A malformed cursor is
+        `400 invalid_request`.
+      schema:
+        type: string
+        minLength: 1
+    SyncLimitParam:
+      name: limit
+      in: query
+      required: false
+      description: |
+        How many events of the log to read. Events the caller may not receive are read and left out,
+        so a page can hold fewer, even none, while `hasMore` is true.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    SyncSessionIdsParam:
+      name: sessionIds
+      in: query
+      required: false
+      description: |
+        Up to 50 session ids, comma-separated, whose events to return as if the caller were
+        subscribed to them on the socket. Sessions the caller cannot read are ignored.
+      schema:
+        type: string
+        examples:
+          - 0194c0de-0000-7000-8000-000000000006,0194c0de-0000-7000-8000-000000000007
+    SyncSpaceIdsParam:
+      name: spaceIds
+      in: query
+      required: false
+      description: |
+        Up to 50 space ids, comma-separated, whose space events (and the lifecycle events of their
+        `access: space` sessions) to return as if the caller were subscribed to them. Spaces the
+        caller cannot read are ignored.
+      schema:
+        type: string
+        examples:
+          - 0194c0de-0000-7000-8000-000000000003
   responses:
     BadRequestResponse:
       description: Bad request - `invalid_request` (with `issues`), `organization_required` when the token has no organization, or an operation's own 400 code
@@ -2385,6 +2478,15 @@ components:
             $ref: '#/components/schemas/Error'
     NoContentResponse:
       description: Done; no content
+    SyncResyncRequiredResponse:
+      description: |
+        Gone - `resync_required`: the cursor is older than the oldest retained events (plus a 10 minute
+        margin). Events may be missing after it; reload the state through the REST API and start again
+        from a new head (`GET /v1/sync` without `since`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
     Error:
       type: object
@@ -3993,6 +4095,96 @@ components:
               type: string
               description: Id of the event row; the same id realtime delivery and `GET /v1/sync` carry
           additionalProperties: true
+    EventEnvelope:
+      type: object
+      description: |
+        One event, the same on the socket (where the socket.io event name is its `type`) and from
+        `GET /v1/sync`. `payload` is the type's payload as `@homileo-io/sdk`'s `EVENT_TYPES`
+        defines it: for a webhook event type, its webhook's `data` without `eventId`.
+      required:
+        - id
+        - type
+        - createdAt
+        - organizationId
+        - spaceId
+        - sessionId
+        - actorId
+        - payload
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: ^\d+$
+          description: The event id, a decimal string. A client drops an id it has already applied.
+          examples:
+            - '1042'
+        type:
+          type: string
+          enum:
+            - space.created
+            - space.updated
+            - space.archived
+            - space.member_added
+            - space.member_removed
+            - space.member_role_changed
+            - space.join_requested
+            - space.join_decided
+            - session.created
+            - session.updated
+            - session.archived
+            - session.participant_added
+            - session.participant_removed
+            - message.created
+            - message.edited
+            - message.deleted
+            - reaction.added
+            - reaction.removed
+            - thread.updated
+            - read.updated
+            - space.access_revoked
+            - session.access_revoked
+        createdAt:
+          type: string
+          format: date-time
+        organizationId:
+          type: string
+          format: uuid
+        spaceId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        sessionId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        actorId:
+          type: string
+          format: uuid
+          description: The principal whose request recorded the event
+        payload:
+          type: object
+          description: The type's payload
+    SyncResponse:
+      type: object
+      required:
+        - events
+        - next
+        - hasMore
+      additionalProperties: false
+      properties:
+        events:
+          type: array
+          description: The caller's events, in commit order
+          items:
+            $ref: '#/components/schemas/EventEnvelope'
+        next:
+          type: string
+          description: The cursor to pass as `since` next, also when `events` is empty
+        hasMore:
+          type: boolean
+          description: Whether events remain past `next`; call again with it until this is false
     MePrincipal:
       type: object
       description: The caller's principal
@@ -4048,6 +4240,9 @@ x-tagGroups:
   - name: Messages
     tags:
       - Messages
+  - name: Events
+    tags:
+      - Events
   - name: Principals
     tags:
       - Principals

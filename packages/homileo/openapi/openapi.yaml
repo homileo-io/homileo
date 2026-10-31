@@ -31,7 +31,7 @@ info:
 
     Lists take `limit` (default 50, at most 100) and an opaque `cursor`, and answer
     `{ data, nextCursor }`, where `nextCursor` is `null` on the last page. Messages page by `seq`
-    instead, as their routes describe.
+    instead, as their routes describe, and `GET /v1/sync` by its own `since` cursor.
 
     ## Errors
 
@@ -68,6 +68,8 @@ tags:
 
   - name: Messages
     description: Messages, thread replies and mentions
+  - name: Events
+    description: Catching up on the events the socket delivers
 
 x-tagGroups:
   - name: Spaces
@@ -76,6 +78,8 @@ x-tagGroups:
     tags: [Sessions]
   - name: Messages
     tags: [Messages]
+  - name: Events
+    tags: [Events]
   - name: Principals
     tags: [Principals]
   - name: Platform
@@ -147,6 +151,8 @@ paths:
     $ref: './paths/messages/thread-read.yaml#/~1v1~1threads~1{rootId}~1read'
   /v1/threads/{rootId}/follow:
     $ref: './paths/messages/thread-follow.yaml#/~1v1~1threads~1{rootId}~1follow'
+  /v1/sync:
+    $ref: './paths/events/sync.yaml#/~1v1~1sync'
 
 components:
   securitySchemes:
@@ -331,6 +337,10 @@ components:
       $ref: './components/messages/schemas.yaml#/ThreadUpdatedEventData'
     WebhookEvent:
       $ref: './components/webhook-schemas.yaml#/WebhookEvent'
+    EventEnvelope:
+      $ref: './components/events/schemas.yaml#/EventEnvelope'
+    SyncResponse:
+      $ref: './components/events/schemas.yaml#/SyncResponse'
 
 # Each event type's webhook is added by the task that emits it.
 webhooks:

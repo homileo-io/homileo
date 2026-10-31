@@ -1,0 +1,40 @@
+/v1/sync:
+  get:
+    tags: [Events]
+    summary: Catch up on events
+    description: |
+      The events the caller would have received on the socket after `since`, with the same ids, in
+      commit order. A client calls it on reconnect, with the socket already connected and
+      buffering, until `hasMore` is false, then applies the buffered socket events, skipping ids it
+      has seen. Without `since` it returns no events and the head as `next`.
+
+      An event is returned when the caller can read its session or space **now** and is one of:
+      - a current participant of the event's session (session events);
+      - a member of the event's space (space events, and `session.created`, `session.updated` and
+        `session.archived` of an `access: space` session in it);
+      - the principal a member, join-request or participant event names;
+      - the target of a personal event (`read.updated`, the access revocations); a revocation is
+        left out while the caller can still read the resource;
+      - mentioned in a `message.created` or `message.edited`;
+      - or the session or space is named in `sessionIds` / `spaceIds`.
+
+      Events of other organizations are never returned.
+
+      **Required permissions:** none; any signed-in caller in an organization.
+    operationId: sync
+    parameters:
+      - $ref: '../../components/events/parameters.yaml#/SyncSinceParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncLimitParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncSessionIdsParam'
+      - $ref: '../../components/events/parameters.yaml#/SyncSpaceIdsParam'
+    responses:
+      '200':
+        description: A page of the caller's events and the cursor to continue from
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/events/schemas.yaml#/SyncResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

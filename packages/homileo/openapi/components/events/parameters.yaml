@@ -1,0 +1,49 @@
+SyncSinceParam:
+  name: since
+  in: query
+  required: false
+  description: |
+    The `next` of the previous `/v1/sync` response, as it was returned: an opaque cursor. Omit it
+    to get the head, the position a reader starting now begins from. A malformed cursor is
+    `400 invalid_request`.
+  schema:
+    type: string
+    minLength: 1
+
+SyncLimitParam:
+  name: limit
+  in: query
+  required: false
+  description: |
+    How many events of the log to read. Events the caller may not receive are read and left out,
+    so a page can hold fewer, even none, while `hasMore` is true.
+  schema:
+    type: integer
+    minimum: 1
+    maximum: 500
+    default: 100
+
+SyncSessionIdsParam:
+  name: sessionIds
+  in: query
+  required: false
+  description: |
+    Up to 50 session ids, comma-separated, whose events to return as if the caller were
+    subscribed to them on the socket. Sessions the caller cannot read are ignored.
+  schema:
+    type: string
+    examples:
+      - 0194c0de-0000-7000-8000-000000000006,0194c0de-0000-7000-8000-000000000007
+
+SyncSpaceIdsParam:
+  name: spaceIds
+  in: query
+  required: false
+  description: |
+    Up to 50 space ids, comma-separated, whose space events (and the lifecycle events of their
+    `access: space` sessions) to return as if the caller were subscribed to them. Spaces the
+    caller cannot read are ignored.
+  schema:
+    type: string
+    examples:
+      - 0194c0de-0000-7000-8000-000000000003

@@ -1,0 +1,70 @@
+EventEnvelope:
+  type: object
+  description: |
+    One event, the same on the socket (where the socket.io event name is its `type`) and from
+    `GET /v1/sync`. `payload` is the type's payload as `@homileo-io/sdk`'s `EVENT_TYPES`
+    defines it: for a webhook event type, its webhook's `data` without `eventId`.
+  required: [id, type, createdAt, organizationId, spaceId, sessionId, actorId, payload]
+  additionalProperties: false
+  properties:
+    id:
+      type: string
+      pattern: '^\d+$'
+      description: The event id, a decimal string. A client drops an id it has already applied.
+      examples: ['1042']
+    type:
+      type: string
+      enum:
+        - space.created
+        - space.updated
+        - space.archived
+        - space.member_added
+        - space.member_removed
+        - space.member_role_changed
+        - space.join_requested
+        - space.join_decided
+        - session.created
+        - session.updated
+        - session.archived
+        - session.participant_added
+        - session.participant_removed
+        - message.created
+        - message.edited
+        - message.deleted
+        - reaction.added
+        - reaction.removed
+        - thread.updated
+        - read.updated
+        - space.access_revoked
+        - session.access_revoked
+    createdAt: { type: string, format: date-time }
+    organizationId: { type: string, format: uuid }
+    spaceId:
+      type: [string, 'null']
+      format: uuid
+    sessionId:
+      type: [string, 'null']
+      format: uuid
+    actorId:
+      type: string
+      format: uuid
+      description: The principal whose request recorded the event
+    payload:
+      type: object
+      description: The type's payload
+
+SyncResponse:
+  type: object
+  required: [events, next, hasMore]
+  additionalProperties: false
+  properties:
+    events:
+      type: array
+      description: The caller's events, in commit order
+      items: { $ref: '#/EventEnvelope' }
+    next:
+      type: string
+      description: The cursor to pass as `since` next, also when `events` is empty
+    hasMore:
+      type: boolean
+      description: Whether events remain past `next`; call again with it until this is false
