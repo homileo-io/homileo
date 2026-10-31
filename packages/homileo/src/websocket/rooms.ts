@@ -212,14 +212,44 @@ export const recheckSockets = async (
     for (const room of dropping) {
       if (!keptSpaces.has(spaceOfIdOf(room) ?? "")) leaving.push(room);
     }
-    for (const room of leaving) {
-      await socket.leave(room);
-      // A remote socket's data is a copy: its own node prunes on its next subscribe.
-      if (socket.data.subscriptions instanceof Set) {
-        socket.data.subscriptions.delete(room);
-      }
-    }
+    await leaveRooms(socket, leaving);
     left.set(socket.id, leaving);
   }
   return left;
+};
+
+/**
+ * Leaves `rooms`, explicit subscriptions included. A remote socket's data is a copy: its own
+ * node prunes the subscription on its next subscribe.
+ */
+export const leaveRooms = async (
+  socket: AppSocket | AppRemoteSocket,
+  rooms: string[]
+): Promise<void> => {
+  for (const room of rooms) {
+    await socket.leave(room);
+    if (socket.data.subscriptions instanceof Set) {
+      socket.data.subscriptions.delete(room);
+    }
+  }
+};
+
+/**
+ * Leaves `spaceof:<spaceId>` unless the socket is still in a session room of that space,
+ * `except` aside (a room it is leaving).
+ */
+export const leaveSpaceOfIfUnused = async (
+  socket: AppSocket | AppRemoteSocket,
+  spaceId: string,
+  except: string
+): Promise<void> => {
+  const others = [...socket.rooms].flatMap((room) => {
+    const id = room === except ? null : sessionIdOf(room);
+    return id ? [id] : [];
+  });
+  const remaining =
+    others.length === 0
+      ? 0
+      : await prisma.session.count({ where: { id: { in: others }, spaceId } });
+  if (remaining === 0) await socket.leave(spaceOfRoom(spaceId));
 };

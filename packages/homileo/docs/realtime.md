@@ -123,13 +123,24 @@ reaches other nodes through the Redis adapter. A failed step is logged and the r
 
 ## Losing access
 
+- **Removal leaves the room.** On `session.participant_removed`, every socket of the removed
+  principal, on every node, leaves `session:<id>` (and `spaceof:` once no session room of that space
+  remains); on `space.member_removed`, it leaves `space:<id>`. This holds even when the principal
+  can still read the resource (a public space, an `access: space` session, a kind grant), and it
+  drops an explicit subscription to it too: to keep following it, the client subscribes again.
+  The removal event itself still reaches them.
 - After a revocation for a principal, every socket of theirs is re-checked, and each `session:` or
-  `space:` room it can no longer read is left. A space revocation therefore also drops that space's
+  `space:` room it can no longer read is left. The revocation goes to each socket of theirs that,
+  judged by its own token, cannot read the resource, whether or not it was following it. A space revocation therefore also drops that space's
   session rooms, and `spaceof:` once no session room of the space remains.
 - After `space.updated` or `session.updated`, the sockets in that resource's room (and `spaceof:`
-  for a space) are re-checked. The payload holds only the new state, so the re-check runs only when
-  the new state could narrow access: a `members` space, or a `members` session. A `public` space or
-  an `access: space` session cannot lock anyone out and is not re-checked.
+  for a space) are re-checked before the update is sent, so a socket that lost access with it does
+  not receive it. The payload holds only the new state, so the re-check runs only when the new
+  state could narrow access: a `members` space, or a `members` session. A `public` space or an
+  `access: space` session cannot lock anyone out and is not re-checked.
+- Narrowing visibility records no revocation event: the subscribers it locks out are dropped from
+  the room silently. Only removing a member or participant revokes, and only when they cannot read
+  the resource any more.
 - Every 300 s each node re-checks all its local sockets, as a backstop for changes that record no
   event (a kind grant changed by provisioning).
 - A re-check uses the socket's own caller, so a token's permissions, not the principal's current

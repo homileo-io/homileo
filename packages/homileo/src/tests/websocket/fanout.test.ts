@@ -211,6 +211,32 @@ describe("startFanout", () => {
   });
 
   describe("visibility", () => {
+    it("sends space.updated only to the sockets that can still read the space", async () => {
+      const space = await fixtures.space({ org, visibility: "public" });
+      await fixtures.member(space, owner.principal, "owner");
+      const outsider = await api.actor(org);
+      const member = await api.actor(org);
+      await fixtures.member(space, member.principal);
+      const outside = await connect(outsider);
+      const inside = await connect(member);
+      expect(
+        await request(outside, "subscribe", { spaceId: space.id })
+      ).toEqual(SUBSCRIBED);
+      const silent = noEvent(outside, "space.updated", 500);
+      const arriving = nextEvent(inside, "space.updated");
+
+      const patched = await fetchJson(
+        "PATCH",
+        `${app.url}/v1/spaces/${space.id}`,
+        owner.token,
+        { visibility: "members" }
+      );
+      expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+
+      await arriving;
+      await silent;
+    });
+
     it("drops non-members' subscribed sockets from a space's session rooms when it turns members-only", async () => {
       const space = await fixtures.space({ org, visibility: "public" });
       const session = await fixtures.session({ space, access: "space" });

@@ -1,19 +1,15 @@
+import { sessionRoom, spaceOfRoom, spaceRoom } from "../realtime/rooms.js";
 import { readableSession, readableSpace } from "../utils/access.js";
 import { NotFoundError, issuesOf } from "../utils/errors.js";
 import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import type { Ack, AckError, AppSocket } from "./types.js";
+import { leaveSpaceOfIfUnused } from "./rooms.js";
 import { IdSchema } from "../utils/idSchema.js";
 import { MAX_SUBSCRIPTIONS } from "./limits.js";
 import { prisma } from "../utils/db/prisma.js";
 import { logger } from "../utils/logger.js";
 import { db } from "../utils/db/index.js";
 import { z } from "zod";
-import {
-  sessionIdOf,
-  sessionRoom,
-  spaceOfRoom,
-  spaceRoom,
-} from "../realtime/rooms.js";
 
 export const SubscriptionTargetSchema = z.union([
   z.strictObject({ sessionId: IdSchema }),
@@ -137,14 +133,7 @@ const unsubscribe = async (
       select: { spaceId: true },
     });
     if (session?.spaceId) {
-      const others = [...socket.rooms].flatMap((r) => {
-        const id = sessionIdOf(r);
-        return id ? [id] : [];
-      });
-      const remaining = await prisma.session.count({
-        where: { id: { in: others }, spaceId: session.spaceId },
-      });
-      if (remaining === 0) await socket.leave(spaceOfRoom(session.spaceId));
+      await leaveSpaceOfIfUnused(socket, session.spaceId, room);
     }
   }
   return OK;

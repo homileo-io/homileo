@@ -1,12 +1,19 @@
-import { eventAudience, mentionedMessageOf } from "../realtime/audience.js";
+import { leaveRooms, leaveSpaceOfIfUnused, recheckSockets } from "./rooms.js";
 import type { AppRemoteSocket, AppSocket, IOServer } from "./types.js";
+import { readableSession, readableSpace } from "../utils/access.js";
 import type { ChangeEvent } from "../utils/changes.js";
+import type { Caller } from "../middleware/auth.js";
+import { NotFoundError } from "../utils/errors.js";
 import { changeBus } from "../utils/changeBus.js";
 import { prisma } from "../utils/db/prisma.js";
 import { eventView } from "../views/event.js";
 import { logger } from "../utils/logger.js";
-import { recheckSockets } from "./rooms.js";
 import { db } from "../utils/db/index.js";
+import {
+  eventAudience,
+  mentionedMessageOf,
+  targetOf,
+} from "../realtime/audience.js";
 import {
   sessionRoom,
   spaceOfRoom,
@@ -31,14 +38,37 @@ const field = (payload: unknown, key: string): string | null => {
   return typeof value === "string" ? value : null;
 };
 
-/** The rooms whose loss a revocation reports. */
-const revokedRooms = (e: ChangeEvent): string[] => {
-  if (e.type === "session.access_revoked") {
-    const sessionId = field(e.payload, "sessionId");
-    return sessionId ? [sessionRoom(sessionId)] : [];
+/** Whether `caller` can still read what a revocation reports lost. */
+const stillReads = async (caller: Caller, e: ChangeEvent): Promise<boolean> => {
+  try {
+    if (e.type === "session.access_revoked") {
+      const sessionId = field(e.payload, "sessionId");
+      if (!sessionId) return false;
+      await readableSession(caller, sessionId);
+    } else {
+      const spaceId = field(e.payload, "spaceId");
+      if (!spaceId) return false;
+      await readableSpace(caller, spaceId);
+    }
+    return true;
+  } catch (err) {
+    if (err instanceof NotFoundError) return false;
+    throw err;
   }
-  const spaceId = field(e.payload, "spaceId");
-  return spaceId ? [spaceRoom(spaceId), spaceOfRoom(spaceId)] : [];
+};
+
+/**
+ * A removal takes the target's sockets out of the resource's room whatever they can still
+ * read: following it again is a `subscribe`.
+ */
+const removedFrom = (e: ChangeEvent): string | null => {
+  if (e.type === "session.participant_removed" && e.sessionId) {
+    return sessionRoom(e.sessionId);
+  }
+  if (e.type === "space.member_removed" && e.spaceId) {
+    return spaceRoom(e.spaceId);
+  }
+  return null;
 };
 
 /**
@@ -121,31 +151,50 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
       }
     });
 
-    // socket.io sends once per socket across the union of the rooms.
-    if (audience.rooms.length > 0) io.to(audience.rooms).emit(e.type, view);
-
-    // A revocation goes to no room: only to the sockets that really lost the resource.
-    // Its removal event comes earlier in the batch, so the target has that already.
-    await step(e, "revocation", async () => {
-      for (const principalId of audience.recheck) {
-        const sockets = await socketsIn(io, [
-          userRoom(e.organizationId, principalId),
-        ]);
-        const left = await recheckSockets(sockets);
-        const reported = revokedRooms(e);
-        const lost = [...left]
-          .filter(([, rooms]) => rooms.some((r) => reported.includes(r)))
-          .map(([id]) => id);
-        if (lost.length > 0) io.to(lost).emit(e.type, view);
-      }
-    });
-
+    // Before the emit, so a socket that just lost access does not get the update.
     const updated = updatedRooms(e);
     if (updated.length > 0) {
       await step(e, "update recheck", async () => {
         await recheckSockets(await socketsIn(io, updated));
       });
     }
+
+    // socket.io sends once per socket across the union of the rooms.
+    if (audience.rooms.length > 0) io.to(audience.rooms).emit(e.type, view);
+
+    const removed = removedFrom(e);
+    const target = targetOf(e);
+    if (removed && target) {
+      await step(e, "removal", async () => {
+        const sockets = await socketsIn(io, [
+          userRoom(e.organizationId, target),
+        ]);
+        for (const socket of sockets) {
+          if (!socket.rooms.has(removed)) continue;
+          await leaveRooms(socket, [removed]);
+          if (e.type === "session.participant_removed" && e.spaceId) {
+            await leaveSpaceOfIfUnused(socket, e.spaceId, removed);
+          }
+        }
+      });
+    }
+
+    // A revocation goes to no room: only to the sockets that really lost the resource,
+    // judged by their own token, whether or not they were following it. Its removal event
+    // comes earlier in the batch, so the target has that already.
+    await step(e, "revocation", async () => {
+      for (const principalId of audience.recheck) {
+        const sockets = await socketsIn(io, [
+          userRoom(e.organizationId, principalId),
+        ]);
+        await recheckSockets(sockets);
+        const lost: string[] = [];
+        for (const socket of sockets) {
+          if (!(await stillReads(socket.data.caller, e))) lost.push(socket.id);
+        }
+        if (lost.length > 0) io.to(lost).emit(e.type, view);
+      }
+    });
   }
 };
 

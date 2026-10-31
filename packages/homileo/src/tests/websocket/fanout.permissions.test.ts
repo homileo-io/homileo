@@ -2,8 +2,8 @@
 // @module-tag websocket
 // @module-tag access
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { sessionRoom, spaceOfRoom, spaceRoom } from "../../realtime/rooms.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
-import { sessionRoom, spaceRoom } from "../../realtime/rooms.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
 import { sendMessage } from "../support/messageApi.js";
 import { startV1App } from "../support/v1App.js";
@@ -123,7 +123,7 @@ describe("startFanout losing access", () => {
     }
   );
 
-  it("sends no session.access_revoked to a removed participant who still reads through a kind grant, and keeps their room", async () => {
+  it("sends no session.access_revoked to a removed participant who still reads through a kind grant, and drops their room", async () => {
     const permission = `fanout-test.cases.read`;
     const kind = await api.kind(`fanout-test:${uuidv7().slice(-8)}`, {
       grants: [{ permission, access: "read" }],
@@ -169,11 +169,81 @@ describe("startFanout losing access", () => {
       granted.principal.id,
     ]);
     expect(revokedOnGranted).toEqual([]);
-    expect(
-      serverSocket(grantedSocket, local).rooms.has(sessionRoom(session.id))
-    ).toBe(true);
+    await eventually(
+      () =>
+        !serverSocket(grantedSocket, local).rooms.has(sessionRoom(session.id))
+    );
     expect(
       serverSocket(plainSocket, local).rooms.has(sessionRoom(session.id))
     ).toBe(false);
+  });
+
+  it.each([
+    ["on the committing node", () => local],
+    ["on another node", () => other],
+  ])(
+    "drops a removed member of a public space from its room %s, though they can still read it",
+    async (_where, nodeOf) => {
+      const node = nodeOf();
+      const space = await fixtures.space({ org, visibility: "public" });
+      await fixtures.member(space, owner.principal, "owner");
+      const alice = await api.actor(org);
+      await fixtures.member(space, alice.principal);
+      const socket = await connect(alice, node);
+      expect(serverSocket(socket, node).rooms.has(spaceRoom(space.id))).toBe(
+        true
+      );
+      const received = record(socket, [
+        "space.member_removed",
+        "space.access_revoked",
+      ]);
+
+      const removed = await fetchJson(
+        "DELETE",
+        `${app.url}/v1/spaces/${space.id}/members/${alice.principal.id}`,
+        owner.token
+      );
+      expect(removed.status, JSON.stringify(removed.body)).toBe(204);
+
+      await eventually(
+        () => !serverSocket(socket, node).rooms.has(spaceRoom(space.id))
+      );
+      expect(received).toEqual([["space.member_removed", alice.principal.id]]);
+      const silent = noEvent(socket, "space.updated", 500);
+      const patched = await fetchJson(
+        "PATCH",
+        `${app.url}/v1/spaces/${space.id}`,
+        owner.token,
+        { name: "renamed after the removal" }
+      );
+      expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+      await silent;
+    }
+  );
+
+  it("drops a removed participant of a public space's session from its room and spaceof:, though they can still read it", async () => {
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    await fixtures.member(space, owner.principal, "owner");
+    await fixtures.participant(session, owner.principal, "owner");
+    const alice = await api.actor(org);
+    await fixtures.participant(session, alice.principal);
+    const socket = await connect(alice);
+    const rooms = () => serverSocket(socket, local).rooms;
+    expect(rooms().has(sessionRoom(session.id))).toBe(true);
+    expect(rooms().has(spaceOfRoom(space.id))).toBe(true);
+
+    const removed = await fetchJson(
+      "DELETE",
+      `${app.url}/v1/sessions/${session.id}/participants/${alice.principal.id}`,
+      owner.token
+    );
+    expect(removed.status, JSON.stringify(removed.body)).toBe(204);
+
+    await eventually(() => !rooms().has(sessionRoom(session.id)));
+    await eventually(() => !rooms().has(spaceOfRoom(space.id)));
+    const silent = noEvent(socket, "message.created", 500);
+    await send(session.id, owner, "after the removal");
+    await silent;
   });
 });
