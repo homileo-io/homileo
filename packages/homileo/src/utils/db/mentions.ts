@@ -12,7 +12,8 @@ export interface MentionListParams {
   limit: number;
 }
 
-// Two sources, each ordered by message id and cut to `limit` before the join:
+// Two sources, each filtered like the final page, ordered by message id and
+// cut to `limit` (filtering after the cut would shorten pages and lose the cursor):
 // the caller's own mentions, and for each current participation the broadcast
 // mentions (here/session), read through `message_mentions_session_broadcast_idx`.
 const listQuery = (p: MentionListParams) => PrismaSql.sql`
@@ -21,8 +22,13 @@ const listQuery = (p: MentionListParams) => PrismaSql.sql`
     (
       SELECT mm.message_id
       FROM "chat"."message_mentions" mm
+      JOIN "chat"."messages" m ON m.id = mm.message_id
+      JOIN "chat"."sessions" s ON s.id = m.session_id
       WHERE mm.user_id = ${p.userId}::uuid
         AND (${p.before}::uuid IS NULL OR mm.message_id < ${p.before}::uuid)
+        AND m.deleted_at IS NULL
+        AND m.sender_id <> ${p.userId}::uuid
+        AND s.organization_id = ${p.organizationId}::uuid
       ORDER BY mm.message_id DESC
       LIMIT ${p.limit}
     )
@@ -33,9 +39,14 @@ const listQuery = (p: MentionListParams) => PrismaSql.sql`
       CROSS JOIN LATERAL (
         SELECT mm.message_id
         FROM "chat"."message_mentions" mm
+        JOIN "chat"."messages" m ON m.id = mm.message_id
+        JOIN "chat"."sessions" s ON s.id = m.session_id
         WHERE mm.session_id = sp.session_id
           AND mm.kind IN ('here', 'session')
           AND (${p.before}::uuid IS NULL OR mm.message_id < ${p.before}::uuid)
+          AND m.deleted_at IS NULL
+          AND m.sender_id <> ${p.userId}::uuid
+          AND s.organization_id = ${p.organizationId}::uuid
         ORDER BY mm.message_id DESC
         LIMIT ${p.limit}
       ) b

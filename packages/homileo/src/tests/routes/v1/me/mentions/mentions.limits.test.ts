@@ -122,4 +122,57 @@ describe("mentions at scale", () => {
       "message_mentions_session_broadcast_idx"
     );
   });
+
+  it("pages past newer rows the page would drop: own, deleted and from another organization", async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const other = await fixtures.principal();
+    const s = await fixtures.session({ org });
+    sessionIds.push(s.id);
+    await fixtures.participant(s, { id: me.principalId });
+    await fixtures.participant(s, other);
+    const foreign = await fixtures.session({ org: uuidv7() });
+    sessionIds.push(foreign.id);
+    await fixtures.participant(foreign, { id: me.principalId });
+    await fixtures.participant(foreign, other);
+
+    const real = [];
+    for (let i = 0; i < 3; i++) {
+      real.push(
+        await seed.add(s.id, other.id, { mentions: [{ kind: "here" }] })
+      );
+    }
+    // All newer than the real ones, and more than one page of them.
+    for (let i = 0; i < 3; i++) {
+      await seed.add(s.id, me.principalId, { mentions: [{ kind: "here" }] });
+      await seed.add(s.id, other.id, {
+        deleted: true,
+        mentions: [{ kind: "here" }],
+      });
+      await seed.add(foreign.id, other.id, { mentions: [{ kind: "here" }] });
+      await seed.add(s.id, other.id, {
+        deleted: true,
+        mentions: [{ kind: "user", userId: me.principalId }],
+      });
+    }
+
+    const url = `${env.PUBLIC_URL}/v1/me/mentions`;
+    const first = await fetchJson("GET", `${url}?limit=2`, me.token);
+    expect(first.status).toBe(200);
+    expect(
+      first.body.data.map((i: { message: { id: string } }) => i.message.id)
+    ).toEqual([real[2].id, real[1].id]);
+    expect(first.body.nextCursor).not.toBeNull();
+
+    const second = await fetchJson(
+      "GET",
+      `${url}?limit=2&cursor=${first.body.nextCursor}`,
+      me.token
+    );
+    expect(
+      second.body.data.map((i: { message: { id: string } }) => i.message.id)
+    ).toEqual([real[0].id]);
+    expect(second.body.nextCursor).toBeNull();
+  });
 });
