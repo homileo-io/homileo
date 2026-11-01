@@ -228,6 +228,24 @@ export const mentionedUserIds = async (
     })
   ).flatMap((m) => (m.userId === null ? [] : [m.userId]));
 
+/** The principals each message's stored `<@id>` mentions name, by message id, in one query. */
+export const mentionedUserIdsOf = async (
+  client: Client,
+  messageIds: string[]
+): Promise<Map<string, string[]>> => {
+  const byMessage = new Map<string, string[]>();
+  if (messageIds.length === 0) return byMessage;
+  const rows = await client.messageMention.findMany({
+    where: { messageId: { in: messageIds }, kind: "user" },
+    select: { messageId: true, userId: true },
+  });
+  for (const { messageId, userId } of rows) {
+    if (userId === null) continue;
+    byMessage.set(messageId, [...(byMessage.get(messageId) ?? []), userId]);
+  }
+  return byMessage;
+};
+
 /** Clears the content; revisions, reactions and attachments stay. */
 export const markDeleted = (
   tx: Tx,

@@ -13,7 +13,7 @@ export const lockedMessage = async (
   messageId: string
 ): Promise<MessageContext> => {
   const sessionId = await db.messages.sessionIdOf(tx, messageId);
-  if (sessionId) await db.sessions.lockSpaceOf(tx, sessionId, "share");
+  if (sessionId) await db.sessions.lockSpaceOf(tx, sessionId);
   return readableMessage(caller, messageId, { tx, lock: true });
 };
 

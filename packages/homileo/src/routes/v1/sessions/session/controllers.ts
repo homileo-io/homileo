@@ -29,7 +29,7 @@ export const updateSession = async (req: Request, res: Response) => {
   const body = validateBody(UpdateSessionBodySchema, req);
 
   const session = await withChanges(async (tx, record) => {
-    await db.sessions.lockSpaceOf(tx, sessionId, "share");
+    await db.sessions.lockSpaceOf(tx, sessionId);
     const { session: current, facts } = await readableSession(
       caller,
       sessionId,

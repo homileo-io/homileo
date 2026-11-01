@@ -291,3 +291,29 @@ export const readableSessions = async (
   }
   return readable;
 };
+
+/**
+ * The spaces among `spaceIds` the caller can read now, in their organization, by space id:
+ * the bulk counterpart of `readableSpace`, as `readableSessions` is of `readableSession`.
+ */
+export const readableSpaces = async (
+  c: Caller,
+  spaceIds: string[]
+): Promise<Map<string, Space>> => {
+  const readable = new Map<string, Space>();
+  if (spaceIds.length === 0) return readable;
+  const [spaces, members] = await Promise.all([
+    prisma.space.findMany({
+      where: { id: { in: spaceIds }, organizationId: c.organizationId },
+    }),
+    prisma.spaceMember.findMany({
+      where: { spaceId: { in: spaceIds }, userId: c.principalId },
+    }),
+  ]);
+  const roleOf = new Map(members.map((m) => [m.spaceId, m.role]));
+  for (const space of spaces) {
+    const facts = await spaceFactsFor(c, space, roleOf.get(space.id) ?? null);
+    if (canReadSpace(c, facts)) readable.set(space.id, space);
+  }
+  return readable;
+};

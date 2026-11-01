@@ -4,6 +4,7 @@ import * as principals from "./principals.js";
 import * as reactions from "./reactions.js";
 import * as sessions from "./sessions.js";
 import * as messages from "./messages.js";
+import * as mentions from "./mentions.js";
 import * as members from "./members.js";
 import * as threads from "./threads.js";
 import * as events from "./events.js";
@@ -22,6 +23,7 @@ export const db = {
   members,
   participants,
   messages,
+  mentions,
   reactions,
   threads,
 };

@@ -1,7 +1,7 @@
 // @module-tag int
 // @module-tag auth
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { authenticate, callerOf } from "../../middleware/auth.js";
+import { AppError, UnauthorizedError } from "../../utils/errors.js";
 import { setProfileLookup } from "../../utils/db/principals.js";
 import { initializeTereo } from "../../utils/tereo.js";
 import type { AuthServiceUser } from "@tereo-io/sdk";
@@ -11,6 +11,11 @@ import { fetchJson } from "../support/http.js";
 import { v7 as uuidv7 } from "uuid";
 import type { Server } from "http";
 import express from "express";
+import {
+  authenticate,
+  callerFromToken,
+  callerOf,
+} from "../../middleware/auth.js";
 
 const serve = async (
   app: express.Express
@@ -186,5 +191,67 @@ describe("principal loading", () => {
     await pause(100);
 
     expect(calls).toBe(1);
+  });
+});
+
+describe("callerFromToken", () => {
+  beforeAll(async () => {
+    await initializeTereo();
+  });
+
+  const refusal = (token: string) =>
+    callerFromToken(token).then(
+      () => {
+        throw new Error("expected a refusal");
+      },
+      (err: AppError) => err
+    );
+
+  it("returns the caller, principal and exp of a token with an organization", async () => {
+    const org = uuidv7();
+    const userId = uuidv7();
+
+    const { caller, principal, exp } = await callerFromToken(
+      `test-token-${userId}|org=${org}|perms=homileo.chat.admin`
+    );
+
+    expect(principal.tereoUserId).toBe(userId);
+    expect(caller).toEqual({
+      principalId: principal.id,
+      tereoUserId: userId,
+      isBot: false,
+      permissions: ["homileo.chat.admin"],
+      isAdmin: true,
+      organizationId: org,
+    });
+    expect(exp).toBeGreaterThan(Date.now() / 1000);
+  });
+
+  it("makes a service account's principal a bot", async () => {
+    const id = uuidv7();
+
+    const { caller } = await callerFromToken(
+      `test-token-${id}|client=${id}|org=${uuidv7()}`
+    );
+
+    expect(caller.isBot).toBe(true);
+  });
+
+  it("refuses an inactive token as unauthorized", async () => {
+    const err = await refusal("not-a-token");
+
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err.code).toBe("unauthorized");
+  });
+
+  it("refuses a token without an organization before creating a principal", async () => {
+    const userId = uuidv7();
+
+    const err = await refusal(`test-token-${userId}`);
+
+    expect(err.code).toBe("organization_required");
+    expect(
+      await prisma.principal.findFirst({ where: { tereoUserId: userId } })
+    ).toBeNull();
   });
 });

@@ -1,0 +1,9 @@
+SyncResyncRequiredResponse:
+  description: |
+    Gone - `resync_required`: the cursor is older than the oldest retained events (plus a 10 minute
+    margin). Events may be missing after it; reload the state through the REST API and start again
+    from a new head (`GET /v1/sync` without `since`).
+  content:
+    application/json:
+      schema:
+        $ref: '../responses.yaml#/Error'

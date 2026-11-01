@@ -128,6 +128,16 @@ export class AlreadyArchivedError extends ConflictError {
   }
 }
 
+/** A `/sync` cursor older than the retained events: the client reloads its state. */
+export class ResyncRequiredError extends AppError {
+  constructor(
+    message = "The cursor is older than the retained events; reload and sync from a new head"
+  ) {
+    super(410, "resync_required", message);
+    this.name = "ResyncRequiredError";
+  }
+}
+
 export class ManagedByProvisioningError extends AppError {
   constructor(
     message = "Managed by the provisioning file; change it there and restart the service"

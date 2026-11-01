@@ -25,36 +25,16 @@ export const listMentions = async (req: Request, res: Response) => {
   const before = cursor ? parseCursor(cursor) : null;
   const me = caller.principalId;
 
-  // User mentions need no participation (the session is re-checked below);
-  // here/session mentions count only where the caller currently participates.
-  const found = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT m.id::text AS id
-    FROM "chat"."messages" m
-    JOIN "chat"."sessions" s ON s.id = m.session_id
-    WHERE s.organization_id = ${caller.organizationId}::uuid
-      AND m.deleted_at IS NULL
-      AND m.sender_id <> ${me}::uuid
-      AND (${before}::uuid IS NULL OR m.id < ${before}::uuid)
-      AND EXISTS (
-        SELECT 1 FROM "chat"."message_mentions" mm
-        WHERE mm.message_id = m.id
-          AND (
-            mm.user_id = ${me}::uuid
-            OR (
-              mm.kind IN ('here', 'session')
-              AND EXISTS (
-                SELECT 1 FROM "chat"."session_participants" p
-                WHERE p.session_id = m.session_id
-                  AND p.user_id = ${me}::uuid
-                  AND p.left_at IS NULL
-              )
-            )
-          )
-      )
-    ORDER BY m.id DESC
-    LIMIT ${limit + 1}`;
+  // The session is re-checked below, so user mentions need no participation;
+  // here/session mentions come only from sessions the caller currently is in.
+  const found = await db.mentions.listIds(prisma, {
+    organizationId: caller.organizationId,
+    userId: me,
+    before,
+    limit: limit + 1,
+  });
 
-  const pageIds = found.slice(0, limit).map((r) => r.id);
+  const pageIds = found.slice(0, limit);
   const rows = await prisma.message.findMany({
     where: { id: { in: pageIds } },
   });

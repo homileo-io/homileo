@@ -1,9 +1,14 @@
-import { AppError, ForbiddenError } from "../utils/errors.js";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
+import type { AuthContext } from "@tereo-io/sdk";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
+import {
+  AppError,
+  ForbiddenError,
+  UnauthorizedError,
+} from "../utils/errors.js";
 
 export interface Caller {
   principalId: string;
@@ -28,32 +33,71 @@ declare global {
   }
 }
 
+/** The token's identity, as `requireAuth` reads it into `req.auth`. */
+type TokenIdentity = Pick<
+  AuthContext,
+  "userId" | "userType" | "name" | "permissions" | "organizationId"
+>;
+
+const organizationRequired = () =>
+  new AppError(
+    400,
+    "organization_required",
+    "This request needs an organization: use a token that has one"
+  );
+
+/** Finds or creates the token's principal and builds its caller; refuses a token without an organization. */
+const callerOfIdentity = async (
+  identity: TokenIdentity
+): Promise<{ caller: Caller; principal: Principal }> => {
+  // Refused before a principal is created for it.
+  if (!identity.organizationId) throw organizationRequired();
+  const principal = await db.principals.findOrCreateUser({
+    tereoUserId: identity.userId,
+    isBot: identity.userType === "service_account",
+    displayName: identity.name,
+  });
+  db.principals.refreshProfileInBackground(principal);
+  return {
+    principal,
+    caller: {
+      principalId: principal.id,
+      tereoUserId: identity.userId,
+      isBot: principal.isBot,
+      permissions: identity.permissions,
+      isAdmin: hasPermission(identity.permissions, "homileo.chat.admin"),
+      organizationId: identity.organizationId,
+    },
+  };
+};
+
+/**
+ * Introspects `token` with tereo, as `authenticate` does for a request: refuses an inactive
+ * token (`UnauthorizedError`) or one without `org_id` (`organization_required`). `exp` is the
+ * token's expiry in seconds since the epoch.
+ */
+export const callerFromToken = async (
+  token: string
+): Promise<{ caller: Caller; principal: Principal; exp: number | null }> => {
+  const res = await getTereo().auth.introspectToken(token);
+  if (!res.active) throw new UnauthorizedError("Invalid or expired token");
+  const { caller, principal } = await callerOfIdentity({
+    userId: res.user_id,
+    // As the SDK's `requireAuth` tells them apart: a client_credentials token's `sub` is its client.
+    userType:
+      res.sub && res.sub !== res.client_id ? "human" : "service_account",
+    name: res.name || null,
+    permissions: res.permissions || [],
+    organizationId: res.org_id || null,
+  });
+  return { caller, principal, exp: res.exp ?? null };
+};
+
 const authenticateAfterTereo: RequestHandler = async (req, _res, next) => {
   try {
-    const auth = req.auth!;
-    // Refused before a principal is created for it.
-    if (!auth.organizationId) {
-      throw new AppError(
-        400,
-        "organization_required",
-        "This request needs an organization: use a token that has one"
-      );
-    }
-    const principal = await db.principals.findOrCreateUser({
-      tereoUserId: auth.userId,
-      isBot: auth.userType === "service_account",
-      displayName: auth.name,
-    });
-    db.principals.refreshProfileInBackground(principal);
+    const { caller, principal } = await callerOfIdentity(req.auth!);
     req.principal = principal;
-    req.caller = {
-      principalId: principal.id,
-      tereoUserId: auth.userId,
-      isBot: principal.isBot,
-      permissions: auth.permissions,
-      isAdmin: hasPermission(auth.permissions, "homileo.chat.admin"),
-      organizationId: auth.organizationId,
-    };
+    req.caller = caller;
     next();
   } catch (err) {
     next(err);

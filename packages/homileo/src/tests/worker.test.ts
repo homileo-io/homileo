@@ -1,10 +1,17 @@
 // @module-tag int
 // @module-tag platform
 // @module-tag job
+import { processEventRetention } from "../jobs/eventRetention.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { partitionName } from "../utils/partitions.js";
 import { startWorker, stopWorker } from "../worker.js";
 import { prisma } from "../utils/db/prisma.js";
+
+// The clock here is years ahead of the real one, so a real run would expire
+// every partition the suite uses.
+vi.mock("../jobs/eventRetention.js", () => ({
+  processEventRetention: vi.fn().mockResolvedValue([]),
+}));
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 // Far from any real day, so the partitions the worker creates are ours to drop.
@@ -44,6 +51,7 @@ describe("worker", () => {
 
     await startWorker();
 
+    expect(processEventRetention).toHaveBeenCalledTimes(1);
     expect(
       await partitionExists(
         partitionName(new Date(START.getTime() + 7 * MS_PER_DAY))
@@ -56,5 +64,6 @@ describe("worker", () => {
     await vi.waitFor(async () => {
       expect(await partitionExists(dayEight)).toBe(true);
     });
+    expect(processEventRetention).toHaveBeenCalledTimes(2);
   });
 });

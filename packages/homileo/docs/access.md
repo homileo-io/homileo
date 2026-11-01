@@ -154,6 +154,14 @@ The design does not state these.
   bot. `<!here>` and `<!session>` are stored and send no email.
 
 
+## Sockets and `/sync`
+
+Socket subscriptions, the rooms a socket joins and `/sync` use the same policy functions. A
+`subscribe` is refused with `not_found` as a REST read would be. Rooms are re-checked with the
+socket's own token permissions when access may have been lost, and every 300 s as a backstop.
+Removing a member or participant takes their sockets out of the resource's room even when they can
+still read it (see [realtime.md](realtime.md)).
+
 ## Lock order
 
 Every mutation takes locks in one order, so two mutations cannot wait on each other: the space row,

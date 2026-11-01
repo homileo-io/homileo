@@ -632,3 +632,51 @@ describe("postRefusal", () => {
                   }
   });
 });
+
+describe("the archived-space axis", () => {
+  const states = [
+    ["participant", { participantRole: "member", space: inSpace() }],
+    [
+      "open public space, not a participant",
+      { space: space({ visibility: "public", joinPolicy: "open" }) },
+    ],
+  ] as const;
+
+  it.each(states)("%s: reading is unchanged, acting is refused", (_n, ss) => {
+    const live = session(ss);
+    const archived = session({
+      ...ss,
+      space: { ...ss.space, archived: true },
+    });
+    expect(canReadSession(caller(), archived)).toBe(
+      canReadSession(caller(), live)
+    );
+    expect(canReadSession(caller(), archived)).toBe(true);
+    expect(canPost(caller(), archived)).toBe(false);
+    expect(canReact(caller(), archived)).toBe(false);
+    expect(canJoinSession(caller(), archived)).toBe(false);
+  });
+});
+
+describe("a participant removed from a space-access session who stays in the space", () => {
+  const removed = session({ access: "space", space: inSpace() });
+
+  it("still reads it, cannot post or react, and can join again", () => {
+    expect(canReadSession(caller(), removed)).toBe(true);
+    expect(canPost(caller(), removed)).toBe(false);
+    expect(postRefusal(caller(), removed)).toBe("not_a_participant");
+    expect(canReact(caller(), removed)).toBe(false);
+    expect(
+      canJoinSession(
+        caller(),
+        session({
+          space: space({
+            role: "member",
+            joinPolicy: "invite",
+            visibility: "public",
+          }),
+        })
+      )
+    ).toBe(true);
+  });
+});

@@ -14,29 +14,35 @@ export const getThread = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
   const { after, limit } = validateQuery(ThreadQuerySchema, req);
-  const { message: root } = await readableMessage(caller, messageId);
-  if (root.threadRootId !== null) {
-    throw new BadRequestError(
-      "reply_to_reply",
-      "A reply has no thread of its own; ask for its root"
-    );
-  }
-
-  const { rows, hasAfter } = await db.threads.listReplies(
-    prisma,
-    root.id,
-    after,
-    limit
+  // One snapshot, so the root's replyCount matches the replies listed.
+  const { hasAfter, follower, views } = await prisma.$transaction(
+    async (tx) => {
+      const { message: root } = await readableMessage(caller, messageId, {
+        tx,
+      });
+      if (root.threadRootId !== null) {
+        throw new BadRequestError(
+          "reply_to_reply",
+          "A reply has no thread of its own; ask for its root"
+        );
+      }
+      const { rows, hasAfter } = await db.threads.listReplies(
+        tx,
+        root.id,
+        after,
+        limit
+      );
+      const follower = await db.threads.findFollower(
+        tx,
+        root.id,
+        caller.principalId
+      );
+      const views = await db.messages.loadViews(tx, [root, ...rows]);
+      return { hasAfter, follower, views };
+    },
+    { isolationLevel: "RepeatableRead" }
   );
-  const follower = await db.threads.findFollower(
-    prisma,
-    root.id,
-    caller.principalId
-  );
-  const [rootView, ...replies] = await db.messages.loadViews(prisma, [
-    root,
-    ...rows,
-  ]);
+  const [rootView, ...replies] = views;
   res.status(200).json({
     root: rootView,
     data: replies,

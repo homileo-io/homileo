@@ -1,8 +1,8 @@
-import { createPartition } from "./db/events.js";
+import { createPartition, dropPartition, listPartitions } from "./db/events.js";
 import { pgErrorCodes } from "./prismaErrors.js";
 import { logger } from "./logger.js";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const FUTURE_DAYS = 7;
 
 /** Midnight UTC of `now`'s day. Partition bounds and names are UTC dates. */
@@ -60,4 +60,43 @@ export async function ensureEventPartitions(
     ensured++;
   }
   return ensured;
+}
+
+/**
+ * Drops the partitions that ended on or before `retentionDays` before
+ * `today` (UTC). Idempotent; stops at the first whose table stayed locked and
+ * returns the names dropped before it.
+ */
+export async function dropExpiredPartitions(
+  today: Date,
+  retentionDays: number
+): Promise<string[]> {
+  const cutoff = utcDay(today).getTime() - retentionDays * MS_PER_DAY;
+  const dropped: string[] = [];
+  for (const p of await listPartitions()) {
+    if (p.to.getTime() > cutoff) continue;
+    if (!(await dropPartition(p.name))) {
+      logger.warn(
+        { partition: p.name },
+        "Events table locked; dropping the partition next run"
+      );
+      break;
+    }
+    dropped.push(p.name);
+  }
+  return dropped;
+}
+
+/** Throws unless the partitions for today and tomorrow (UTC) exist. */
+export async function assertCurrentPartitions(
+  today: Date = utcDay()
+): Promise<void> {
+  const start = utcDay(today);
+  const existing = new Set((await listPartitions()).map((p) => p.name));
+  for (const i of [0, 1]) {
+    const name = partitionName(new Date(start.getTime() + i * MS_PER_DAY));
+    if (!existing.has(name)) {
+      throw new Error(`Events partition ${name} does not exist`);
+    }
+  }
 }

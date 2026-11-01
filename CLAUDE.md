@@ -61,12 +61,14 @@ One ordinary package, shared by every area:
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
 | `src/middleware/auth.ts` | `authenticate`, `callerOf` |
 | `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`. The "readable sessions" SQL condition arrives in plan 4; until then lists filter through `readableSessions` (`utils/access.ts`) |
-| `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`; `events/` and `/sync` arrive in plan 3) |
+| `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`, `sync/`) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
+| `src/websocket/` | socket.io on `/ws` (Redis adapter): `auth.ts` handshake, `rooms.ts` joins and re-checks, `subscriptions.ts`, `fanout.ts` (pushes `changeBus` batches), `ephemeral.ts` (typing, presence), `limits.ts` |
+| `src/realtime/` | Shared by sockets and `/sync`: `audience.ts` (who gets an event), `rooms.ts` (room names), `syncCursor.ts` |
 | `src/cli/` | Operator commands, `npm run cli -- <command>` |
 | `src/tests/` | Mirrors `src/`: `<base>[.<aspect>][.unit].test.ts`, `flows/`, `conventions/`; `setup/`, `support/`, `fixtures/` are not tests. Two projects, `unit` (no server) and `int` (one real server). Rules: [src/tests/README.md](packages/homileo/src/tests/README.md) |
 | `prisma/` | The one schema and migrations |
-| `docs/` | Per-area reference notes (`api`, `provisioning`, `events`, `access`) |
+| `docs/` | Per-area reference notes (`api`, `provisioning`, `events`, `access`, `realtime`) |
 
 ## Key conventions
 
