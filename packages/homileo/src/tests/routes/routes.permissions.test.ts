@@ -341,31 +341,78 @@ describe.each(READ_EXEMPT)("read-exempt $method $path", (route) => {
 });
 
 describe("read gate exemption", () => {
+  const call = async (method: string, path: string, token: string) => {
+    const response = await fetch(`${env.PUBLIC_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: method === "GET" ? undefined : "{}",
+    });
+    return { status: response.status, body: await response.text() };
+  };
+
   it.each([
-    ["GET", "participants/:self"],
-    ["PUT", "participants/:self"],
-    ["DELETE", "participants/:self/x"],
-    ["DELETE", "participants"],
-    ["GET", "notify"],
-    ["DELETE", "notify"],
+    ["GET", "/v1/sessions/:id/participants/:self"],
+    ["PUT", "/v1/sessions/:id/participants/:self"],
+    ["DELETE", "/v1/sessions/:id/participants/:self/x"],
+    ["DELETE", "/v1/sessions/:id/participants"],
+    ["GET", "/v1/sessions/:id/notify"],
+    ["DELETE", "/v1/sessions/:id/notify"],
+    ["GET", "/v1/spaces/:id/members/:self"],
+    ["PUT", "/v1/spaces/:id/members/:self"],
+    ["DELETE", "/v1/spaces/:id/members/:self/x"],
+    ["DELETE", "/v1/spaces/:id/members"],
+    ["DELETE", "/v1//spaces/:id/members/:self"],
+    ["DELETE", "/v1/spaces/:id//members/:self"],
+    ["DELETE", "/v1/spaces/:id/members//:self"],
+    ["DELETE", "/v1/spaces/:id/members/:self//"],
+    ["DELETE", "/v1/sessions/:id//participants/:self"],
+    ["PUT", "/v1/sessions/:id//notify"],
+    ["PUT", "/v1/sessions//:id/notify"],
+    ["DELETE", "/v1/spaces/:id/members%2F:self"],
+    ["DELETE", "/v1/spaces/:id%2Fmembers%2F:self"],
+    ["DELETE", "/v1/sessions/:id/participants%2F:self"],
+    ["PUT", "/v1/sessions/:id%2Fnotify"],
   ])(
-    "still refuses a token without permissions on %s /v1/sessions/:id/%s",
-    async (method, tail) => {
+    "still refuses a token without permissions on %s %s",
+    async (method, path) => {
       const { token, principalId } = await unreadableCaller();
 
-      const response = await fetch(
-        `${env.PUBLIC_URL}/v1/sessions/${PARAM}/${tail.replace(":self", principalId)}`,
-        {
-          method,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: method === "GET" ? undefined : "{}",
-        }
+      const { status, body } = await call(
+        method,
+        path.replace(":id", PARAM).replace(":self", principalId),
+        token
       );
 
-      expect(response.status).toBe(403);
+      expect(status, body).toBe(403);
+      expect(JSON.parse(body).error_description).toBe(
+        "Requires the homileo.spaces.read permission"
+      );
+    }
+  );
+
+  it.each([
+    ["DELETE", "/V1/SPACES/:id/MEMBERS/:self"],
+    ["DELETE", "/v1/Sessions/:id/Participants/:self"],
+    ["PUT", "/v1/SESSIONS/:id/NOTIFY"],
+  ])(
+    "treats the upper-case path %s %s as the route, refusing with a plain 404",
+    async (method, path) => {
+      const { token, principalId } = await unreadableCaller();
+
+      const { status, body } = await call(
+        method,
+        path.replace(":id", PARAM).replace(":self", principalId),
+        token
+      );
+
+      expect(status, body).toBe(404);
+      expect(JSON.parse(body)).toEqual({
+        error: "not_found",
+        error_description: "Not found",
+      });
     }
   );
 });

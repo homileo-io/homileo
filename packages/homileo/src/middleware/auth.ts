@@ -1,6 +1,6 @@
+import type { ErrorRequestHandler, RequestHandler, Request } from "express";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
-import type { RequestHandler, Request } from "express";
 import type { AuthContext } from "@tereo-io/sdk";
 import { IdSchema } from "../utils/idSchema.js";
 import { getTereo } from "../utils/tereo.js";
@@ -13,6 +13,7 @@ import {
 import {
   AppError,
   ForbiddenError,
+  NotFoundError,
   UnauthorizedError,
 } from "../utils/errors.js";
 import {
@@ -20,6 +21,7 @@ import {
   canRemoveWithToken,
   canWriteChat,
   canReadChat,
+  seesRefusalReasons,
 } from "../policy/chat.js";
 
 export interface Caller {
@@ -198,6 +200,27 @@ export const requireChatReadUnlessSelf: RequestHandler = (req, _res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+/**
+ * Error middleware for `/v1`, after its routes: a request let through `requireChatReadUnlessSelf`
+ * only because it acts on the caller's own membership gets one plain 404 for any refusal
+ * (`seesRefusalReasons`), whether the space, session, member or participant was missing.
+ */
+export const hideRefusalsUnlessReader: ErrorRequestHandler = (
+  err,
+  req,
+  _res,
+  next
+) => {
+  const caller = req.caller;
+  const hide =
+    caller !== undefined &&
+    err instanceof AppError &&
+    err.statusCode < 500 &&
+    !seesRefusalReasons(caller) &&
+    ownOnlyTarget(req, caller) === caller.principalId;
+  next(hide ? new NotFoundError() : err);
 };
 
 /** Refuses (403) a caller whose token may only read chat (`canWriteChat`); needs `authenticate` before it. */

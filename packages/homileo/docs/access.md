@@ -35,7 +35,12 @@ with the caller's own id (leaving), and `PUT /sessions/:id/notify` (muting).
 three method and path pairs exactly (a UUID in each id segment, any case, an optional trailing
 slash), reads `:principalId` lower-cased as the params schema does, and keeps every other request,
 and those routes with someone else's id, behind `canReadChat`. The routes' own rules then apply as
-for anyone (`canChangeMember`, `canLeaveSession`, a current participant for `notify`).
+for anyone (`canChangeMember`, `canLeaveSession`, a current participant for `notify`). A caller
+let in only by that exemption, without `canReadChat`, is told nothing about why it was refused:
+every refusal on those three routes (no such space or session, not a member or participant, a DM
+it may not leave, the last owner, an invalid body) is the same `404 not_found` "Not found"
+(`seesRefusalReasons`, applied by `hideRefusalsUnlessReader` after the `/v1` routes), so it cannot
+probe which spaces and sessions exist.
 
 Homileo cannot see a mentioned principal's permissions, only the token of the request in front of
 it, so revoking `homileo.spaces.read` alone does not stop mention emails: a member or participant
