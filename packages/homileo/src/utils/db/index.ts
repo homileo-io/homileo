@@ -8,7 +8,6 @@ import * as mentions from "./mentions.js";
 import * as members from "./members.js";
 import * as threads from "./threads.js";
 import * as events from "./events.js";
-import * as outbox from "./outbox.js";
 import * as spaces from "./spaces.js";
 
 /**
@@ -27,7 +26,6 @@ export const db = {
   mentions,
   reactions,
   threads,
-  outbox,
 };
 
 export { prisma } from "./prisma.js";

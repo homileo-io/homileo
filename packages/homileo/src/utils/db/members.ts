@@ -28,6 +28,8 @@ export const listPage = async (
       spaceId,
       ...(filter.role !== undefined && { role: filter.role }),
       ...(after && {
+        // Redundant with the OR, which the index cannot seek on; this range it can.
+        joinedAt: { gte: after.joinedAt },
         OR: [
           { joinedAt: { gt: after.joinedAt } },
           { joinedAt: after.joinedAt, userId: { gt: after.principalId } },

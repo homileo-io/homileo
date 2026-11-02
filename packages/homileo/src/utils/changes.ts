@@ -1,5 +1,6 @@
 import { EVENT_TYPES, webhookEventName, type EventType } from "@homileo-io/sdk";
 import { isPrivateSession } from "../policy/index.js";
+import { collector } from "./outboxCollector.js";
 import type { Prisma } from "./db/prisma.js";
 import { issuesOf } from "./errors.js";
 import { getTereo } from "./tereo.js";
@@ -89,7 +90,7 @@ export const recordChanges = async (
       : new Map<string, never>();
 
   const { outbox } = getTereo();
-  const pending = db.outbox.collector();
+  const pending = collector();
   for (const [i, change] of changes.entries()) {
     const input = inputs[i];
     const definition = EVENT_TYPES[input.type];

@@ -2,6 +2,7 @@
 // @module-tag spaces
 import { spaceApiFixtures } from "../../../../../support/spaceApi.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { byId, walkPages } from "../../../../../support/pages.js";
 import { encodeCursor } from "../../../../../../utils/cursor.js";
 import { prisma } from "../../../../../../utils/db/prisma.js";
 import { startV1App } from "../../../../../support/v1App.js";
@@ -105,6 +106,42 @@ describe("GET /v1/spaces/:spaceId/members", () => {
     );
     expect(new Set(ids).size).toBe(4);
   });
+
+  it.each([1, 2, 4])(
+    "walks every member once, in order, with ties in joined_at, %i a page",
+    async (limit) => {
+      const { org, owner, space } = await setup();
+      const times = [-3, -2, -2, -2, -1, -1].map(
+        (s) => new Date(Date.UTC(2026, 0, 1) + s * 1000)
+      );
+      for (const joinedAt of times) {
+        const m = await api.actor(org);
+        await prisma.spaceMember.create({
+          data: { spaceId: space.id, userId: m.principal.id, joinedAt },
+        });
+      }
+      const rows = await prisma.spaceMember.findMany({
+        where: { spaceId: space.id },
+      });
+      const expected = rows
+        .sort(
+          (a, b) =>
+            a.joinedAt.getTime() - b.joinedAt.getTime() ||
+            byId(a.userId, b.userId)
+        )
+        .map((r) => r.userId);
+
+      const { ids, pages } = await walkPages(
+        owner.token,
+        (cursor) =>
+          `${url}/v1/spaces/${space.id}/members?limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`,
+        (m) => String(m.principalId)
+      );
+
+      expect(ids).toEqual(expected);
+      expect(pages).toBe(Math.ceil(expected.length / limit));
+    }
+  );
 
   it("lets a reader of a public space list its members", async () => {
     const { org, space } = await setup();

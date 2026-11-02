@@ -216,6 +216,114 @@ const documentedStatuses = (): Map<string, Set<number>> => {
   return documented;
 };
 
+/** Every function in the source by name, for following calls; a name defined twice is not followed. */
+const functionsByName = (() => {
+  const found = new Map<string, ts.Node[]>();
+  for (const file of sourceFiles(".")
+    .filter((f) => !path.relative(SRC, f).startsWith("tests/"))
+    .map(parse)) {
+    walk(file, (n) => {
+      let name: string | undefined;
+      if (ts.isFunctionDeclaration(n) && n.name) name = n.name.text;
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        (ts.isArrowFunction(n.initializer) ||
+          ts.isFunctionExpression(n.initializer))
+      ) {
+        name = n.name.text;
+      }
+      if (name) found.set(name, [...(found.get(name) ?? []), n]);
+    });
+  }
+  return found;
+})();
+
+const calleeName = (call: ts.CallExpression): string | null => {
+  const e = call.expression;
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  return null;
+};
+
+/** The AppError codes `node` can throw: its own constructions and those of the functions it calls, followed by name. */
+const codesThrownBy = (node: ts.Node, seen = new Set<ts.Node>()): Pair[] => {
+  const pairs: Pair[] = [];
+  walk(node, (n) => {
+    if (
+      ts.isNewExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      errorClasses.has(n.expression.text)
+    ) {
+      const { status, code } = resolveConstruction(
+        n.expression.text,
+        n.arguments ?? []
+      );
+      if (code && ts.isStringLiteral(code)) {
+        pairs.push({ status, code: code.text, at: where(n) });
+      }
+    }
+    if (ts.isCallExpression(n)) {
+      const name = calleeName(n);
+      const defs = name ? functionsByName.get(name) : undefined;
+      if (defs?.length === 1 && !seen.has(defs[0])) {
+        seen.add(defs[0]);
+        pairs.push(...codesThrownBy(defs[0], seen));
+      }
+    }
+  });
+  return pairs;
+};
+
+/** The code-shaped string literals a function returns, as `failureCode` does. */
+const codesReturnedBy = (name: string): string[] => {
+  const defs = functionsByName.get(name) ?? [];
+  const codes: string[] = [];
+  for (const def of defs) {
+    walk(def, (n) => {
+      if (ts.isStringLiteral(n) && CODE.test(n.text)) codes.push(n.text);
+    });
+  }
+  return codes;
+};
+
+/** The try block whose catch clause holds `n`. */
+const tryOfCatch = (n: ts.Node): ts.Block | null => {
+  for (let p = n.parent; p; p = p.parent) {
+    if (ts.isCatchClause(p) && ts.isTryStatement(p.parent)) {
+      return p.parent.tryBlock;
+    }
+  }
+  return null;
+};
+
+/**
+ * The codes a handshake refusal `next(new Error(<code>))` can carry: a literal; `err.code` in a
+ * catch, which is any AppError code its try block can throw; or a call such as `failureCode(err)`,
+ * whose returned literals count.
+ */
+const handshakeCodes = (arg: ts.Expression): Pair[] => {
+  if (ts.isStringLiteral(arg)) {
+    return CODE.test(arg.text)
+      ? [{ status: undefined, code: arg.text, at: where(arg) }]
+      : [];
+  }
+  if (ts.isPropertyAccessExpression(arg) && arg.name.text === "code") {
+    const block = tryOfCatch(arg);
+    if (!block) throw new Error(`${where(arg)}: a code read outside a catch`);
+    return codesThrownBy(block).map((p) => ({ ...p, at: where(arg) }));
+  }
+  if (ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) {
+    return codesReturnedBy(arg.expression.text).map((code) => ({
+      status: undefined,
+      code,
+      at: where(arg),
+    }));
+  }
+  throw new Error(`${where(arg)}: a handshake code this test cannot follow`);
+};
+
 const socketCodes = (): Pair[] => {
   const pairs: Pair[] = [];
   for (const file of sourceFiles("websocket").map(parse)) {
@@ -231,7 +339,7 @@ const socketCodes = (): Pair[] => {
           at: where(n),
         });
       }
-      // A handshake refusal: `next(new Error("<code>"))`.
+      // A handshake refusal: `next(new Error(<code>))`.
       if (
         ts.isCallExpression(n) &&
         n.expression.getText() === "next" &&
@@ -241,15 +349,14 @@ const socketCodes = (): Pair[] => {
         if (
           ts.isNewExpression(arg) &&
           arg.expression.getText() === "Error" &&
-          arg.arguments?.[0] &&
-          ts.isStringLiteral(arg.arguments[0]) &&
-          CODE.test(arg.arguments[0].text)
+          arg.arguments?.[0]
         ) {
-          pairs.push({
-            status: undefined,
-            code: arg.arguments[0].text,
-            at: where(arg),
-          });
+          pairs.push(
+            ...handshakeCodes(arg.arguments[0]).map((p) => ({
+              ...p,
+              status: undefined,
+            }))
+          );
         }
       }
     });
@@ -302,7 +409,14 @@ describe("error codes", () => {
     }
     expect(helpers.map((h) => h.name)).toContain("mapUniqueViolation");
     expect(socketCodes().map((p) => p.code)).toEqual(
-      expect.arrayContaining(["rate_limited", "unauthorized", "not_found"])
+      expect.arrayContaining([
+        "rate_limited",
+        "unauthorized",
+        "not_found",
+        // Through `next(new Error(err.code))` and `failureCode(err)` in websocket/auth.ts.
+        "organization_required",
+        "temporarily_unavailable",
+      ])
     );
   });
 

@@ -45,6 +45,8 @@ export const listPage = async (
   ];
   if (filter.after) {
     and.push({
+      // Redundant with the OR, which the index cannot seek on; this range it can.
+      createdAt: { lte: filter.after.createdAt },
       OR: [
         { createdAt: { lt: filter.after.createdAt } },
         { createdAt: filter.after.createdAt, id: { lt: filter.after.id } },

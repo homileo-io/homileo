@@ -1,4 +1,4 @@
-import type { Prisma } from "./prisma.js";
+import type { Prisma } from "./db/prisma.js";
 
 // The statement @tereo-io/sdk's outbox writes one row with, `$1` to `$5` in
 // this column order. Anything else fails loudly rather than being dropped.
