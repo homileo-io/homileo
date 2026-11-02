@@ -70,6 +70,14 @@ const EnvFields = z
     DB_POOL_MIN: int(0, 1000, 0),
     // How long a query waits for a free connection before it fails.
     DB_POOL_CONNECTION_TIMEOUT_MS: int(100, 600_000, 5000),
+    // How long a transaction waits to start (a connection included), and how
+    // long it may run. Either running out answers 503 temporarily_unavailable.
+    DB_TRANSACTION_MAX_WAIT_MS: int(100, 600_000, 5000),
+    DB_TRANSACTION_TIMEOUT_MS: int(100, 600_000, 10_000),
+    // How long a statement in a mutation waits for a row or table lock before
+    // the request answers 503. Below DB_TRANSACTION_TIMEOUT_MS, so a lock wait
+    // ends as a lock timeout rather than an expired transaction.
+    DB_LOCK_TIMEOUT_MS: int(100, 600_000, 5000),
     // Express `trust proxy`: a hop count, a CIDR list, a named range, or
     // "true" / "false". "true" is refused in production, where it lets
     // clients choose their IP.
@@ -126,6 +134,13 @@ const EnvFields = z
         code: "custom",
         path: ["DB_POOL_MIN"],
         message: "DB_POOL_MIN must not exceed DB_POOL_MAX",
+      });
+    }
+    if (val.DB_LOCK_TIMEOUT_MS >= val.DB_TRANSACTION_TIMEOUT_MS) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["DB_LOCK_TIMEOUT_MS"],
+        message: "DB_LOCK_TIMEOUT_MS must be below DB_TRANSACTION_TIMEOUT_MS",
       });
     }
     if (val.NODE_ENV === "production") {

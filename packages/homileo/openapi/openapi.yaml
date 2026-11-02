@@ -181,8 +181,12 @@ components:
       $ref: './components/responses.yaml#/NotFoundResponse'
     ConflictResponse:
       $ref: './components/responses.yaml#/ConflictResponse'
+    PayloadTooLargeResponse:
+      $ref: './components/responses.yaml#/PayloadTooLargeResponse'
     ServerErrorResponse:
       $ref: './components/responses.yaml#/ServerErrorResponse'
+    ServiceUnavailableResponse:
+      $ref: './components/responses.yaml#/ServiceUnavailableResponse'
     NoContentResponse:
       $ref: './components/responses.yaml#/NoContentResponse'
   schemas:

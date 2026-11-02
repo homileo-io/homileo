@@ -44,9 +44,11 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write or deadlock; re-read and retry) |
 | 410 | `resync_required` |
-| 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
+| 413 | `payload_too_large` (the body is over the route's size limit) |
+| 500 | `server_error` |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time; retry after `Retry-After` when given) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
 
@@ -90,11 +92,18 @@ changes nothing (an idempotent repeat) records nothing.
 
 A mutation loads what it checks inside its transaction with `{ tx, lock: true }`, which takes the
 session (or space) row `FOR UPDATE`, so the checks and the write see the same rows. Creating a space
-reads its kind with `activeKind` (`FOR SHARE`); provisioning takes the kind's row `FOR UPDATE`
-before it counts the unarchived spaces of a kind it retires, so a space is never created in a kind
-as it retires. Message types work the same way: a send or an edit with a payload reads the type's
-row `FOR SHARE` (`validatePayload`), and provisioning takes it `FOR UPDATE` before it looks for a
-message of a type it retires, so no message is stored with a type as it retires, on any replica.
+reads its kind with `activeKind`, under a shared transaction-level advisory lock on the kind;
+provisioning takes that lock exclusive before it looks for an unarchived space of a kind it retires,
+so a space is never created in a kind as it retires. Message types work the same way: a send or an
+edit with a payload holds the type's lock shared (`validatePayload`), and provisioning takes it
+exclusive before it looks for a message of a type it retires, so no message is stored with a type
+as it retires, on any replica. The key is `hashtextextended('homileo.<kind|message_type>:<name>', 0)`
+(`utils/db/provisioned.ts`); provisioning takes its keys in name order.
+
+Every mutation's transaction runs with `lock_timeout` set to `DB_LOCK_TIMEOUT_MS`, under Prisma's
+`DB_TRANSACTION_MAX_WAIT_MS` (to start, a pool connection included) and `DB_TRANSACTION_TIMEOUT_MS`
+(to finish). Running out of any of them, or of `DB_POOL_CONNECTION_TIMEOUT_MS`, rolls the change back
+and answers `503 temporarily_unavailable` with `Retry-After`.
 
 Kinds are cached in the process for 60 seconds and dropped when provisioning applies
 (`invalidateKinds`). Message types are read on every use; only their compiled payload schemas are

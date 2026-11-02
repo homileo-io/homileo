@@ -5,4 +5,5 @@ import "dotenv/config";
 // loads and throws if either is unset, so they have to be in place before
 // anything imports it.
 process.env.SERVICE_NAME = "homileo";
-process.env.LOG_LEVEL ??= "info";
+// `||=`, not `??=`: an empty `LOG_LEVEL=` is unset too.
+process.env.LOG_LEVEL ||= "info";

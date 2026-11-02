@@ -2,6 +2,7 @@ import { processEventPartitions } from "./jobs/eventPartitions.js";
 import { processAttachmentKeeps } from "./jobs/attachmentKeep.js";
 import { processEventRetention } from "./jobs/eventRetention.js";
 import { logger } from "./utils/logger.js";
+import env from "./env.js";
 
 // Background work: daily event partitions and their retention, and keeping
 // attachments whose send did not clear their expiry. Runs in
@@ -18,27 +19,35 @@ let keepTimer: NodeJS.Timeout | null = null;
 // Where the next keep run starts; at process start, as far back as a placeholder lives.
 let keepFrom = new Date(0);
 
-const runPartitions = async (): Promise<void> => {
+const inFlight = new Set<Promise<void>>();
+
+const tracked = (run: () => Promise<void>) => (): Promise<void> => {
+  const running = run().finally(() => inFlight.delete(running));
+  inFlight.add(running);
+  return running;
+};
+
+const runPartitions = tracked(async () => {
   try {
     await processEventPartitions();
   } catch (err) {
     // The next run retries; the API also covers today and tomorrow at start.
     logger.warn({ err }, "Event partition run failed");
   }
-};
+});
 
-const runRetention = async (): Promise<void> => {
+const runRetention = tracked(async () => {
   try {
     await processEventRetention();
   } catch (err) {
     // The next run retries; an old partition only costs disk.
     logger.warn({ err }, "Event retention run failed");
   }
-};
+});
 
 let keepRunning = false;
 
-const runKeeps = async (): Promise<void> => {
+const runKeeps = tracked(async () => {
   // A run slower than the interval would otherwise overlap the next one and
   // could move keepFrom backwards when it finishes last.
   if (keepRunning) return;
@@ -51,7 +60,7 @@ const runKeeps = async (): Promise<void> => {
   } finally {
     keepRunning = false;
   }
-};
+});
 
 export async function startWorker(): Promise<void> {
   if (partitionTimer) return;
@@ -67,12 +76,33 @@ export async function startWorker(): Promise<void> {
   logger.info("homileo worker started");
 }
 
-/** Stops the schedule. */
-export async function stopWorker(): Promise<void> {
+/**
+ * Stops the schedule and waits up to `waitMs` for the runs in flight; past
+ * that it returns while they run on, and the database closing under them fails them.
+ */
+export async function stopWorker(
+  waitMs: number = env.SHUTDOWN_TIMEOUT_SECONDS * 1000
+): Promise<void> {
   if (partitionTimer) clearInterval(partitionTimer);
   partitionTimer = null;
   if (retentionTimer) clearInterval(retentionTimer);
   retentionTimer = null;
   if (keepTimer) clearInterval(keepTimer);
   keepTimer = null;
+
+  if (inFlight.size === 0) return;
+  let timer: NodeJS.Timeout | undefined;
+  const finished = await Promise.race([
+    Promise.allSettled([...inFlight]).then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(0, waitMs));
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!finished) {
+    logger.warn(
+      { running: inFlight.size },
+      "Worker jobs still running at shutdown"
+    );
+  }
 }

@@ -66,4 +66,50 @@ describe("worker", () => {
     });
     expect(processEventRetention).toHaveBeenCalledTimes(2);
   });
+
+  describe("stopWorker", () => {
+    const startWithRetentionHanging = async () => {
+      vi.useFakeTimers({
+        toFake: ["Date", "setInterval", "clearInterval"],
+        now: START,
+      });
+      let release!: () => void;
+      const hanging = new Promise<[]>((resolve) => {
+        release = () => resolve([]);
+      });
+      await startWorker();
+      vi.mocked(processEventRetention).mockImplementationOnce(() => hanging);
+      await vi.advanceTimersByTimeAsync(MS_PER_DAY);
+      await vi.waitFor(() =>
+        expect(processEventRetention).toHaveBeenCalledTimes(2)
+      );
+      return release;
+    };
+
+    it("waits for a job run in flight", async () => {
+      vi.mocked(processEventRetention).mockClear();
+      const release = await startWithRetentionHanging();
+      let stopped = false;
+
+      const stopping = stopWorker(60_000).then(() => {
+        stopped = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(stopped).toBe(false);
+
+      release();
+      await stopping;
+      expect(stopped).toBe(true);
+    });
+
+    it("gives up on a run in flight after the timeout", async () => {
+      vi.mocked(processEventRetention).mockClear();
+      const release = await startWithRetentionHanging();
+      try {
+        await stopWorker(10);
+      } finally {
+        release();
+      }
+    });
+  });
 });

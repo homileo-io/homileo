@@ -116,6 +116,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/me/unread:
     get:
       tags:
@@ -142,6 +144,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/me/mentions:
     get:
       tags:
@@ -172,6 +176,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces:
     get:
       tags:
@@ -206,6 +212,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Spaces
@@ -246,8 +254,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}:
     get:
       tags:
@@ -277,6 +289,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Spaces
@@ -319,8 +333,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/archive:
     post:
       tags:
@@ -358,6 +376,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/members:
     get:
       tags:
@@ -390,6 +410,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/members/{principalId}:
     put:
       tags:
@@ -443,8 +465,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Spaces
@@ -483,6 +509,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join:
     post:
       tags:
@@ -525,6 +553,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests:
     get:
       tags:
@@ -559,6 +589,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
     post:
       tags:
@@ -595,6 +627,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
     post:
       tags:
@@ -632,6 +666,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/principals/resolve:
     post:
       tags:
@@ -663,8 +699,12 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/principals/{principalId}:
     get:
       tags:
@@ -698,6 +738,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions:
     get:
       tags:
@@ -769,6 +811,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Sessions
@@ -810,8 +854,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/direct:
     post:
       tags:
@@ -860,8 +908,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}:
     get:
       tags:
@@ -896,6 +948,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Sessions
@@ -938,8 +992,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/archive:
     post:
       tags:
@@ -983,6 +1041,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/participants:
     get:
       tags:
@@ -1018,6 +1078,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/participants/{principalId}:
     put:
       tags:
@@ -1076,6 +1138,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Sessions
@@ -1121,6 +1185,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/read:
     put:
       tags:
@@ -1161,8 +1227,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/notify:
     put:
       tags:
@@ -1202,8 +1272,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/messages:
     get:
       tags:
@@ -1243,6 +1317,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Messages
@@ -1315,6 +1391,8 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/DuplicateClientMessageError'
                   - $ref: '#/components/schemas/Error'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
         '503':
@@ -1348,6 +1426,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Messages
@@ -1396,8 +1476,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Messages
@@ -1437,6 +1521,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/attachments:
     post:
       tags:
@@ -1484,6 +1570,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
         '503':
@@ -1557,6 +1645,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/reactions/{emoji}:
     put:
       tags:
@@ -1604,6 +1694,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Messages
@@ -1636,6 +1728,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/thread:
     get:
       tags:
@@ -1675,6 +1769,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/threads/{rootId}/read:
     put:
       tags:
@@ -1710,8 +1806,12 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/threads/{rootId}/follow:
     put:
       tags:
@@ -1746,8 +1846,12 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sync:
     get:
       tags:
@@ -1811,6 +1915,8 @@ paths:
           $ref: '#/components/responses/SyncResyncRequiredResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -2821,25 +2927,39 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ConflictResponse:
-      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
+      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, or `version_conflict` (a concurrent write or deadlock; re-read and retry)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PayloadTooLargeResponse:
+      description: Payload too large - `payload_too_large`, the body is over the route's size limit
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     ServerErrorResponse:
-      description: Server error
+      description: Server error - `server_error`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailableResponse:
+      description: |
+        Service unavailable - `temporarily_unavailable`: tereo's file storage did not answer, or the
+        database was too busy (a transaction or a lock wait ran out of time, or no connection was free).
+        Nothing was changed; retry, after `Retry-After` when it is given.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying; sent when the database was too busy
+          schema:
+            type: integer
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     NoContentResponse:
       description: Done; no content
-    ServiceUnavailableResponse:
-      description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     SyncResyncRequiredResponse:
       description: |
         Gone - `resync_required`: the cursor is older than the oldest retained events (plus a 10 minute
@@ -4457,7 +4577,10 @@ components:
           description: The organization the event belongs to
         eventType:
           type: string
-          description: The event type, `homileo.<area>.<verb>`
+          description: |
+            The event type, `homileo.<area>.<verb>`. A session event of a private session (no space,
+            or `access: members`) is `homileo.private_<area>.<verb>`, which only subscribers holding
+            `homileo.messages.read_private` receive.
         entityType:
           type: string
           description: The kind of entity the event is about

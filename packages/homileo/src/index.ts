@@ -18,7 +18,7 @@ import {
   disconnectSockets,
 } from "./websocket/index.js";
 
-// In-flight HTTP requests get this long before connections are forced closed.
+// In-flight HTTP requests and worker jobs get this long before they are cut off.
 // The rest of the shutdown (Redis, the database) takes a moment more, so the
 // default 25s fits the 30s that follow SIGTERM in the chart's pods.
 const DRAIN_TIMEOUT_MS = env.SHUTDOWN_TIMEOUT_SECONDS * 1000;
@@ -105,6 +105,12 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
           }
         };
 
+        // Running jobs finish alongside the HTTP drain, within the same
+        // timeout, before the database they use closes.
+        const workerStopped = step("worker", () =>
+          stopWorker(DRAIN_TIMEOUT_MS)
+        );
+
         // Drain HTTP before tearing anything down: handlers would otherwise
         // throw "pool ended" / "client closed" mid-flight.
         if (server) {
@@ -118,7 +124,7 @@ export function createAppServer(port: number = env.PORT): ServerInstance {
           });
         }
         await step("sockets", closeSockets);
-        await step("worker", stopWorker);
+        await workerStopped;
         await step("tereo", stopTereo);
         await step("redis", closeRedisConnection);
         await step("database", disconnectDatabase);

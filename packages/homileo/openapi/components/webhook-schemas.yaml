@@ -15,7 +15,10 @@ WebhookEvent:
       description: The organization the event belongs to
     eventType:
       type: string
-      description: The event type, `homileo.<area>.<verb>`
+      description: |
+        The event type, `homileo.<area>.<verb>`. A session event of a private session (no space,
+        or `access: members`) is `homileo.private_<area>.<verb>`, which only subscribers holding
+        `homileo.messages.read_private` receive.
     entityType:
       type: string
       description: The kind of entity the event is about

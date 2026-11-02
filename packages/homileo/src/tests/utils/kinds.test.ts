@@ -4,6 +4,7 @@ import { BUILTIN_KIND } from "../../definitions/builtins.js";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { withChanges } from "../../utils/transaction.js";
 import { prisma } from "../../utils/db/prisma.js";
+import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import {
   activeKind,
@@ -164,7 +165,7 @@ describe("kinds", () => {
       expect(u).toBeNull();
     });
 
-    it("holds the kind row against a concurrent retire until the transaction ends", async () => {
+    it("holds the kind against a concurrent retire until the transaction ends", async () => {
       const name = newName("kinds-test");
       await insertKind(name);
       let retireFinished = false;
@@ -174,7 +175,7 @@ describe("kinds", () => {
         await activeKind(tx, name);
         retire = prisma
           .$transaction(async (tx2) => {
-            await tx2.$queryRaw`SELECT name FROM "chat"."provisioned_space_kinds" WHERE name = ${name} FOR UPDATE`;
+            await db.provisioned.holdExclusive(tx2, "kind", name);
           })
           .then(() => {
             retireFinished = true;
