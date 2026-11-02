@@ -133,12 +133,19 @@ export const insertDirect = async (
   return tx.session.findUniqueOrThrow({ where: { id } });
 };
 
-export const findDirect = (
+/** The organization's DM for the pair, its row locked `FOR UPDATE`. */
+export const lockDirect = async (
   tx: Tx,
   organizationId: string,
   directKey: string
-): Promise<Session | null> =>
-  tx.session.findFirst({ where: { organizationId, directKey } });
+): Promise<Session | null> => {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "chat"."sessions"
+    WHERE organization_id = ${organizationId}::uuid AND direct_key = ${directKey}
+    FOR UPDATE`;
+  if (rows.length === 0) return null;
+  return tx.session.findUniqueOrThrow({ where: { id: rows[0].id } });
+};
 
 /** Where a page starts: after this row in `last_message_at DESC NULLS LAST, created_at DESC, id DESC`. */
 export interface SessionPageStart {

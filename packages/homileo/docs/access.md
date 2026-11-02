@@ -49,7 +49,8 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 Participants are added with `canAddParticipant` and removed with `canRemoveParticipant`.
 
 - A `direct` session (a DM) has exactly its two participants and never an `owner`: nobody adds to
-  it, not even an admin.
+  it, not even an admin. One of the two whom an admin removed rejoins by asking for the DM again
+  (`POST /sessions/direct`), unless it is archived.
 - In a space-less group the participant `owner` adds and removes participants and renames it.
   `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
   delete its messages: admins archive DMs and remove people, not touch their content. An admin who

@@ -1,4 +1,3 @@
-import { BadRequestError, NotFoundError } from "../../../../utils/errors.js";
 import { validateBody } from "../../../../utils/validateReq.js";
 import { withChanges } from "../../../../utils/transaction.js";
 import { sessionView } from "../../../../views/session.js";
@@ -6,6 +5,11 @@ import { callerOf } from "../../../../middleware/auth.js";
 import { db } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { DirectBodySchema } from "./schemas.js";
+import {
+  ArchivedError,
+  BadRequestError,
+  NotFoundError,
+} from "../../../../utils/errors.js";
 
 export const createDirect = async (req: Request, res: Response) => {
   const caller = callerOf(req);
@@ -28,13 +32,25 @@ export const createDirect = async (req: Request, res: Response) => {
       createdBy: caller.principalId,
     });
     if (!inserted) {
-      const existing = await db.sessions.findDirect(
+      const existing = await db.sessions.lockDirect(
         tx,
         caller.organizationId,
         directKey
       );
       if (!existing)
         throw new Error("The direct session vanished after a conflict");
+      // The pair's direct key stays taken, so an archived DM is the pair's last one.
+      if (existing.archivedAt)
+        throw new ArchivedError("The direct session is archived");
+      // A caller an admin removed rejoins; the other principal is left as they are.
+      await db.sessions.addParticipants(
+        tx,
+        record,
+        existing,
+        [caller.principalId],
+        "member",
+        caller.principalId
+      );
       return { session: existing, created: false };
     }
     await record({
