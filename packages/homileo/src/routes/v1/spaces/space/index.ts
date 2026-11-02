@@ -1,3 +1,4 @@
+import { requireChatWrite } from "../../../../middleware/auth.js";
 import joinRequestsRouter from "./join-requests/index.js";
 import { getSpace, updateSpace } from "./controllers.js";
 import archiveRouter from "./archive/index.js";
@@ -13,6 +14,6 @@ spaceRouter.use("/join", joinRouter);
 spaceRouter.use("/join-requests", joinRequestsRouter);
 
 spaceRouter.get("/", getSpace);
-spaceRouter.patch("/", updateSpace);
+spaceRouter.patch("/", requireChatWrite, updateSpace);
 
 export default spaceRouter;

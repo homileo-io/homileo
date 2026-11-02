@@ -63,7 +63,7 @@
       Records `message.created` (and `thread.updated` for a reply), emitting
       `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
 
-      **Required permissions:** none; the caller must be able to read the session.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
     operationId: sendMessage
     parameters:
       - name: sessionId

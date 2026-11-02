@@ -21,7 +21,7 @@
       {
         "name": "homileo.spaces.write",
         "displayName": "Use spaces",
-        "description": "Create spaces and sessions, and post messages",
+        "description": "Create and change spaces, sessions and their members; post, edit and react to messages",
         "orgAssignable": true
       },
       {
@@ -33,7 +33,7 @@
       {
         "name": "homileo.chat.admin",
         "displayName": "Administer chat",
-        "description": "Administer every space and session of the organization",
+        "description": "Administer every space and session of the organization; also grants Use spaces",
         "orgAssignable": true
       }
     ],

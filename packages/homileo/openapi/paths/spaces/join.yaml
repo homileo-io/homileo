@@ -9,7 +9,7 @@
       `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
       a repeat returns the pending request without a new event. `invite`: 403.
 
-      **Required permissions:** none; the caller must be able to read the space (a space they
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the space (a space they
       cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
     operationId: joinSpace
     parameters:

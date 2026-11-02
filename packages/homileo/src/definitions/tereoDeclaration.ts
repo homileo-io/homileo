@@ -10,6 +10,11 @@ export const SERVICE_SLUG = "homileo";
 /** The tereo bucket that holds message attachments. */
 export const ATTACHMENTS_BUCKET = "homileo-attachments";
 
+/** Needed by every route that changes shared chat state (`canWriteChat`). */
+export const SPACES_WRITE_PERMISSION = "homileo.spaces.write";
+
+export const CHAT_ADMIN_PERMISSION = "homileo.chat.admin";
+
 /** Receives the webhook events of private sessions (`isPrivateSession`). */
 export const READ_PRIVATE_PERMISSION = "homileo.messages.read_private";
 
@@ -38,9 +43,10 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         orgAssignable: true,
       },
       {
-        name: "homileo.spaces.write",
+        name: SPACES_WRITE_PERMISSION,
         displayName: "Use spaces",
-        description: "Create spaces and sessions, and post messages",
+        description:
+          "Create and change spaces, sessions and their members; post, edit and react to messages",
         orgAssignable: true,
       },
       {
@@ -53,9 +59,11 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         orgAssignable: true,
       },
       {
-        name: "homileo.chat.admin",
+        // Off the homileo.spaces ladder, so `canWriteChat` names it beside write.
+        name: CHAT_ADMIN_PERMISSION,
         displayName: "Administer chat",
-        description: "Administer every space and session of the organization",
+        description:
+          "Administer every space and session of the organization; also grants Use spaces",
         orgAssignable: true,
       },
     ],
@@ -64,7 +72,7 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         name: "homileo_user",
         displayName: "Homileo user",
         description: "Takes part in chat",
-        permissions: ["homileo.spaces.write"],
+        permissions: [SPACES_WRITE_PERMISSION],
       },
     ],
     buckets: [

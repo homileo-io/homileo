@@ -7,7 +7,7 @@
       is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
       and an audit entry is written.
 
-      **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to manage the space (its `owner` or
       a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
       the space, 404.
 

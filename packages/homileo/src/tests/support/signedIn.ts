@@ -13,7 +13,7 @@ export interface SignedIn {
 /** A person signed in to the shared test server; their principal exists once this returns. */
 export const signIn = async (
   org: string,
-  perms: string[] = []
+  perms?: string[]
 ): Promise<SignedIn> => {
   const token = personToken({ org, perms });
   const me = await fetchJson("GET", `${env.PUBLIC_URL}/v1/me`, token);

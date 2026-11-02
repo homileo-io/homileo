@@ -110,8 +110,7 @@ describe("/v1/spaces", () => {
       const org = api.organization();
       const botUser = uuidv7();
       const kind = await api.kind(kindName(), { bots: [botUser] });
-      // A service account that may create spaces.
-      const token = `${botToken({ userId: botUser, org })}|perms=${WRITE[0]}`;
+      const token = botToken({ userId: botUser, org });
 
       const res = await create(token, { kind, name: "By the bot" });
 

@@ -42,13 +42,13 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 
 ## Rooms
 
-| Room | Holds | Joined by |
-|---|---|---|
-| `user:<organizationId>:<principalId>` | every socket of a principal | connecting |
-| `space:<spaceId>` | sockets that follow a space | a member who can read the space, on connect and when added; or `subscribe { spaceId }` |
-| `session:<sessionId>` | sockets that follow a session | a participant who can read the session, on connect and when added; or `subscribe { sessionId }` |
-| `spaceof:<spaceId>` | every socket in a session room of that space | joined and left with the session rooms |
-| `presence:<organizationId>:<principalId>` | sockets watching that principal | `presence.watch` |
+| Room                                      | Holds                                        | Joined by                                                                                       |
+| ----------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `user:<organizationId>:<principalId>`     | every socket of a principal                  | connecting                                                                                      |
+| `space:<spaceId>`                         | sockets that follow a space                  | a member who can read the space, on connect and when added; or `subscribe { spaceId }`          |
+| `session:<sessionId>`                     | sockets that follow a session                | a participant who can read the session, on connect and when added; or `subscribe { sessionId }` |
+| `spaceof:<spaceId>`                       | every socket in a session room of that space | joined and left with the session rooms                                                          |
+| `presence:<organizationId>:<principalId>` | sockets watching that principal              | `presence.watch`                                                                                |
 
 When a member or participant is added, their sockets on the node that fans out join the room at
 once, before the event is sent; other nodes' sockets join through the Redis adapter, a round trip
@@ -72,17 +72,17 @@ saved `next`, until `hasMore` is false, dropping ids already applied.
 Every client event takes an optional ack. An ack is `{ ok: true, … }` or
 `{ ok: false, error: { code, message, issues? } }`. Codes: `invalid_request` (with `issues`),
 `not_found` (the resource is missing, in another organization, unreadable, or, for typing, not
-postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
+postable), `forbidden` (typing with a read-only token), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
 `server_error`. A socket may send 20 client events a second; the rest are dropped and answered
 `rate_limited`.
 
-| Event | Payload | Ack |
-|---|---|---|
-| `subscribe` | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true, until }` |
-| `unsubscribe` | the same | `{ ok: true }` |
-| `typing.start`, `typing.stop` | `{ sessionId }` | `{ ok: true }` |
-| `presence.heartbeat` | none | `{ ok: true }` |
-| `presence.watch` | `{ principalIds: string[] }` | `{ ok: true, statuses: { [principalId]: "online" \| "offline" } }` |
+| Event                         | Payload                                        | Ack                                                                |
+| ----------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `subscribe`                   | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true, until }`                                              |
+| `unsubscribe`                 | the same                                       | `{ ok: true }`                                                     |
+| `typing.start`, `typing.stop` | `{ sessionId }`                                | `{ ok: true }`                                                     |
+| `presence.heartbeat`          | none                                           | `{ ok: true }`                                                     |
+| `presence.watch`              | `{ principalIds: string[] }`                   | `{ ok: true, statuses: { [principalId]: "online" \| "offline" } }` |
 
 `subscribe` requires that the caller can read the target now (the same check as the REST route,
 [access.md](access.md)). A session subscription also joins that session's `spaceof:` room. A socket
@@ -97,8 +97,16 @@ revocation that committed during the check cannot leave it in the room: the ack 
 The socket.io event name is the event's `type`. The argument is always
 
 ```json
-{ "id": "1042", "type": "message.created", "createdAt": "2026-10-31T09:00:00.000Z",
-  "organizationId": "…", "spaceId": "…", "sessionId": "…", "actorId": "…", "payload": { } }
+{
+  "id": "1042",
+  "type": "message.created",
+  "createdAt": "2026-10-31T09:00:00.000Z",
+  "organizationId": "…",
+  "spaceId": "…",
+  "sessionId": "…",
+  "actorId": "…",
+  "payload": {}
+}
 ```
 
 `id` is the event id as a decimal string, `spaceId` and `sessionId` are `null` where they do not
@@ -191,7 +199,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 
 ## Typing and presence
 
-- **Typing** is for sessions the caller can post in; otherwise `not_found`. `typing.start` is
+- **Typing** is for sessions the caller can post in; otherwise `not_found`. A token without
+  `homileo.spaces.write` (or `homileo.chat.admin`) is acked `forbidden` before the session is read. `typing.start` is
   throttled to one every 2 s per socket and session (the rest are acked `ok` and not sent); a
   `typing.stop` ends the throttle, so the next start is sent at once. The signal expires after
   `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends `typing.stop` when
@@ -210,7 +219,7 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 the catch-up must reach). It answers
 
 ```json
-{ "events": [ { "id": "…" } ], "next": "<cursor>", "hasMore": false }
+{ "events": [{ "id": "…" }], "next": "<cursor>", "hasMore": false }
 ```
 
 - **The cursor is opaque.** Event ids come from one sequence but are not in commit order, so "the
@@ -276,8 +285,8 @@ The socket is connected and buffering before `/sync` starts, and `/sync` runs un
 the position the server gave the socket, so nothing falls between them.
 
 ```ts
-let cursor = loadSavedCursor();           // the last `next`, or from /sync with no since
-const applied = new Set<string>();        // ids already applied, bounded by cursor age
+let cursor = loadSavedCursor(); // the last `next`, or from /sync with no since
+const applied = new Set<string>(); // ids already applied, bounded by cursor age
 
 socket.on("ready", async ({ until }) => {
   // Socket events are kept aside, in order, from the moment the socket connects.
@@ -285,7 +294,7 @@ socket.on("ready", async ({ until }) => {
     // Explicit subscriptions are gone after a reconnect.
     for (const target of subscriptions) {
       const ack = await socket.emitWithAck("subscribe", target);
-      if (ack.ok) until = ack.until;     // each is at least as late as the one before
+      if (ack.ok) until = ack.until; // each is at least as late as the one before
     }
     for (;;) {
       const page = await sync({ since: cursor, until, sessionIds, spaceIds });
@@ -295,14 +304,17 @@ socket.on("ready", async ({ until }) => {
       if (page.events.length === 0) await sleep(100 + Math.random() * 150);
     }
   } catch (e) {
-    if (e.status === 410) return reloadEverything();   // resync_required
+    if (e.status === 410) return reloadEverything(); // resync_required
     throw e;
   }
-  for (const e of buffered) apply(e);     // after /sync, skipping seen ids
+  for (const e of buffered) apply(e); // after /sync, skipping seen ids
   stopBuffering();
 });
 
-const apply = (e) => { if (applied.has(e.id)) return; applied.add(e.id); /* update state */ };
+const apply = (e) => {
+  if (applied.has(e.id)) return;
+  applied.add(e.id); /* update state */
+};
 ```
 
 Pass the subscribed resources in `sessionIds`/`spaceIds` so `/sync` covers what they missed. An

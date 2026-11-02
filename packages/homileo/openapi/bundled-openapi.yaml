@@ -21,11 +21,17 @@ info:
 
     ## Permissions and access
 
-    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
-    open to any signed-in caller in an organization, and what the caller may see or do is decided
-    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
-    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
-    the caller can read the resource but may not do the action.
+    Every route that changes shared chat state needs `homileo.spaces.write` or
+    `homileo.chat.admin` in the token: creating, changing and archiving spaces and sessions,
+    joining, membership and participant changes (removing someone else included), join request
+    decisions, sending, editing and deleting messages, reactions and attachment uploads. Without
+    it the answer is `403 forbidden`, before the body is validated or any resource is looked up.
+    Reads, leaving a space or session, and the calls that touch only the caller's own state (read
+    markers, notify settings, thread follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
+    see or do is decided by the access rules in `docs/access.md`. A space, session or message that
+    does not exist, is in another organization, or that the caller cannot read, is **`404`**:
+    apart from the write-permission refusal, `403` means the caller can read the resource but may
+    not do the action.
 
     ## Pagination
 
@@ -214,7 +220,7 @@ paths:
         emitted and an audit entry is written.
 
         **Required permissions:**
-        - `homileo.spaces.write`
+        - `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without)
 
         **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
         `409 external_ref_taken`.
@@ -280,7 +286,7 @@ paths:
         nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
         is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
 
-        **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space (its `owner`
         or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
         A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
 
@@ -325,7 +331,7 @@ paths:
         is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
         and an audit entry is written.
 
-        **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to manage the space (its `owner` or
         a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
         the space, 404.
 
@@ -396,7 +402,7 @@ paths:
         previous role); each emits its webhook and writes an audit entry. Adding a principal with a
         pending join request approves it as the caller (recording `space.join_decided`).
 
-        **Required permissions:** none; the caller must be able to moderate the space to add a
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space to add a
         `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
         who cannot read it, 404.
@@ -451,7 +457,7 @@ paths:
         this is judged from membership and visibility alone; their kind grants are not known.
         Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave. Anyone may leave, even an archived space. A moderator
         removes `member`s; removing a moderator or owner needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
         one who cannot read it, 404.
@@ -489,7 +495,7 @@ paths:
         `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
         a repeat returns the pending request without a new event. `invite`: 403.
 
-        **Required permissions:** none; the caller must be able to read the space (a space they
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the space (a space they
         cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
       operationId: joinSpace
       parameters:
@@ -561,7 +567,7 @@ paths:
       description: |
         Approves the applicant's pending request and makes them a `member` (recording `space.member_added`); for an applicant who is already a member it only closes the request. Records `space.join_decided`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
@@ -597,7 +603,7 @@ paths:
       description: |
         Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
 
-        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
@@ -779,7 +785,7 @@ paths:
 
         Records `session.created` and one `session.participant_added` per participant.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: createSession
       requestBody:
         required: true
@@ -823,7 +829,7 @@ paths:
         removed from the DM is re-added as a `member` (recording `session.participant_added`); the
         other principal is left as they are.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: createDirectSession
       requestBody:
         required: true
@@ -848,6 +854,8 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
         '409':
@@ -898,7 +906,7 @@ paths:
         nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
         changes nothing records no event. Records `session.updated`.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: updateSession
       parameters:
         - name: sessionId
@@ -944,7 +952,7 @@ paths:
         still cannot read a space-less session. Archiving an archived session is
         `409 already_archived`. Records `session.archived`.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: archiveSession
       parameters:
         - name: sessionId
@@ -1024,7 +1032,7 @@ paths:
         already a current participant. Records `session.participant_added`. An archived session, or
         one in an archived space, takes neither (`409 resource_archived`).
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: putSessionParticipant
       parameters:
         - name: sessionId
@@ -1079,7 +1087,7 @@ paths:
         joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
         removed principal can no longer read the session. Removing someone else is audited.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave.
       operationId: deleteSessionParticipant
       parameters:
         - name: sessionId
@@ -1265,7 +1273,7 @@ paths:
         Records `message.created` (and `thread.updated` for a reply), emitting
         `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
 
-        **Required permissions:** none; the caller must be able to read the session.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
       operationId: sendMessage
       parameters:
         - name: sessionId
@@ -1357,7 +1365,7 @@ paths:
 
         Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
 
-        **Required permissions:** none; see above.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
       operationId: editMessage
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1402,7 +1410,7 @@ paths:
         `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
         else's message also writes an audit `DELETE` entry.
 
-        **Required permissions:** none; see above.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
       operationId: deleteMessage
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1440,7 +1448,7 @@ paths:
         where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
         archived session or space is `409 resource_archived`. Records no event.
 
-        **Required permissions:** none; the caller must be able to read the session.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
       operationId: createAttachmentUpload
       parameters:
         - name: sessionId
@@ -1562,7 +1570,7 @@ paths:
         A message carries at most 50 distinct emoji. Adding one it does not have yet when it already
         has 50 is `409 reaction_limit`; reacting with an emoji it already has is always allowed.
 
-        **Required permissions:** none; the caller must be a participant.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
       operationId: addMessageReaction
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1600,7 +1608,7 @@ paths:
         Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
         it. The same checks as adding apply, including `409 resource_archived`.
 
-        **Required permissions:** none; the caller must be a participant.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
       operationId: removeMessageReaction
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -2573,9 +2581,10 @@ components:
         permissions and organization (`org_id`) from it. A token without an organization is refused
         with `400 organization_required`.
 
-        The one permission a route asks of the token is `homileo.spaces.write`, on `POST /v1/spaces`.
-        Permissions are tereo's dotted, hierarchical form: `write` covers `read`, and a domain's
-        `admin` covers all of it. Everything else is decided by the access rules for the resource.
+        The one permission a route asks of the token is `homileo.spaces.write`, on every route that
+        changes shared chat state; `homileo.chat.admin` passes the same check. Permissions are tereo's
+        dotted, hierarchical form: `write` covers `read`, and a domain's `admin` covers all of it.
+        Everything else is decided by the access rules for the resource.
   parameters:
     CursorParam:
       name: cursor

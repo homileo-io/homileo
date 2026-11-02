@@ -30,7 +30,7 @@
       nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
       is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
 
-      **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space (its `owner`
       or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
       A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
 
