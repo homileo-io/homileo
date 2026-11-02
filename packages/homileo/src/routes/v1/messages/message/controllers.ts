@@ -2,7 +2,6 @@ import { validateBody, validateParams } from "../../../../utils/validateReq.js";
 import { lockedMessage, messageFactsOf, refuseIfArchived } from "./utils.js";
 import { EditMessageBodySchema, MessageParamsSchema } from "../schemas.js";
 import { callerOf, principalOf } from "../../../../middleware/auth.js";
-import { resolveMentions } from "../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../utils/transaction.js";
@@ -11,6 +10,10 @@ import type { Prisma } from "../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
+import {
+  readBody,
+  resolveMentions,
+} from "../../../../utils/resolveMentions.js";
 import {
   canDeleteMessage,
   canEditMessage,
@@ -36,6 +39,7 @@ export const editMessage = async (req: Request, res: Response) => {
   const editor = principalOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
   const body = validateBody(EditMessageBodySchema, req);
+  const read = readBody(body.body);
 
   const message = await withChanges(async (tx, record) => {
     const context = await lockedMessage(tx, caller, messageId);
@@ -94,7 +98,7 @@ export const editMessage = async (req: Request, res: Response) => {
       });
 
       if (bodyChanged) {
-        const mentions = await resolveMentions(tx, context, body.body);
+        const mentions = await resolveMentions(tx, context, read);
         data.bodyText = mentions.bodyText;
 
         const before = new Set(await db.messages.mentionedUserIds(tx, row.id));

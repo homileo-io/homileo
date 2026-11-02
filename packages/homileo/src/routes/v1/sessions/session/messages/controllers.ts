@@ -1,6 +1,5 @@
 import { ListMessagesQuerySchema, SendMessageBodySchema } from "./schemas.js";
 import { callerOf, principalOf } from "../../../../../middleware/auth.js";
-import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../../utils/notifyMentions.js";
 import { postRefusalError } from "../../../../../utils/postRefusals.js";
 import { validatePayload } from "../../../../../utils/messageTypes.js";
@@ -12,6 +11,10 @@ import { postRefusal } from "../../../../../policy/index.js";
 import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
 import type { Message } from "@homileo-io/sdk";
+import {
+  readBody,
+  resolveMentions,
+} from "../../../../../utils/resolveMentions.js";
 import {
   attachMessageFiles,
   keepAttachments,
@@ -53,6 +56,7 @@ export const sendMessage = async (req: Request, res: Response) => {
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
   const attachments = await resolveAttachments(body.attachments ?? []);
+  const read = readBody(body.body);
 
   const outcome = await withChanges(
     async (tx, record): Promise<{ created: boolean; message: Message }> => {
@@ -98,7 +102,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       const now = new Date();
       const seq = await db.messages.nextSeq(tx, sessionId, now, !root);
 
-      const mentions = await resolveMentions(tx, context, body.body);
+      const mentions = await resolveMentions(tx, context, read);
 
       const row = await db.messages.insert(tx, {
         sessionId,
