@@ -211,7 +211,11 @@ export const attachSockets = async (http: HttpServer): Promise<void> => {
 
 /** Closes this node's sockets, keeping the Redis clients for requests still draining. */
 export const disconnectSockets = async (): Promise<void> => {
+  // First, so the HTTP drain introspects no token of a socket already closed.
+  const recheckStopped = stopTokenRecheck?.();
+  stopTokenRecheck = null;
   if (io) await disconnectSocketServer(io);
+  await recheckStopped;
 };
 
 export const closeSockets = async (): Promise<void> => {

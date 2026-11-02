@@ -307,6 +307,29 @@ describe("socket token expiry", () => {
       }
     });
 
+    it("ends a paced re-check as soon as it is stopped, introspecting no more", async () => {
+      const tokens = [
+        personToken({ org: uuidv7() }),
+        personToken({ org: uuidv7() }),
+      ];
+      const sockets = [];
+      for (const t of tokens) sockets.push(await open(t, local.url));
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockClear();
+      const stop = new AbortController();
+
+      // Paced over a minute: the second token would wait 30 s.
+      const run = revalidateSockets(sockets.map(serverSocket), {
+        spreadMs: 60_000,
+        signal: stop.signal,
+      });
+      await expect.poll(() => real.mock.calls.length).toBe(1);
+      stop.abort();
+      await run;
+
+      expect(real.mock.calls.map(([t]) => t)).toEqual([tokens[0]]);
+    });
+
     it("introspects a token shared by several sockets once", async () => {
       const token = personToken({ org: uuidv7() });
       const sockets = [

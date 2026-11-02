@@ -35,8 +35,9 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
   `homileo.spaces.read`, so every socket action runs for a caller with read. A token still active
   gives its sockets its current permissions, and those whose permissions changed (in any order: a
   reordering is no change) are re-checked. With tereo's introspection
-  cache (60 s), a revoked token's sockets close within about two minutes. On shutdown the node
-  starts no further introspection and waits up to 5 s for those in flight.
+  cache (60 s), a revoked token's sockets close within about two minutes. On shutdown, as it
+  starts closing its sockets and before the HTTP drain, the node starts no further introspection
+  (a paced wait ends at once) and waits up to 5 s for those in flight.
 - **Scale bound of the re-check.** A round takes at least `tokens × latency / 10`. At 50 ms per
   introspection that is 12,000 distinct tokens per node in 60 s; past about 6,000 (the 30 s
   pacing span) or with a slower tereo, a round outlasts its pacing, the next round is skipped,
