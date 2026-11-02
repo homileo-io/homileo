@@ -98,7 +98,8 @@ the other answers `409 duplicate_client_message` without using a `seq`. `seq` co
 An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
 (`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
-on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
+on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
+a mention and adding it back sends nothing); a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
 (views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
@@ -195,7 +196,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
-| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived` | `reaction.added` (a repeat records nothing) |
+| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
 | `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
@@ -216,7 +217,10 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
   24 h, and returns a presigned write URL for the object's id. A message names the object id. The
   send fetches the objects from tereo before its transaction, then checks inside it the key prefix
-  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit.
+  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit. If that
+  fails or never runs, a repeat of the send with the same `clientMessageId` (`409
+  duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
+  every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
   Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
   returns a presigned read URL. A tereo failure on these routes, other than a 404, is
   `503 temporarily_unavailable`.

@@ -54,7 +54,7 @@ NotFoundResponse:
         $ref: '#/Error'
 
 ConflictResponse:
-  description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+  description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
   content:
     application/json:
       schema:

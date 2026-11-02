@@ -1,0 +1,102 @@
+// @module-tag int
+// @module-tag messages
+// @module-tag job
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PLACEHOLDER_TTL_MS } from "../../utils/attachments.js";
+import { setFilesClient } from "../../utils/attachments.js";
+import { chatFixtures } from "../support/chatFixtures.js";
+import { fakeFiles } from "../support/fakeFiles.js";
+import { prisma } from "../../utils/db/prisma.js";
+import {
+  KEEP_GRACE_MS,
+  processAttachmentKeeps,
+} from "../../jobs/attachmentKeep.js";
+
+const fixtures = chatFixtures();
+const files = fakeFiles();
+
+beforeEach(() => setFilesClient(files.client));
+afterEach(() => {
+  setFilesClient(null);
+  files.reset();
+});
+afterAll(() => fixtures.cleanup());
+
+/** An attachment row whose object still expires, as a send whose keep failed leaves it. */
+const expiring = async () => {
+  const message = await fixtures.message("text");
+  const object = files.put(`sessions/${message.sessionId}/x/${message.id}`);
+  await prisma.attachment.create({
+    data: {
+      messageId: message.id,
+      tereoObjectId: object.id,
+      filename: "a.txt",
+      contentType: "text/plain",
+      size: 5n,
+    },
+  });
+  return { object };
+};
+
+/** A clock past the grace period of everything made so far. */
+const later = () => new Date(Date.now() + KEEP_GRACE_MS + 1000);
+
+describe("processAttachmentKeeps", () => {
+  it("clears the expiry of attachments that still have one, and returns the end of the range", async () => {
+    const from = new Date(Date.now() - 1);
+    const a = await expiring();
+    const b = await expiring();
+    const now = later();
+
+    const next = await processAttachmentKeeps(from, now);
+
+    expect(files.objects.get(a.object.id)!.deleteAfter).toBeNull();
+    expect(files.objects.get(b.object.id)!.deleteAfter).toBeNull();
+    expect(next).toEqual(new Date(now.getTime() - KEEP_GRACE_MS));
+  });
+
+  it("leaves attachments younger than the grace period to their send", async () => {
+    const from = new Date(Date.now() - 1);
+    const a = await expiring();
+
+    await processAttachmentKeeps(from);
+
+    expect(files.objects.get(a.object.id)!.deleteAfter).not.toBeNull();
+  });
+
+  it("stops at the first attachment tereo cannot be reached for and starts there next time", async () => {
+    const from = new Date(Date.now() - 1);
+    const a = await expiring();
+    files.failing.add("getObject");
+
+    const next = await processAttachmentKeeps(from, later());
+
+    expect(next.getTime()).toBeGreaterThanOrEqual(from.getTime());
+    expect(next.getTime()).toBeLessThanOrEqual(Date.now());
+    files.failing.clear();
+    await processAttachmentKeeps(next, later());
+    expect(files.objects.get(a.object.id)!.deleteAfter).toBeNull();
+  });
+
+  it("goes past an object tereo no longer has", async () => {
+    const from = new Date(Date.now() - 1);
+    const gone = await expiring();
+    const kept = await expiring();
+    files.expire(gone.object.id);
+
+    await processAttachmentKeeps(from, later());
+
+    expect(files.objects.get(kept.object.id)!.deleteAfter).toBeNull();
+  });
+
+  it("looks back no further than a placeholder lives", async () => {
+    const a = await expiring();
+
+    await processAttachmentKeeps(
+      new Date(0),
+      new Date(Date.now() + PLACEHOLDER_TTL_MS + 1000)
+    );
+
+    expect(files.objects.get(a.object.id)!.deleteAfter).not.toBeNull();
+  });
+});

@@ -10,6 +10,28 @@ import type { Root } from "mdast";
 /** Distinct user mentions per message, in order of appearance; later ones stay text. */
 export const USER_MENTIONS_MAX = 100;
 
+// A token of 36 hex digits and hyphens in the wrong places is not an id: it stays text.
+const idsOf = (parsed: ParsedMentions): string[] =>
+  parsed.users.filter((id) => IdSchema.safeParse(id).success);
+
+/**
+ * Everyone any revision of the message mentioned, so an edit emails only
+ * readers it never mentioned before, however often a mention is toggled.
+ */
+export const everMentionedIds = async (
+  tx: Prisma.TransactionClient,
+  messageId: string
+): Promise<Set<string>> => {
+  const bodies = await db.messages.mentioningRevisionBodies(tx, messageId);
+  // The plain-text scan (no tree): this runs under the message's lock, once
+  // per stored revision, so it skips the Markdown parse.
+  return new Set(
+    bodies.flatMap((body) =>
+      idsOf(parseMentions(body, null)).slice(0, USER_MENTIONS_MAX)
+    )
+  );
+};
+
 export interface ResolvedMentions {
   /** `null` when there is no body. */
   bodyText: string | null;
@@ -45,8 +67,7 @@ export const resolveMentions = async (
     return { bodyText: null, readers: [], here: false, session: false };
   }
   const parsed = read.mentions;
-  // A token of 36 hex digits and hyphens in the wrong places is not an id: it stays text.
-  const ids = parsed.users.filter((id) => IdSchema.safeParse(id).success);
+  const ids = idsOf(parsed);
   const mentionable = new Set(ids.slice(0, USER_MENTIONS_MAX));
   const mentioned = await db.messages.mentionedPrincipals(
     tx,

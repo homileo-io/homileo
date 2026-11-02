@@ -120,6 +120,17 @@ export class ArchivedError extends ConflictError {
   }
 }
 
+/** A new emoji on a message that already carries the most distinct ones allowed. */
+export class ReactionLimitError extends ConflictError {
+  constructor(max: number) {
+    super(
+      `A message can carry at most ${max} distinct reactions`,
+      "reaction_limit"
+    );
+    this.name = "ReactionLimitError";
+  }
+}
+
 /** Archiving something already archived. */
 export class AlreadyArchivedError extends ConflictError {
   constructor(message = "The resource is already archived") {
