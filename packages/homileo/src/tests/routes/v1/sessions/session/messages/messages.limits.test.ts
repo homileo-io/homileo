@@ -41,7 +41,8 @@ describe("POST /v1/sessions/:sessionId/messages", () => {
     });
 
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe("invalid_request");
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("invalid_request");
   });
 
   it.each([
