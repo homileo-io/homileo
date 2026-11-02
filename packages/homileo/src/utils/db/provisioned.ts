@@ -105,6 +105,18 @@ export const lockKind = async (tx: Tx, name: string): Promise<void> => {
 export const countUnarchivedSpaces = (tx: Tx, kind: string): Promise<number> =>
   tx.space.count({ where: { kind, archivedAt: null } });
 
+export const lockType = async (tx: Tx, name: string): Promise<void> => {
+  await tx.$queryRaw`
+    SELECT name FROM "chat"."provisioned_message_types"
+    WHERE name = ${name} FOR UPDATE`;
+};
+
+// The literal `type <> 'text'` lets even a generic plan use the partial
+// messages_type_idx.
 export const messageUses = async (tx: Tx, type: string): Promise<boolean> =>
-  (await tx.message.findFirst({ where: { type }, select: { id: true } })) !==
-  null;
+  (
+    await tx.$queryRaw<unknown[]>`
+      SELECT 1 FROM "chat"."messages"
+      WHERE type = ${type} AND type <> 'text'
+      LIMIT 1`
+  ).length > 0;

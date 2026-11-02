@@ -307,6 +307,8 @@ model Message {
   @@unique([sessionId, seq])
   @@unique([sessionId, senderId, clientMessageId])
   @@index([threadRootId, seq])
+  // Raw SQL in 20261102125915_partial_indexes:
+  // messages_type_idx (type) WHERE type <> 'text'.
   @@map("messages")
   @@schema("chat")
 }
@@ -472,7 +474,8 @@ model CoreOutbox {
   lastError      String?   @map("last_error") @db.VarChar(1000)
   deadLetteredAt DateTime? @map("dead_lettered_at")
 
-  @@index([nextAttemptAt])
+  // Raw SQL in 20261102125915_partial_indexes, as @tereo-io/sdk's outboxTableSql:
+  // core_outbox_pending_idx (next_attempt_at) WHERE dead_lettered_at IS NULL.
   @@map("core_outbox")
   @@schema("core")
 }
