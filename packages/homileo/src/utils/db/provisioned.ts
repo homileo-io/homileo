@@ -164,6 +164,6 @@ export const markSearchChanged = async (
   if (names.length === 0) return;
   await tx.$executeRaw`
     UPDATE "chat"."provisioned_space_kinds"
-    SET search_changed_at = clock_timestamp()
+    SET search_changed_at = date_trunc('milliseconds', clock_timestamp())
     WHERE name = ANY(${names}::text[])`;
 };
