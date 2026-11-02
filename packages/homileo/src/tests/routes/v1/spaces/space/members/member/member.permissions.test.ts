@@ -36,7 +36,10 @@ const arrange = async (o: { archived?: boolean } = {}) => {
     moderator: await api.actor(org),
     member: await api.actor(org),
     admin: await api.actor(org, ["homileo.chat.admin"]),
-    grant: await api.actor(org, ["spaces-test.moderate"]),
+    grant: await api.actor(org, [
+      "spaces-test.moderate",
+      "homileo.spaces.write",
+    ]),
     reader: await api.actor(org),
   };
   await fixtures.member(space, callers.owner.principal, "owner");

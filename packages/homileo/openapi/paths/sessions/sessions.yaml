@@ -68,7 +68,7 @@
 
       Records `session.created` and one `session.participant_added` per participant.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
     operationId: createSession
     requestBody:
       required: true

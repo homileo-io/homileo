@@ -21,11 +21,17 @@ info:
 
     ## Permissions and access
 
-    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
-    open to any signed-in caller in an organization, and what the caller may see or do is decided
-    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
-    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
-    the caller can read the resource but may not do the action.
+    Every route that changes shared chat state needs `homileo.spaces.write` or
+    `homileo.chat.admin` in the token: creating, changing and archiving spaces and sessions,
+    joining, membership and participant changes (leaving included), join request decisions,
+    sending, editing and deleting messages, reactions and attachment uploads. Without it the
+    answer is `403 forbidden`, before the body is validated or any resource is looked up. Reads,
+    and the calls that touch only the caller's own state (read markers, notify settings, thread
+    follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
+    see or do is decided by the access rules in `docs/access.md`. A space, session or message that
+    does not exist, is in another organization, or that the caller cannot read, is **`404`**:
+    apart from the write-permission refusal, `403` means the caller can read the resource but may
+    not do the action.
 
     ## Pagination
 

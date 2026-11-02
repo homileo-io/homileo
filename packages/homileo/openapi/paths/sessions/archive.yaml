@@ -9,7 +9,7 @@
       still cannot read a space-less session. Archiving an archived session is
       `409 already_archived`. Records `session.archived`.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
     operationId: archiveSession
     parameters:
       - name: sessionId

@@ -1,3 +1,4 @@
+import { requireChatWrite } from "../../../middleware/auth.js";
 import { createSession, listSessions } from "./controllers.js";
 import sessionRouter from "./session/index.js";
 import directRouter from "./direct/index.js";
@@ -9,6 +10,6 @@ sessionsRouter.use("/direct", directRouter);
 sessionsRouter.use("/:sessionId", sessionRouter);
 
 sessionsRouter.get("/", listSessions);
-sessionsRouter.post("/", createSession);
+sessionsRouter.post("/", requireChatWrite, createSession);
 
 export default sessionsRouter;

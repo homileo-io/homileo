@@ -34,7 +34,7 @@
       nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
       changes nothing records no event. Records `session.updated`.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
     operationId: updateSession
     parameters:
       - name: sessionId

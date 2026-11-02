@@ -1,9 +1,14 @@
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
+import { canWriteChat } from "../policy/chat.js";
 import type { AuthContext } from "@tereo-io/sdk";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
+import {
+  CHAT_ADMIN_PERMISSION,
+  SPACES_WRITE_PERMISSION,
+} from "../definitions/tereoDeclaration.js";
 import {
   AppError,
   ForbiddenError,
@@ -65,7 +70,7 @@ const callerOfIdentity = async (
       tereoUserId: identity.userId,
       isBot: principal.isBot,
       permissions: identity.permissions,
-      isAdmin: hasPermission(identity.permissions, "homileo.chat.admin"),
+      isAdmin: hasPermission(identity.permissions, CHAT_ADMIN_PERMISSION),
       organizationId: identity.organizationId,
     },
   };
@@ -122,16 +127,16 @@ export const principalOf = (req: Request): Principal => {
   return req.principal;
 };
 
-/** Refuses a caller whose token lacks `permission` (403); needs `authenticate` before it. */
-export const requirePermission =
-  (permission: string): RequestHandler =>
-  (req, _res, next) => {
-    try {
-      if (!hasPermission(callerOf(req).permissions, permission)) {
-        throw new ForbiddenError(`Requires the ${permission} permission`);
-      }
-      next();
-    } catch (err) {
-      next(err);
+/** Refuses (403) a caller whose token may only read chat (`canWriteChat`); needs `authenticate` before it. */
+export const requireChatWrite: RequestHandler = (req, _res, next) => {
+  try {
+    if (!canWriteChat(callerOf(req))) {
+      throw new ForbiddenError(
+        `Requires the ${SPACES_WRITE_PERMISSION} permission`
+      );
     }
-  };
+    next();
+  } catch (err) {
+    next(err);
+  }
+};

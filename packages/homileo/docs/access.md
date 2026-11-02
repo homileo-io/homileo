@@ -13,6 +13,33 @@ membership, role, grants or `homileo.chat.admin` (a route turns this into `404`)
 must also be in the session's organization. `public` means any signed-in user of that organization.
 Kind grants and `homileo.chat.admin` are checked against the permissions in the caller's token.
 
+## Write permission
+
+Changing shared chat state needs `canWriteChat` (`policy/chat.ts`): the token holds
+`homileo.spaces.write` (or anything above it on tereo's ladder: `homileo.spaces.admin`, `admin`) or
+`homileo.chat.admin`. `homileo.chat.admin` is named explicitly because it is on another branch
+(`homileo.chat`), so the ladder alone would not let an admin token archive a space or remove a
+participant. Holding it does not widen anything else: every change still goes through the rules
+below (an admin still cannot post in a DM it does not take part in).
+
+The routes ask it through `requireChatWrite` (`middleware/auth.ts`), before validation or any
+lookup, so a read-only token gets `403 forbidden` ("Requires the homileo.spaces.write permission")
+even for an id it cannot read. Gated:
+
+- spaces: create, `PATCH`, archive, join, member add, change and remove (leaving included), join
+  request approve and deny;
+- sessions: create, direct, `PATCH`, archive, participant add and remove (leaving included);
+- messages: send, edit, delete; reactions add and remove; attachment placeholders;
+- the socket's `typing.start` and `typing.stop` (a signal other participants see), acked
+  `forbidden`.
+
+Reading needs no Homileo permission, and neither do the calls that touch only the caller's own
+state: `PUT /sessions/:id/read`, `PUT /sessions/:id/notify`, `PUT /threads/:rootId/read`,
+`PUT /threads/:rootId/follow`, plus `POST /principals/resolve`, subscriptions and presence. A token
+with only `homileo.spaces.read` (or none) can therefore read and keep its own read state, and change
+nothing others see. `routes/routes.permissions.test.ts` lists every route that is not a GET as one
+or the other.
+
 ## Read a space
 
 Any of: the caller is a member; `visibility` is `public`; the space's kind grants a permission the

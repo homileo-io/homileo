@@ -42,7 +42,7 @@
 
       Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
 
-      **Required permissions:** none; see above.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
     operationId: editMessage
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
@@ -80,7 +80,7 @@
       `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
       else's message also writes an audit `DELETE` entry.
 
-      **Required permissions:** none; see above.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
     operationId: deleteMessage
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'

@@ -581,7 +581,10 @@ describe("GET /v1/sessions with a kind grant", () => {
     const kind = await provisionKind({
       grants: [{ permission: "sessions-test.read", access: "read" }],
     });
-    const holder = await signIn(org, ["sessions-test.read"]);
+    const holder = await signIn(org, [
+      "sessions-test.read",
+      "homileo.spaces.write",
+    ]);
     const space = await fixtures.space({ org, kind, visibility: "public" });
     const members = await fixtures.session({ org, space, access: "members" });
 
@@ -601,7 +604,10 @@ describe("GET /v1/sessions with a kind grant", () => {
     const kind = await provisionKind({
       grants: [{ permission: "sessions-test.moderate", access: "moderate" }],
     });
-    const holder = await signIn(org, ["sessions-test.moderate"]);
+    const holder = await signIn(org, [
+      "sessions-test.moderate",
+      "homileo.spaces.write",
+    ]);
     const space = await fixtures.space({ org, kind, visibility: "members" });
     const created = await fetchJson(
       "POST",

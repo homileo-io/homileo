@@ -1,3 +1,4 @@
+import { requireChatWrite } from "../../../../middleware/auth.js";
 import { getSession, updateSession } from "./controllers.js";
 import participantsRouter from "./participants/index.js";
 import attachmentsRouter from "./attachments/index.js";
@@ -17,6 +18,6 @@ sessionRouter.use("/notify", notifyRouter);
 sessionRouter.use("/messages", messagesRouter);
 
 sessionRouter.get("/", getSession);
-sessionRouter.patch("/", updateSession);
+sessionRouter.patch("/", requireChatWrite, updateSession);
 
 export default sessionRouter;

@@ -14,7 +14,7 @@
       A message carries at most 50 distinct emoji. Adding one it does not have yet when it already
       has 50 is `409 reaction_limit`; reacting with an emoji it already has is always allowed.
 
-      **Required permissions:** none; the caller must be a participant.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
     operationId: addMessageReaction
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
@@ -45,7 +45,7 @@
       Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
       it. The same checks as adding apply, including `409 resource_archived`.
 
-      **Required permissions:** none; the caller must be a participant.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
     operationId: removeMessageReaction
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'

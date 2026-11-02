@@ -12,7 +12,7 @@
       where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
       archived session or space is `409 resource_archived`. Records no event.
 
-      **Required permissions:** none; the caller must be able to read the session.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
     operationId: createAttachmentUpload
     parameters:
       - name: sessionId

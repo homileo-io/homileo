@@ -53,7 +53,7 @@ socket is up, so a change committed in between is not missed.
 Every client event takes an optional ack. An ack is `{ ok: true, … }` or
 `{ ok: false, error: { code, message, issues? } }`. Codes: `invalid_request` (with `issues`),
 `not_found` (the resource is missing, in another organization, unreadable, or, for typing, not
-postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
+postable), `forbidden` (typing with a read-only token), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
 `internal_error`. A socket may send 20 client events a second; the rest are dropped and answered
 `rate_limited`.
 
@@ -170,7 +170,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 
 ## Typing and presence
 
-- **Typing** is for sessions the caller can post in; otherwise `not_found`. `typing.start` is
+- **Typing** is for sessions the caller can post in; otherwise `not_found`. A token without
+  `homileo.spaces.write` (or `homileo.chat.admin`) is acked `forbidden` before the session is read. `typing.start` is
   throttled to one every 2 s per socket and session (the rest are acked `ok` and not sent); a
   `typing.stop` ends the throttle, so the next start is sent at once. The signal expires after
   `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends `typing.stop` when
