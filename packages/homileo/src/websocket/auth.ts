@@ -1,7 +1,17 @@
 import { callerFromToken } from "../middleware/auth.js";
+import type { AppSocket, IOServer } from "./types.js";
+import { isDeepStrictEqual } from "node:util";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import type { AppSocket } from "./types.js";
+import { recheckSockets } from "./rooms.js";
+
+/** How often each node introspects its sockets' tokens again. */
+export const TOKEN_RECHECK_INTERVAL_MS = 60_000;
+/** Introspections in flight at once during a re-check. */
+const TOKEN_RECHECK_CONCURRENCY = 10;
+
+// Kept off `socket.data`, which the adapter sends to other nodes in `fetchSockets` replies.
+const tokens = new WeakMap<AppSocket, string>();
 
 /**
  * Checks the handshake's `auth.token` as `authenticate` checks a request's, and sets
@@ -24,6 +34,7 @@ export const authenticateSocket = async (
       watched: new Set(),
       exp,
     };
+    tokens.set(socket, token);
     next();
   } catch (err) {
     if (err instanceof AppError) {
@@ -31,7 +42,7 @@ export const authenticateSocket = async (
       return;
     }
     logger.error({ err }, "Socket handshake failed");
-    next(new Error("internal_error"));
+    next(new Error("server_error"));
   }
 };
 
@@ -44,6 +55,7 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  */
 export const closeAtExpiry = (socket: AppSocket): void => {
   const { exp } = socket.data;
+  // Without an expiry, the periodic re-introspection is what closes it.
   if (exp === null) return;
   let timer: NodeJS.Timeout | undefined;
   const arm = () => {
@@ -57,4 +69,71 @@ export const closeAtExpiry = (socket: AppSocket): void => {
   };
   arm();
   socket.on("disconnect", () => clearTimeout(timer));
+};
+
+/**
+ * Introspects the sockets' tokens again, once per distinct token, and closes the sockets of a
+ * token tereo no longer accepts (revoked, expired, or tereo unreachable, as a request would be
+ * refused). Sockets of a token still active take its current caller, and are re-checked when
+ * its permissions changed.
+ */
+export const revalidateSockets = async (
+  sockets: AppSocket[]
+): Promise<void> => {
+  const byToken = new Map<string, AppSocket[]>();
+  for (const socket of sockets) {
+    const token = tokens.get(socket);
+    if (!token || socket.disconnected) continue;
+    byToken.set(token, [...(byToken.get(token) ?? []), socket]);
+  }
+  const entries = [...byToken];
+  for (let i = 0; i < entries.length; i += TOKEN_RECHECK_CONCURRENCY) {
+    await Promise.all(
+      entries
+        .slice(i, i + TOKEN_RECHECK_CONCURRENCY)
+        .map(([token, group]) => revalidateToken(token, group))
+    );
+  }
+};
+
+const revalidateToken = async (
+  token: string,
+  sockets: AppSocket[]
+): Promise<void> => {
+  try {
+    const { caller } = await callerFromToken(token);
+    const changed = sockets.filter(
+      (s) => !isDeepStrictEqual(s.data.caller.permissions, caller.permissions)
+    );
+    for (const socket of sockets) socket.data.caller = caller;
+    if (changed.length > 0) await recheckSockets(changed);
+  } catch (err) {
+    if (err instanceof AppError) {
+      for (const socket of sockets) socket.disconnect(true);
+      return;
+    }
+    logger.error(
+      { err, principalId: sockets[0]?.data.caller.principalId },
+      "Re-checking a socket's token failed"
+    );
+  }
+};
+
+/** Re-introspects this node's sockets' tokens every `TOKEN_RECHECK_INTERVAL_MS`. */
+export const startTokenRecheck = (io: IOServer): (() => void) => {
+  let running = false;
+  const timer = setInterval(() => {
+    // A run still going (tereo slow) is not overlapped.
+    if (running) return;
+    running = true;
+    revalidateSockets([...io.of("/").sockets.values()])
+      .catch((err: unknown) => {
+        logger.error({ err }, "Re-checking the sockets' tokens failed");
+      })
+      .finally(() => {
+        running = false;
+      });
+  }, TOKEN_RECHECK_INTERVAL_MS);
+  timer.unref();
+  return () => clearInterval(timer);
 };

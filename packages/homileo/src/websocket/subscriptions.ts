@@ -163,9 +163,7 @@ const answer =
         { err, event, principalId: socket.data.caller.principalId },
         "Socket event failed"
       );
-      reply(
-        failure({ code: "internal_error", message: "Something went wrong" })
-      );
+      reply(failure({ code: "server_error", message: "Something went wrong" }));
     });
   };
 

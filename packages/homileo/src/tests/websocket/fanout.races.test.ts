@@ -2,15 +2,17 @@
 // @module-tag websocket
 // @module-tag race
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { changeBus, publishCommitted } from "../../utils/changeBus.js";
+import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
 import type { ChangeEvent } from "../../utils/changes.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
 import { sendMessage } from "../support/messageApi.js";
 import type { JsonResponse } from "../support/http.js";
-import { changeBus } from "../../utils/changeBus.js";
 import { startV1App } from "../support/v1App.js";
 import {
   collect,
   eventually,
+  nextEvent,
   openLocalSocket,
   request,
   startSocketServer,
@@ -82,5 +84,40 @@ describe("startFanout ordering", () => {
     expect(ids).toHaveLength(20);
     expect(new Set(ids).size).toBe(20);
     expect(ids).toEqual(committed);
+  });
+
+  it("leaves a principal out of the room when its add fans out after its removal", async () => {
+    const org = api.organization();
+    const who = await api.actor(org);
+    const space = await fixtures.space({ org, visibility: "members" });
+    const session = await fixtures.session({ space, access: "members" });
+    await fixtures.member(space, who.principal);
+    const socket = await openLocalSocket(who.token, local);
+    opened.push(socket);
+    const onServer = local.io.of("/").sockets.get(socket.id!)!;
+    const arriving = nextEvent(socket, "session.participant_added");
+
+    // The add from another node arrives late: the participant has already been removed.
+    publishCommitted([
+      {
+        id: BigInt(Date.now()) * 1000n,
+        createdAt: new Date(),
+        type: "session.participant_added",
+        organizationId: org,
+        spaceId: space.id,
+        sessionId: session.id,
+        actorId: who.principal.id,
+        payload: {
+          sessionId: session.id,
+          participant: { principalId: who.principal.id },
+        },
+      },
+    ]);
+
+    await arriving;
+    // Long enough for the adapter's join to come back through Redis.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(onServer.rooms.has(sessionRoom(session.id))).toBe(false);
+    expect(onServer.rooms.has(spaceOfRoom(space.id))).toBe(false);
   });
 });

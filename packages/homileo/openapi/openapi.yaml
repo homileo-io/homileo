@@ -226,6 +226,8 @@ components:
       $ref: './components/spaces/schemas.yaml#/SpaceResponse'
     SpaceEventData:
       $ref: './components/spaces/schemas.yaml#/SpaceEventData'
+    SpaceUpdatedEventData:
+      $ref: './components/spaces/schemas.yaml#/SpaceUpdatedEventData'
     SpaceMemberAddedEventData:
       $ref: './components/spaces/schemas.yaml#/SpaceMemberAddedEventData'
     Metadata:

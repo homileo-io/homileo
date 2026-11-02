@@ -21,7 +21,8 @@ Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionS
 
 | Type | Payload |
 |---|---|
-| `space.created`, `space.updated`, `space.archived` | `{ space }` |
+| `space.created`, `space.archived` | `{ space }` |
+| `space.updated` | `{ space, previousVisibility }`: the new space, and its `visibility` before the update |
 | `space.member_added` | `{ spaceId, member }` |
 | `space.member_removed` | `{ spaceId, principalId }` |
 | `space.member_role_changed` | `{ spaceId, member, previousRole }` |
