@@ -141,6 +141,9 @@ const unsubscribe = async (
   // A join that committed during the check found the socket still in the room.
   if (await joinedForAccess(socket, target)) {
     await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
+    // As in subscribe: a removal that committed meanwhile may have checked
+    // this socket before it joined.
+    await recheckSockets([socket]);
     return OK;
   }
   if (spaceId) await leaveSpaceOfIfUnused(socket, spaceId, room);

@@ -36,7 +36,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit` |
 | 410 | `resync_required` |
 | 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
 

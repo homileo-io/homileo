@@ -55,7 +55,7 @@ const keep = async (a: {
  * Clears the tereo expiry of every attachment stored from `from` up to
  * `KEEP_GRACE_MS` ago that still has one: a send whose keep failed, or that
  * stopped between commit and keep. Returns where the next run starts: the
- * first attachment tereo could not be reached for, or the end of this range.
+ * first attachment that could not be kept, or the end of this range.
  */
 export const processAttachmentKeeps = async (
   from: Date,
@@ -65,6 +65,7 @@ export const processAttachmentKeeps = async (
   const start = from < horizon ? horizon : from;
   const end = new Date(now.getTime() - KEEP_GRACE_MS);
   let after = idAt(start);
+  let firstFailed: string | null = null;
   for (;;) {
     const rows = await prisma.$queryRaw<
       Array<{ id: string; tereoObjectId: string }>
@@ -77,10 +78,11 @@ export const processAttachmentKeeps = async (
     for (let i = 0; i < rows.length; i += PARALLEL) {
       const chunk = rows.slice(i, i + PARALLEL);
       const kept = await Promise.all(chunk.map(keep));
-      const failed = chunk.find((_, j) => !kept[j]);
-      if (failed) return timeOf(failed.id);
+      // One object that keeps failing must not hold back the rest; the
+      // next run starts again from it.
+      firstFailed ??= chunk.find((_, j) => !kept[j])?.id ?? null;
     }
-    if (rows.length < BATCH) return end;
+    if (rows.length < BATCH) return firstFailed ? timeOf(firstFailed) : end;
     after = rows[rows.length - 1].id;
   }
 };

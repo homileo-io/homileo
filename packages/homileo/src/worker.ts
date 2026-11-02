@@ -36,12 +36,20 @@ const runRetention = async (): Promise<void> => {
   }
 };
 
+let keepRunning = false;
+
 const runKeeps = async (): Promise<void> => {
+  // A run slower than the interval would otherwise overlap the next one and
+  // could move keepFrom backwards when it finishes last.
+  if (keepRunning) return;
+  keepRunning = true;
   try {
     keepFrom = await processAttachmentKeeps(keepFrom);
   } catch (err) {
     // The next run starts from the same place.
     logger.warn({ err }, "Attachment keep run failed");
+  } finally {
+    keepRunning = false;
   }
 };
 

@@ -2,7 +2,7 @@ homileo.message.created:
   post:
     tags: [Messages]
     summary: Message created
-    description: A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.created` instead. A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
     operationId: webhookMessageCreated
     security: []
     requestBody:
@@ -24,7 +24,7 @@ homileo.thread.updated:
   post:
     tags: [Messages]
     summary: Thread updated
-    description: A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_thread.updated` instead. A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
     operationId: webhookThreadUpdated
     security: []
     requestBody:
@@ -46,7 +46,7 @@ homileo.message.edited:
   post:
     tags: [Messages]
     summary: Message edited
-    description: A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.edited` instead. A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
     operationId: webhookMessageEdited
     security: []
     requestBody:
@@ -68,7 +68,7 @@ homileo.message.deleted:
   post:
     tags: [Messages]
     summary: Message deleted
-    description: A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.deleted` instead. A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
     operationId: webhookMessageDeleted
     security: []
     requestBody:
@@ -90,7 +90,7 @@ homileo.reaction.added:
   post:
     tags: [Messages]
     summary: Reaction added
-    description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_reaction.added` instead. A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
     operationId: webhookReactionAdded
     security: []
     requestBody:
@@ -112,7 +112,7 @@ homileo.reaction.removed:
   post:
     tags: [Messages]
     summary: Reaction removed
-    description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_reaction.removed` instead. A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
     operationId: webhookReactionRemoved
     security: []
     requestBody:
