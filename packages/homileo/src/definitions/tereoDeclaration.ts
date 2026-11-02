@@ -1,6 +1,12 @@
 import type { ProvisioningDocument } from "@tereo-io/sdk";
 import { webhookEventTypes } from "@homileo-io/sdk";
 
+/**
+ * Homileo's service slug in tereo. Its permissions and event types are named
+ * under it, and tereo refuses an audit entry from any other source.
+ */
+export const SERVICE_SLUG = "homileo";
+
 /** The tereo bucket that holds message attachments. */
 export const ATTACHMENTS_BUCKET = "homileo-attachments";
 
@@ -11,7 +17,7 @@ export const ATTACHMENTS_BUCKET = "homileo-attachments";
 export const buildTereoDocument = (version: string): ProvisioningDocument => ({
   version,
   service: {
-    slug: "homileo",
+    slug: SERVICE_SLUG,
     name: "Homileo",
     secretFrom: "TEREO_CLIENT_SECRET",
     // Audit entries, webhook events and notifications leave through the
