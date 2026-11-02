@@ -1,5 +1,4 @@
 import { ResyncRequiredError, ValidationError } from "../../../utils/errors.js";
-import { readableSessions, readableSpaces } from "../../../utils/access.js";
 import { Prisma } from "../../../../prisma/generated/client/index.js";
 import { validateQuery } from "../../../utils/validateReq.js";
 import { EVENT_TYPES, type EventType } from "@homileo-io/sdk";
@@ -19,10 +18,17 @@ import {
   isRelevantTo,
   mentionedMessageOf,
   MENTION_EVENTS,
+  MODERATOR_EVENTS,
   SPACE_SESSION_EVENTS,
   TARGET_PATHS,
   type ReaderFacts,
 } from "../../../realtime/audience.js";
+import {
+  currentMentionReaders,
+  moderatedSpaces,
+  readableSessions,
+  readableSpaces,
+} from "../../../utils/access.js";
 
 const typesOf = (channel: "space" | "session"): EventType[] =>
   (Object.keys(EVENT_TYPES) as EventType[]).filter(
@@ -119,7 +125,7 @@ export const sync = async (req: Request, res: Response) => {
   const next = waiting ? { ...page.next, at: after.at } : page.next;
 
   const messageIds = unique(rows.flatMap((r) => mentionedMessageOf(r) ?? []));
-  const [sessions, spaces, mentions] = await Promise.all([
+  const [sessions, spaces, moderated, mentions] = await Promise.all([
     readableSessions(
       caller,
       unique(rows.flatMap((r) => (r.sessionId ? [r.sessionId] : [])))
@@ -128,12 +134,15 @@ export const sync = async (req: Request, res: Response) => {
       caller,
       unique(rows.flatMap((r) => (r.spaceId ? [r.spaceId] : [])))
     ),
-    messageIds.length === 0
-      ? []
-      : prisma.messageMention.findMany({
-          where: { userId: me, messageId: { in: messageIds } },
-          select: { messageId: true },
-        }),
+    moderatedSpaces(
+      caller,
+      unique(
+        rows.flatMap((r) =>
+          r.spaceId && MODERATOR_EVENTS.includes(r.type) ? [r.spaceId] : []
+        )
+      )
+    ),
+    db.messages.storedMentionsOf(prisma, messageIds, me),
   ]);
   const reader: ReaderFacts = {
     principalId: me,
@@ -142,9 +151,10 @@ export const sync = async (req: Request, res: Response) => {
     memberOf,
     watchedSessions: new Set(query.sessionIds),
     watchedSpaces: new Set(query.spaceIds),
-    mentionedIn: new Set(mentions.map((m) => m.messageId)),
+    mentionedIn: new Set(currentMentionReaders(mentions).keys()),
     canReadSession: (id) => sessions.has(id),
     canReadSpace: (id) => spaces.has(id),
+    canModerateSpace: (id) => moderated.has(id),
   };
 
   res.status(200).json({

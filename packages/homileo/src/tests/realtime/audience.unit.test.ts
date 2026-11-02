@@ -5,6 +5,7 @@ import type { ChangeEvent } from "../../utils/changes.js";
 import { describe, expect, it } from "vitest";
 import {
   eventAudience,
+  foundersOf,
   isRelevantTo,
   type Audience,
   type ReaderFacts,
@@ -66,6 +67,7 @@ const audience = (o: Partial<Audience>): Audience => ({
   rooms: [],
   recheck: [],
   join: [],
+  moderators: null,
   ...o,
 });
 
@@ -121,16 +123,16 @@ const TABLE: Array<[string, ChangeEvent, string[], Audience]> = [
     audience({ rooms: [SPACE_ROOM, TARGET_ROOM] }),
   ],
   [
-    "space.join_requested also goes to the requester",
+    "space.join_requested goes to the requester and the space's moderators only",
     event("space.join_requested", { ...inSpace, payload: request(TARGET) }),
     [],
-    audience({ rooms: [SPACE_ROOM, TARGET_ROOM] }),
+    audience({ rooms: [TARGET_ROOM], moderators: SPACE }),
   ],
   [
-    "space.join_decided also goes to the requester",
+    "space.join_decided goes to the requester and the space's moderators only",
     event("space.join_decided", { ...inSpace, payload: request(TARGET) }),
     [],
-    audience({ rooms: [SPACE_ROOM, TARGET_ROOM] }),
+    audience({ rooms: [TARGET_ROOM], moderators: SPACE }),
   ],
   [
     "session.created in a space also goes to the space",
@@ -229,10 +231,10 @@ const TABLE: Array<[string, ChangeEvent, string[], Audience]> = [
     audience({ rooms: [SESSION_ROOM, MENTIONED_ROOM] }),
   ],
   [
-    "message.deleted goes to the session only",
+    "message.deleted goes to the mentioned too",
     event("message.deleted", { ...inSession, payload: message }),
     [MENTIONED],
-    audience({ rooms: [SESSION_ROOM] }),
+    audience({ rooms: [SESSION_ROOM, MENTIONED_ROOM] }),
   ],
   [
     "reaction.added goes to the session, not the reactor's room",
@@ -297,6 +299,23 @@ describe("eventAudience", () => {
     expect(actual.rooms.sort()).toEqual([...expected.rooms].sort());
     expect(actual.recheck).toEqual(expected.recheck);
     expect(actual.join).toEqual(expected.join);
+    expect(actual.moderators).toEqual(expected.moderators);
+  });
+
+  it.each([
+    [
+      "session.created",
+      event("session.created", {
+        ...inSpaceSession,
+        payload: session("members", SPACE),
+      }),
+      [SESSION_ROOM],
+    ],
+    ["space.created", event("space.created", inSpace), [SPACE_ROOM]],
+  ])("sends %s to its founders' personal rooms", (_name, e, rooms) => {
+    const { rooms: actual } = eventAudience(e, [], [TARGET]);
+
+    expect(actual.sort()).toEqual([...rooms, TARGET_ROOM].sort());
   });
 
   it("names each room once", () => {
@@ -318,6 +337,46 @@ describe("eventAudience", () => {
   });
 });
 
+describe("foundersOf", () => {
+  const added = (principalId: string, sessionId = SESSION) =>
+    event("session.participant_added", {
+      spaceId: SPACE,
+      sessionId,
+      payload: { sessionId, participant: { sessionId, principalId } },
+    });
+  const created = event("session.created", {
+    ...inSpaceSession,
+    payload: session("members", SPACE),
+  });
+
+  it("names the participants the batch adds to the created session", () => {
+    const batch = [
+      created,
+      added(ME),
+      added(TARGET),
+      added(MENTIONED, "00000000-0000-7000-8000-0000000000c2"),
+    ];
+
+    expect(foundersOf(created, batch)).toEqual([ME, TARGET]);
+  });
+
+  it("names the members the batch adds to the created space", () => {
+    const space = event("space.created", inSpace);
+    const batch = [
+      space,
+      event("space.member_added", { ...inSpace, payload: member(ME) }),
+    ];
+
+    expect(foundersOf(space, batch)).toEqual([ME]);
+  });
+
+  it("names nobody for other events", () => {
+    const e = event("session.updated", inSpaceSession);
+
+    expect(foundersOf(e, [e, added(ME)])).toEqual([]);
+  });
+});
+
 const reader = (o: Partial<ReaderFacts> = {}): ReaderFacts => ({
   principalId: ME,
   organizationId: ORG,
@@ -328,6 +387,7 @@ const reader = (o: Partial<ReaderFacts> = {}): ReaderFacts => ({
   mentionedIn: new Set(),
   canReadSession: () => true,
   canReadSpace: () => true,
+  canModerateSpace: () => false,
   ...o,
 });
 
@@ -472,6 +532,39 @@ describe("isRelevantTo", () => {
 
       expect(isRelevantTo(e, reader())).toBe(true);
     });
+
+    it.each(["space.join_requested", "space.join_decided"] as const)(
+      "%s reaches a member or watcher only when it can moderate the space",
+      (type) => {
+        const e = event(type, { ...inSpace, payload: request(TARGET) });
+        const moderates = () => true;
+
+        expect(isRelevantTo(e, reader({ memberOf: new Set([SPACE]) }))).toBe(
+          false
+        );
+        expect(
+          isRelevantTo(e, reader({ watchedSpaces: new Set([SPACE]) }))
+        ).toBe(false);
+        expect(
+          isRelevantTo(
+            e,
+            reader({ memberOf: new Set([SPACE]), canModerateSpace: moderates })
+          )
+        ).toBe(true);
+        expect(
+          isRelevantTo(
+            e,
+            reader({
+              watchedSpaces: new Set([SPACE]),
+              canModerateSpace: moderates,
+            })
+          )
+        ).toBe(true);
+        expect(isRelevantTo(e, reader({ canModerateSpace: moderates }))).toBe(
+          false
+        );
+      }
+    );
   });
 
   describe("personal events", () => {
@@ -557,6 +650,7 @@ interface Situation {
   watchesSession?: boolean;
   watchesSpace?: boolean;
   canRead: boolean;
+  canModerate?: boolean;
 }
 
 const SITUATIONS: Situation[] = [
@@ -600,6 +694,26 @@ const SITUATIONS: Situation[] = [
     member: true,
     canRead: true,
   },
+  {
+    name: "a moderator",
+    principalId: ME,
+    member: true,
+    canRead: true,
+    canModerate: true,
+  },
+  {
+    name: "a moderator watching the space",
+    principalId: ME,
+    watchesSpace: true,
+    canRead: true,
+    canModerate: true,
+  },
+  {
+    name: "a moderator with no tie",
+    principalId: ME,
+    canRead: true,
+    canModerate: true,
+  },
 ];
 
 /**
@@ -627,6 +741,7 @@ const factsOf = (s: Situation): ReaderFacts =>
     mentionedIn: new Set(s.principalId === MENTIONED ? [MESSAGE] : []),
     canReadSession: () => s.canRead,
     canReadSpace: () => s.canRead,
+    canModerateSpace: () => s.canRead && (s.canModerate ?? false),
   });
 
 /** Whether the socket path delivers the event to the principal. */
@@ -636,6 +751,9 @@ const socketDelivers = (a: Audience, s: Situation): boolean => {
   const rooms = socketRooms(s);
   for (const j of a.join)
     if (j.principalId === s.principalId) rooms.add(j.room);
+  if (a.moderators && s.canModerate && rooms.has(spaceRoom(a.moderators))) {
+    return true;
+  }
   return a.rooms.some((room) => rooms.has(room));
 };
 

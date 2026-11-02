@@ -253,7 +253,7 @@ describe("PATCH /v1/messages/:messageId", () => {
 });
 
 describe("DELETE /v1/messages/:messageId", () => {
-  it("clears the message and keeps its revisions and mentions' removal", async () => {
+  it("clears the message and keeps its revisions and mentions", async () => {
     const { me, session } = await room();
     const a = await fixtures.principal();
     await fixtures.participant(session, a);
@@ -276,7 +276,7 @@ describe("DELETE /v1/messages/:messageId", () => {
     });
     const row = await prisma.message.findUniqueOrThrow({ where: { id } });
     expect(row).toMatchObject({ body: null, bodyText: null, payload: null });
-    expect(await mentionIds(id)).toEqual([]);
+    expect(await mentionIds(id)).toEqual([a.id]);
     expect(
       await prisma.messageRevision.count({ where: { messageId: id } })
     ).toBe(2);

@@ -157,7 +157,7 @@ export const deleteMessage = async (req: Request, res: Response) => {
       caller.principalId,
       now
     );
-    await db.messages.deleteMentions(tx, row.id);
+    // The mentions stay so `message.deleted` reaches whoever the message reached through one.
 
     const change = {
       organizationId: session.organizationId,

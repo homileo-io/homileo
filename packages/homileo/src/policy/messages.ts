@@ -69,7 +69,7 @@ export const canReadRevisions = (
  * principals are not organization-scoped, so a public space would admit any id.
  */
 export const isMentionReader = (
-  ss: SessionFacts,
+  ss: Pick<SessionFacts, "access"> & { space: object | null },
   p: { participantRole: string | null; spaceRole: string | null }
 ): boolean =>
   p.participantRole !== null ||
