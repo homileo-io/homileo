@@ -282,10 +282,12 @@ organization. Details, as built:
 - **Snippet.** `{ text, highlights: [start, end][] }`: offsets in UTF-16 code units into `text`, end
   exclusive. It is plain text, never HTML. A hit found only by an attachment filename has an empty
   snippet.
-- **Query syntax.** `q` goes through `websearch_to_tsquery('english', q)`: `"phrase"`, `-exclude`
+- **Query syntax.** On messages and sessions, `q` goes through `websearch_to_tsquery('english', q)`: `"phrase"`, `-exclude`
   and `OR` / `or`, with English stemming. Typo-tolerant (trigram) matching applies only to queries of
   3 or more characters with no phrase, exclusion or `OR`. A query of only stop words (`the`) has no
-  full-text terms, so only the trigram match can find anything.
+  full-text terms, so only the trigram match can find anything. `/search/principals` takes none of
+  this syntax: its `q` is plain text, matched as a substring or by trigram similarity, with no
+  stemming.
 - **Ranking.** `ts_rank_cd(…, 32)` plus trigram word similarity, rounded to 2 decimals, then newer
   first, then id.
 - **Metadata filters.** `metadata[key]=value`, at most 5; keys follow the metadata key pattern
@@ -297,10 +299,11 @@ organization. Details, as built:
 - **What is searched.** Archived spaces and sessions are included. Messages also match attachment
   filenames (trigram). Deleted messages never match, only the current revision is indexed, and file
   contents are not.
-- **Message filters.** `spaceId`, `kind`, `sessionId`, `senderId`, `from` (inclusive) and `to`
-  (exclusive) on `createdAt`, `hasAttachment`, and `inThread` (`true`: thread replies only; roots
-  count as not in a thread). `/search/sessions` takes `kind` (spaces of that kind and the sessions
-  in them) and `spaceId`.
+- **Message filters.** `spaceId`, `kind` (the kind of the message's space, not a message type),
+  `sessionId`, `senderId`, `from` (inclusive) and `to` (exclusive) on `createdAt`, `hasAttachment`
+  (`true`: with an attachment; `false`: without one), and `inThread` (`true`: thread replies only;
+  `false`: roots and messages not in a thread only). `/search/sessions` takes `kind` (spaces of that
+  kind and the sessions in them) and `spaceId`.
 - **Principals.** Only principals with a participation row, current or past, in a session the
   caller can read (principals belong to no organization, so this keeps a caller from listing
   everyone). A name matches by substring, where `%`, `_` and `\` are literal, or by trigram

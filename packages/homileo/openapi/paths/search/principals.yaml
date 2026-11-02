@@ -11,7 +11,14 @@
       **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: searchPrincipals
     parameters:
-      - $ref: '../../components/search/parameters.yaml#/SearchQueryParam'
+      - name: q
+        in: query
+        required: true
+        description: |
+          The name to look for, 1–200 characters after trimming. Plain text: a substring match
+          (`%`, `_` and `\` are literal) or trigram similarity, with no `"phrase"`, `-exclude` or
+          `OR` syntax and no stemming.
+        schema: { type: string, minLength: 1, maxLength: 200 }
       - name: limit
         in: query
         required: false

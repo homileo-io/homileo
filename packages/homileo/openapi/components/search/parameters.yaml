@@ -3,11 +3,11 @@ SearchQueryParam:
   in: query
   required: true
   description: |
-    The search text, 1–200 characters after trimming. Parsed with `websearch_to_tsquery('english')`:
+    The search text, 1–200 characters after trimming. For messages and sessions it is parsed with `websearch_to_tsquery('english')`:
     `"a phrase"`, `-excluded` and `OR` work, and words are stemmed. A query of at least 3
     characters without a phrase, exclusion or `OR` also matches by trigram similarity, which
     tolerates typos. A query of only stop words (`the`) has no full-text terms, so only the
-    trigram match can find anything.
+    trigram match can find anything. `/v1/search/principals` takes no such syntax: see that route.
   schema: { type: string, minLength: 1, maxLength: 200 }
 
 SearchLimitParam:
@@ -47,7 +47,9 @@ SearchKindParam:
   name: kind
   in: query
   required: false
-  description: Only results of this space kind (or message kind, on messages)
+  description: |
+    Only results in spaces of this kind. On `/v1/search/sessions`, the spaces of that kind and the
+    sessions in them. On `/v1/search/messages` it is the space's kind, not a message kind.
   schema: { type: string, minLength: 1, maxLength: 128 }
 
 SearchSpaceIdParam:

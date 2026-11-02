@@ -44,10 +44,13 @@
       - name: hasAttachment
         in: query
         required: false
+        description: '`true`: only messages with an attachment. `false`: only messages without one.'
         schema: { type: boolean }
       - name: inThread
         in: query
         required: false
+        description: |
+          `true`: thread replies only. `false`: roots and messages not in a thread only.
         schema: { type: boolean }
       - $ref: '../../components/search/parameters.yaml#/SearchMetadataParam'
       - $ref: '../../components/search/parameters.yaml#/SearchCursorParam'
