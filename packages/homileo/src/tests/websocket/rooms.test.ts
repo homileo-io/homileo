@@ -291,6 +291,29 @@ describe("sweepSockets", () => {
     expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
   });
 
+  it("leaves a participation room whose removal it missed, though it can still read the session, keeping a subscription", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const watched = await fixtures.session({ space, access: "space" });
+    await fixtures.participant(session, who);
+    const client = await connectAs(who, org);
+    await request(client, "subscribe", { sessionId: watched.id });
+    const server = serverSocket(client);
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
+    // Removed with no event: as if the removal fanned out before the socket joined.
+    await prisma.sessionParticipant.deleteMany({
+      where: { sessionId: session.id },
+    });
+
+    await sweepSockets(local.io);
+
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(false);
+    expect(server.rooms.has(sessionRoom(watched.id))).toBe(true);
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+  });
+
   it("still leaves the rooms a socket can no longer read", async () => {
     const org = uuidv7();
     const who = await fixtures.principal();

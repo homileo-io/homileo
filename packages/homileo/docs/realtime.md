@@ -75,7 +75,9 @@ made good by the sweep (below).
 A socket joined for membership or participation never leaves it on `unsubscribe`; that only undoes
 `subscribe`. `unsubscribe` checks participation or membership again after leaving, and joins again
 if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
-socket is up, so a change committed in between is not missed.
+socket is up, so a change committed in between is not missed: a participation or membership
+removed meanwhile leaves its room even when the socket could still read the resource, unless
+an explicit subscription holds it.
 
 A join on being added gives no such guarantee. The socket joins the room when the
 `session.participant_added` or `space.member_added` event naming it is fanned out, so events of
@@ -248,7 +250,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 - Every 300 s each node sweeps its local sockets, as a backstop for changes that record no event
   (a kind grant changed by provisioning) and for joins and leaves Redis lost. It loads each
   socket's participation and membership rooms as on connect, joins those it is missing, drops
-  the explicit subscriptions they now hold, then re-checks every room. A join it makes is checked
+  the explicit subscriptions they now hold, leaves `session:` and `space:` rooms no load returns
+  and no subscription holds, then re-checks every room. A join it makes is checked
   against a second load, so a removal committed meanwhile is not undone.
 - A re-check uses the socket's own caller, so a token's permissions, not the principal's current
   ones, decide kind grants and admin.

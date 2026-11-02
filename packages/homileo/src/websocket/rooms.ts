@@ -225,13 +225,48 @@ export const recheckSockets = async (
   return left;
 };
 
+/**
+ * Leaves the socket's `session:` and `space:` rooms that neither `held` (a `roomsOnConnect`
+ * load) nor a load taken after them returns, and no explicit subscription holds: a
+ * participation or membership removed before the socket was in the room, whose removal never
+ * left it. Any join was committed before the room was joined, so the later load shows it.
+ */
+export const leaveUnheldRooms = async (
+  socket: AppSocket,
+  held: string[]
+): Promise<void> => {
+  const keep = new Set(held);
+  const candidates = [...socket.rooms].filter(
+    (r) =>
+      (sessionIdOf(r) !== null || spaceIdOf(r) !== null) &&
+      !keep.has(r) &&
+      !socket.data.subscriptions.has(r)
+  );
+  if (candidates.length === 0) return;
+  const still = new Set(await roomsOnConnect(socket.data.caller));
+  const leaving = candidates.filter(
+    (r) => !still.has(r) && !socket.data.subscriptions.has(r)
+  );
+  await leaveRooms(socket, leaving);
+  const sessionIds = leaving.flatMap((r) => sessionIdOf(r) ?? []);
+  if (sessionIds.length === 0) return;
+  const spaces = await prisma.session.findMany({
+    where: { id: { in: sessionIds } },
+    select: { spaceId: true },
+    distinct: ["spaceId"],
+  });
+  for (const { spaceId } of spaces) {
+    if (spaceId) await leaveSpaceOfIfUnused(socket, spaceId, "");
+  }
+};
+
 /** `roomsOnConnect` loads in flight at once during a sweep. */
 const SWEEP_CONCURRENCY = 10;
 
 /**
  * The backstop for this node's sockets: joins each to the participation and membership rooms
- * it is missing (a join lost in Redis), drops the subscriptions those rooms now hold, then
- * re-checks them all.
+ * it is missing (a join lost in Redis), drops the subscriptions those rooms now hold, leaves
+ * those rooms it no longer holds (`leaveUnheldRooms`), then re-checks them all.
  */
 export const sweepSockets = async (io: IOServer): Promise<void> => {
   const sockets = [...io.of("/").sockets.values()];
@@ -253,6 +288,8 @@ export const sweepSockets = async (io: IOServer): Promise<void> => {
       for (const r of socket.data.subscriptions) {
         if (held.has(r)) socket.data.subscriptions.delete(r);
       }
+      if (socket.disconnected) return;
+      await leaveUnheldRooms(socket, rooms);
       const missing = rooms.filter((r) => !socket.rooms.has(r));
       if (missing.length === 0 || socket.disconnected) return;
       await socket.join(missing);
