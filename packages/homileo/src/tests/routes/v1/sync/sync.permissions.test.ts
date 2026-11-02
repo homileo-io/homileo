@@ -5,11 +5,16 @@ import { fetchJson, type JsonResponse } from "../../../support/http.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spaceApiFixtures } from "../../../support/spaceApi.js";
 import { drainSync, syncHead } from "../../../support/sync.js";
-import { sendMessage } from "../../../support/messageApi.js";
 import { personToken } from "../../../support/tokens.js";
 import { startV1App } from "../../../support/v1App.js";
 import env from "../../../../env.js";
 import { v7 as uuidv7 } from "uuid";
+import {
+  deleteMessage,
+  editMessage,
+  getMessage,
+  sendMessage,
+} from "../../../support/messageApi.js";
 
 const api = spaceApiFixtures();
 const { fixtures } = api;
@@ -177,5 +182,121 @@ describe("GET /v1/sync access", () => {
       ["session.participant_removed", alice.principal.id],
       ["session.access_revoked", alice.principal.id],
     ]);
+  });
+});
+
+describe("GET /v1/sync message events", () => {
+  const forgedCursor = () =>
+    Buffer.from(JSON.stringify(["0", "0", Date.now()])).toString("base64url");
+
+  const messageEventsOf = (events: JsonResponse["body"][], messageId: string) =>
+    events.filter((e) => e.payload.message?.id === messageId);
+
+  /** A space-access session of an open space, bob in it; alice is not. */
+  const spaceSession = async () => {
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    await fixtures.member(space, bob.principal, "owner");
+    await fixtures.participant(session, bob.principal, "owner");
+    return { space, session };
+  };
+
+  it("carries a deleted message's redacted view on every one of its events", async () => {
+    const { session } = await spaceSession();
+    const reader = await api.actor(org);
+    await fixtures.participant(session, reader.principal);
+    const since = await syncHead(reader.token);
+    const sent = await sendMessage(session.id, bob.token, {
+      body: "the password is hunter2",
+    });
+    const id = sent.body.message.id;
+    expect(
+      (await editMessage(id, bob.token, { body: "the password is swordfish" }))
+        .status
+    ).toBe(200);
+    expect((await deleteMessage(id, bob.token)).status).toBe(200);
+    const rest = await getMessage(id, reader.token);
+    expect(rest.status, JSON.stringify(rest.body)).toBe(200);
+
+    const { events } = await drainSync(reader.token, since);
+
+    const mine = messageEventsOf(events, id);
+    expect(mine.map((e) => e.type)).toEqual([
+      "message.created",
+      "message.edited",
+      "message.deleted",
+    ]);
+    for (const e of mine) expect(e.payload.message).toEqual(rest.body.message);
+    expect(rest.body.message.body).toBeNull();
+    expect(JSON.stringify(events)).not.toMatch(/hunter2|swordfish/);
+  });
+
+  it("carries only the latest text of a message edited twice to a reader who did not send it", async () => {
+    const { session } = await spaceSession();
+    const reader = await api.actor(org);
+    await fixtures.participant(session, reader.principal);
+    const since = await syncHead(reader.token);
+    const sent = await sendMessage(session.id, bob.token, { body: "first" });
+    const id = sent.body.message.id;
+    for (const body of ["second", "third"]) {
+      expect((await editMessage(id, bob.token, { body })).status).toBe(200);
+    }
+    const rest = await getMessage(id, reader.token);
+
+    const { events } = await drainSync(reader.token, since);
+
+    const mine = messageEventsOf(events, id);
+    expect(mine.map((e) => e.type)).toEqual([
+      "message.created",
+      "message.edited",
+      "message.edited",
+    ]);
+    for (const e of mine) expect(e.payload.message).toEqual(rest.body.message);
+    expect(rest.body.message).toMatchObject({ body: "third", revision: 3 });
+    expect(JSON.stringify(mine)).not.toMatch(/"first"|"second"/);
+  });
+
+  it("carries the current view to a reader who joined after the message was sent and edited", async () => {
+    const { session } = await spaceSession();
+    const reader = await api.actor(org);
+    const since = await syncHead(reader.token);
+    const sent = await sendMessage(session.id, bob.token, { body: "before" });
+    const id = sent.body.message.id;
+    await editMessage(id, bob.token, { body: "after" });
+    await fixtures.participant(session, reader.principal);
+    const rest = await getMessage(id, reader.token);
+    expect(rest.status, JSON.stringify(rest.body)).toBe(200);
+
+    const { events } = await drainSync(reader.token, since);
+
+    const mine = messageEventsOf(events, id);
+    expect(mine.map((e) => e.type)).toEqual([
+      "message.created",
+      "message.edited",
+    ]);
+    for (const e of mine) expect(e.payload.message).toEqual(rest.body.message);
+  });
+
+  it("reveals nothing past REST to a forged cursor from the start of the log", async () => {
+    const { session } = await spaceSession();
+    const sent = await sendMessage(session.id, bob.token, {
+      body: "leaked token sk-123",
+    });
+    const id = sent.body.message.id;
+    expect((await deleteMessage(id, bob.token)).status).toBe(200);
+    const rest = await getMessage(id, alice.token);
+    expect(rest.status, JSON.stringify(rest.body)).toBe(200);
+
+    const { events } = await drainSync(alice.token, forgedCursor(), {
+      sessionIds: session.id,
+    });
+
+    const mine = messageEventsOf(events, id);
+    expect(mine.map((e) => e.type)).toEqual([
+      "message.created",
+      "message.deleted",
+    ]);
+    for (const e of mine) expect(e.payload.message).toEqual(rest.body.message);
+    expect(JSON.stringify(events)).not.toContain("sk-123");
   });
 });

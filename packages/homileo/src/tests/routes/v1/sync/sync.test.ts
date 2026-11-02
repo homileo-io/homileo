@@ -112,6 +112,24 @@ describe("GET /v1/sync", () => {
     expect(again.events).toEqual([]);
   });
 
+  it("skips a message event whose message id is not a uuid instead of failing", async () => {
+    const since = await syncHead(bob.token);
+    await prisma.event.create({
+      data: {
+        type: "message.created",
+        organizationId: org,
+        spaceId: null,
+        sessionId: null,
+        actorId: alice.principal.id,
+        payload: { message: { id: "not-a-uuid" } },
+      },
+    });
+
+    const { events } = await drainSync(bob.token, since);
+
+    expect(events).toEqual([]);
+  });
+
   it("answers 410 resync_required to a cursor older than the oldest retained day", async () => {
     // The test database's oldest partition starts yesterday.
     const head = decodeSyncCursor(await syncHead(bob.token));

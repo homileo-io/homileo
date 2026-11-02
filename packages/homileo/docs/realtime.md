@@ -48,6 +48,13 @@ A socket joined for membership or participation never leaves it on `unsubscribe`
 if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
 socket is up, so a change committed in between is not missed.
 
+A join on being added gives no such guarantee. The socket joins the room when the
+`session.participant_added` or `space.member_added` event naming it is fanned out, so events of
+that resource committed between the add and the join are not pushed, and no `until` marks where
+the room's delivery begins. On receiving either event, the client catches that resource up with
+`/sync` (`sessionIds` or `spaceIds` set to it) from a cursor taken before the event, such as its
+saved `next`, until `hasMore` is false, dropping ids already applied.
+
 ## Client events
 
 Every client event takes an optional ack. An ack is `{ ok: true, … }` or
@@ -197,6 +204,12 @@ the catch-up must reach). It answers
   `[txId, id, at]`: the transaction id and event id as decimal strings, and the database time in ms
   when it was issued. Events are read in `(txId, id)` order, only from transactions older than
   every transaction still running (`pg_snapshot_xmin`), so a late commit cannot land behind it.
+  The cursor is not signed, and a client can make one up (`["0","0",<now>]` reads the whole
+  retained log). That reveals nothing REST does not: events pass the audience rule against what
+  the caller can read now, and message events carry the message's current view (below), so an old
+  or forged cursor yields no deleted text and no earlier revision. Other events still carry the
+  state as of their commit (an earlier session name, a reaction since removed) of resources the
+  caller can read now.
 - **No `since`** returns `{ events: [], next: <head>, hasMore: false }`; a client starts from there
   (typically before it loads its initial state, so nothing in between is missed).
 - **`hasMore`** is true when more matching events remain. A page can be short or empty while later
@@ -221,6 +234,17 @@ the catch-up must reach). It answers
   and membership: an edit that adds or removes a mention changes whether the earlier
   `message.created` is returned. Clients drop events whose `id` they
   have applied.
+- **Message events carry the message as it is now.** For `message.created`, `message.edited` and
+  `message.deleted` (every event whose payload holds a message view), `/sync` replaces the view
+  stored with the event by the message's current view, built as `GET /v1/messages/:id` builds it:
+  body, payload, revision, attachments and reaction summaries as they stand when the page is read.
+  A deleted message's events all carry its deleted view (no body, payload, attachments or
+  reactions); an edited message's events all carry the latest revision, never an earlier one, so
+  earlier text stays limited to `/revisions`. Ids, order, types and the cursor are unchanged, so a
+  client sees several events for one message that agree with each other, and applying any of them
+  leaves the same state. The current rows are loaded once per page. A message row that no longer
+  exists drops its events from the page (Homileo never removes message rows, so this is defensive).
+  Live socket events keep the view as of their commit, which is current when they are sent.
 
 Limits of the implementation:
 
