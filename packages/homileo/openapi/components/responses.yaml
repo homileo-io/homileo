@@ -67,5 +67,12 @@ ServerErrorResponse:
       schema:
         $ref: '#/Error'
 
+ServiceUnavailableResponse:
+  description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
 NoContentResponse:
   description: Done; no content

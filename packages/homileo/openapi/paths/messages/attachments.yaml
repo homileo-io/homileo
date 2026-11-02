@@ -38,6 +38,7 @@
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
 
 /v1/messages/{messageId}/attachments/{attachmentId}:
   get:
@@ -67,3 +68,4 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

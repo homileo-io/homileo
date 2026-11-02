@@ -95,3 +95,4 @@
                 - $ref: '../../components/messages/schemas.yaml#/DuplicateClientMessageError'
                 - $ref: '../../components/responses.yaml#/Error'
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

@@ -38,6 +38,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 404 | `not_found` |
 | 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning` |
 | 410 | `resync_required` |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
 
