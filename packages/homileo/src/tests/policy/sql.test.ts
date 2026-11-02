@@ -2,6 +2,7 @@
 // @module-tag access
 import type { Principal } from "../../../prisma/generated/client/index.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Prisma } from "../../../prisma/generated/client/index.js";
 import { removeKinds, provisionKind } from "../support/v1App.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { grantedKindsOf } from "../../utils/db/spaces.js";
@@ -14,6 +15,8 @@ import {
   readableSpaces,
 } from "../../utils/access.js";
 import {
+  readableSessionSql,
+  readableSpaceSql,
   readableSessionWhere,
   readableSpaceWhere,
   readsEverySessionOf,
@@ -185,12 +188,41 @@ describe("readableSessionWhere and readableSpaceWhere against the policy", () =>
     });
     const spacesByPolicy = await readableSpaces(caller, allSpaces);
 
+    const rawSessions = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."sessions" s WHERE s.id = ANY(${allSessions}::uuid[]) AND ${readableSessionSql(caller, granted, "s")}`
+    );
+    const rawSpaces = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."spaces" sp WHERE sp.id = ANY(${allSpaces}::uuid[]) AND ${readableSpaceSql(caller, granted, "sp")}`
+    );
+
     const expected = sorted(wantSessions.map((n) => sessionIds[n]));
+    expect(sorted(rawSessions.map((r) => r.id))).toEqual(expected);
     expect(sorted(bySql.map((r) => r.id))).toEqual(expected);
     expect(sorted(byPolicy.keys())).toEqual(expected);
     const expectedSpaces = sorted(wantSpaces.map((n) => spaceIds[n]));
     expect(sorted(spacesBySql.map((r) => r.id))).toEqual(expectedSpaces);
+    expect(sorted(rawSpaces.map((r) => r.id))).toEqual(expectedSpaces);
     expect(sorted(spacesByPolicy.keys())).toEqual(expectedSpaces);
+  });
+});
+
+describe("the raw SQL forms", () => {
+  it("return nothing for another organization, even for an admin", async () => {
+    const caller = { ...callers.admin, organizationId: uuidv7() };
+    const granted = await grantedKindsOf(caller);
+    const sessions = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."sessions" s WHERE s.id = ANY(${Object.values(sessionIds)}::uuid[]) AND ${readableSessionSql(caller, granted, "s")}`
+    );
+    const spaces = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."spaces" sp WHERE sp.id = ANY(${Object.values(spaceIds)}::uuid[]) AND ${readableSpaceSql(caller, granted, "sp")}`
+    );
+    expect(sessions).toEqual([]);
+    expect(spaces).toEqual([]);
+  });
+
+  it("refuse an alias that is not a plain identifier", () => {
+    expect(() => readableSessionSql(callers.admin, [], "s; drop")).toThrow();
+    expect(() => readableSpaceSql(callers.admin, [], "S")).toThrow();
   });
 });
 
