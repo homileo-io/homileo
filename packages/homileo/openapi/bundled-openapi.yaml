@@ -23,11 +23,11 @@ info:
 
     Every route that changes shared chat state needs `homileo.spaces.write` or
     `homileo.chat.admin` in the token: creating, changing and archiving spaces and sessions,
-    joining, membership and participant changes (leaving included), join request decisions,
-    sending, editing and deleting messages, reactions and attachment uploads. Without it the
-    answer is `403 forbidden`, before the body is validated or any resource is looked up. Reads,
-    and the calls that touch only the caller's own state (read markers, notify settings, thread
-    follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
+    joining, membership and participant changes (removing someone else included), join request
+    decisions, sending, editing and deleting messages, reactions and attachment uploads. Without
+    it the answer is `403 forbidden`, before the body is validated or any resource is looked up.
+    Reads, leaving a space or session, and the calls that touch only the caller's own state (read
+    markers, notify settings, thread follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
     see or do is decided by the access rules in `docs/access.md`. A space, session or message that
     does not exist, is in another organization, or that the caller cannot read, is **`404`**:
     apart from the write-permission refusal, `403` means the caller can read the resource but may
@@ -457,7 +457,7 @@ paths:
         this is judged from membership and visibility alone; their kind grants are not known.
         Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without), leaving included. With it, anyone may leave, even an archived space. A moderator
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave. Anyone may leave, even an archived space. A moderator
         removes `member`s; removing a moderator or owner needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
         one who cannot read it, 404.
@@ -1087,7 +1087,7 @@ paths:
         joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
         removed principal can no longer read the session. Removing someone else is audited.
 
-        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave.
       operationId: deleteSessionParticipant
       parameters:
         - name: sessionId

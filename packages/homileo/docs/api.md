@@ -12,10 +12,11 @@ them where a route is concerned.
 - Every route that changes shared chat state needs `homileo.spaces.write` or `homileo.chat.admin`
   in the token, and answers `403 forbidden` ("Requires the homileo.spaces.write permission")
   without it, before validation or any lookup: creating, changing and archiving spaces and
-  sessions, joining, adding, removing and leaving (members and participants), join request
-  decisions, sending, editing and deleting messages, reactions and attachment placeholders. Reads
-  and the calls that touch only the caller's own state (`PUT …/read`, `PUT …/notify`,
-  `PUT /threads/:rootId/follow`, `POST /principals/resolve`) need no permission. The rest is
+  sessions, joining, adding and removing someone else (members and participants), join request
+  decisions, sending, editing and deleting messages, reactions and attachment placeholders. Reads,
+  leaving (a `DELETE` of the caller's own member or participant row) and the calls that touch
+  only the caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`,
+  `POST /principals/resolve`) need no permission. The rest is
   decided by `src/policy/` (see [access.md](access.md#write-permission)).
 - An id that does not parse as a UUID is `400 invalid_request`.
 - JSON bodies are limited to 256 KiB on `/v1/sessions` and `/v1/messages`, 64 KiB elsewhere.

@@ -26,19 +26,27 @@ The routes ask it through `requireChatWrite` (`middleware/auth.ts`), before vali
 lookup, so a read-only token gets `403 forbidden` ("Requires the homileo.spaces.write permission")
 even for an id it cannot read. Gated:
 
-- spaces: create, `PATCH`, archive, join, member add, change and remove (leaving included), join
+- spaces: create, `PATCH`, archive, join, member add, change and removal of someone else, join
   request approve and deny;
-- sessions: create, direct, `PATCH`, archive, participant add and remove (leaving included);
+- sessions: create, direct, `PATCH`, archive, participant add and removal of someone else;
 - messages: send, edit, delete; reactions add and remove; attachment placeholders;
 - the socket's `typing.start` and `typing.stop` (a signal other participants see), acked
   `forbidden`.
 
 Reading needs no Homileo permission, and neither do the calls that touch only the caller's own
 state: `PUT /sessions/:id/read`, `PUT /sessions/:id/notify`, `PUT /threads/:rootId/read`,
-`PUT /threads/:rootId/follow`, plus `POST /principals/resolve`, subscriptions and presence. A token
-with only `homileo.spaces.read` (or none) can therefore read and keep its own read state, and change
-nothing others see. `routes/routes.permissions.test.ts` lists every route that is not a GET as one
-or the other.
+`PUT /threads/:rootId/follow`, plus `POST /principals/resolve`, subscriptions and presence.
+
+Leaving is the one exception that others see: `DELETE /spaces/:id/members/:principalId` and
+`DELETE /sessions/:id/participants/:principalId` with the caller's own id are open to a read-only
+token, so a principal someone added is never trapped. `canRemoveWithToken(caller, targetId)`
+(`policy/chat.ts`) decides it, and those two routes ask it through `requireChatWriteUnlessSelf`;
+removing anyone else still needs `canWriteChat`. The leave itself is then judged by the usual rules
+(`canChangeMember`, `canLeaveSession`: a DM still cannot be left).
+
+A token with only `homileo.spaces.read` (or none) can therefore read, keep its own read state and
+leave, and change nothing else others see. `routes/routes.permissions.test.ts` lists every route
+that is not a GET as one or the other, and checks the self-removal exception.
 
 ## Read a space
 

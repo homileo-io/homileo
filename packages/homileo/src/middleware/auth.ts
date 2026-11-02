@@ -1,7 +1,7 @@
+import { canRemoveWithToken, canWriteChat } from "../policy/chat.js";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
-import { canWriteChat } from "../policy/chat.js";
 import type { AuthContext } from "@tereo-io/sdk";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
@@ -131,6 +131,20 @@ export const principalOf = (req: Request): Principal => {
 export const requireChatWrite: RequestHandler = (req, _res, next) => {
   try {
     if (!canWriteChat(callerOf(req))) {
+      throw new ForbiddenError(
+        `Requires the ${SPACES_WRITE_PERMISSION} permission`
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** `requireChatWrite` for a removal route: a read-only caller may still remove itself (`:principalId`). */
+export const requireChatWriteUnlessSelf: RequestHandler = (req, _res, next) => {
+  try {
+    if (!canRemoveWithToken(callerOf(req), String(req.params.principalId))) {
       throw new ForbiddenError(
         `Requires the ${SPACES_WRITE_PERMISSION} permission`
       );

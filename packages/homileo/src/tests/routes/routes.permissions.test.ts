@@ -11,7 +11,9 @@
  * - every route that changes shared chat state (`WRITE_GATED`) answers 403 to a
  *   token with only `homileo.spaces.read`, and lets `homileo.spaces.write` or
  *   `homileo.chat.admin` through; every other route that is not a GET is listed
- *   in `OPEN_TO_READERS`, so a new mutation must be classified.
+ *   in `OPEN_TO_READERS`, so a new mutation must be classified;
+ * - the removal routes in `SELF_REMOVAL` refuse a read-only token removing
+ *   someone else but let it remove itself.
  *
  * What it does not prove: which resources a caller may read or change. That is
  * the policy's, tested in `src/tests/policy` and in each route's own
@@ -21,6 +23,7 @@ import { collectRoutes, type RouteEntry } from "../support/routeTable.js";
 import { purgeOrganizations } from "../support/signedIn.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { personToken } from "../support/tokens.js";
+import { fetchJson } from "../support/http.js";
 import env from "../../env.js";
 
 const PARAM = "00000000-0000-7000-8000-000000000000";
@@ -31,8 +34,14 @@ const v1Routes = routes
   .filter(({ path }) => path.startsWith("/v1/"))
   .map((route) => [route.method.toUpperCase(), route.path, route] as const);
 
-const request = async (route: RouteEntry, token: string | null) => {
-  const url = env.PUBLIC_URL + route.path.replace(/[:*]\w+/g, PARAM);
+const request = async (
+  route: RouteEntry,
+  token: string | null,
+  principalId = PARAM
+) => {
+  const url =
+    env.PUBLIC_URL +
+    route.path.replace(":principalId", principalId).replace(/[:*]\w+/g, PARAM);
   const hasBody = route.method !== "get" && route.method !== "head";
   const response = await fetch(url, {
     method: route.method.toUpperCase(),
@@ -92,6 +101,15 @@ const OPEN_TO_READERS: readonly RouteEntry[] = [
   { method: "put", path: "/v1/sessions/:sessionId/notify" },
   { method: "put", path: "/v1/threads/:rootId/read" },
   { method: "put", path: "/v1/threads/:rootId/follow" },
+];
+
+/** Write-gated for removing someone else, open to readers when `:principalId` is the caller (leaving). */
+const SELF_REMOVAL: readonly RouteEntry[] = [
+  { method: "delete", path: "/v1/spaces/:spaceId/members/:principalId" },
+  {
+    method: "delete",
+    path: "/v1/sessions/:sessionId/participants/:principalId",
+  },
 ];
 
 const key = (r: RouteEntry) => `${r.method} ${r.path}`;
@@ -166,6 +184,21 @@ describe.each(WRITE_GATED)("write-gated $method $path", (route) => {
       expect(status, body).not.toBe(403);
     }
   );
+});
+
+describe.each(SELF_REMOVAL)("self-removal $method $path", (route) => {
+  it("is write-gated for someone else", () => {
+    expect(WRITE_GATED).toContainEqual(route);
+  });
+
+  it("does not refuse a token with only homileo.spaces.read removing itself", async () => {
+    const token = personToken({ org: ORG, perms: READ_ONLY });
+    const me = await fetchJson("GET", `${env.PUBLIC_URL}/v1/me`, token);
+
+    const { status, body } = await request(route, token, me.body.principal.id);
+
+    expect(status, body).not.toBe(403);
+  });
 });
 
 describe.each(OPEN_TO_READERS)("open to readers $method $path", (route) => {

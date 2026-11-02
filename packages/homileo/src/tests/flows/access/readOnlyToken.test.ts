@@ -59,15 +59,15 @@ describe("a participant whose token has only homileo.spaces.read", () => {
     expect(answers.map((a) => a.status)).toEqual([200, 200, 200, 200]);
   });
 
-  it("is refused posting, reacting and leaving before the session's own rules run", async () => {
-    const { reader, session, rootId } = await setup();
+  it("is refused posting, reacting and removing someone else before the session's own rules run", async () => {
+    const { writer, reader, session, rootId } = await setup();
 
     const answers = [
       await sendMessage(session.id, reader.token, { body: "hello" }),
       await addReaction(rootId, reader.token, "👍"),
       await fetchJson(
         "DELETE",
-        `${url}/v1/sessions/${session.id}/participants/${reader.principalId}`,
+        `${url}/v1/sessions/${session.id}/participants/${writer.principalId}`,
         reader.token
       ),
     ];
@@ -77,6 +77,26 @@ describe("a participant whose token has only homileo.spaces.read", () => {
       [403, "forbidden"],
       [403, "forbidden"],
     ]);
+  });
+});
+
+describe("a member whose token has only homileo.spaces.read", () => {
+  it("still leaves a session and its space", async () => {
+    const { reader, space, session } = await setup();
+    await fixtures.member(space, { id: reader.principalId });
+
+    const leaveSession = await fetchJson(
+      "DELETE",
+      `${url}/v1/sessions/${session.id}/participants/${reader.principalId}`,
+      reader.token
+    );
+    const leaveSpace = await fetchJson(
+      "DELETE",
+      `${url}/v1/spaces/${space.id}/members/${reader.principalId}`,
+      reader.token
+    );
+
+    expect([leaveSession.status, leaveSpace.status]).toEqual([204, 204]);
   });
 });
 

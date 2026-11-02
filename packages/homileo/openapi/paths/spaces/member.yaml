@@ -57,7 +57,7 @@
       this is judged from membership and visibility alone; their kind grants are not known.
       Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without), leaving included. With it, anyone may leave, even an archived space. A moderator
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave. Anyone may leave, even an archived space. A moderator
       removes `member`s; removing a moderator or owner needs the `owner` or a
       `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
       one who cannot read it, 404.
