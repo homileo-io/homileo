@@ -77,9 +77,13 @@ export const spaceSessionsWhere = (
 });
 
 const ALIAS = /^[a-z_][a-z0-9_]*$/;
+// The raw forms' own subquery aliases start with this, so a caller's alias never shadows them.
+const RESERVED_ALIAS_PREFIX = "_rp_";
 
 const aliasSql = (alias: string): Prisma.Sql => {
-  if (!ALIAS.test(alias)) throw new Error(`invalid SQL alias: ${alias}`);
+  if (!ALIAS.test(alias) || alias.startsWith(RESERVED_ALIAS_PREFIX)) {
+    throw new Error(`invalid SQL alias: ${alias}`);
+  }
   return Prisma.raw(alias);
 };
 
@@ -91,12 +95,17 @@ export const readableSpaceSql = (
   c: OrgCaller,
   grantedKinds: string[],
   alias: string
+): Prisma.Sql => spaceSql(c, grantedKinds, aliasSql(alias));
+
+const spaceSql = (
+  c: OrgCaller,
+  grantedKinds: string[],
+  a: Prisma.Sql
 ): Prisma.Sql => {
-  const a = aliasSql(alias);
   const org = Prisma.sql`${a}.organization_id = ${c.organizationId}::uuid`;
   if (c.isAdmin) return org;
   const branches = [
-    Prisma.sql`EXISTS (SELECT 1 FROM "chat"."space_members" sm WHERE sm.space_id = ${a}.id AND sm.user_id = ${c.principalId}::uuid)`,
+    Prisma.sql`EXISTS (SELECT 1 FROM "chat"."space_members" _rp_sm WHERE _rp_sm.space_id = ${a}.id AND _rp_sm.user_id = ${c.principalId}::uuid)`,
     Prisma.sql`${a}.visibility = 'public'::"chat"."space_visibility"`,
     ...(grantedKinds.length > 0
       ? [Prisma.sql`${a}.kind = ANY(${grantedKinds}::text[])`]
@@ -117,18 +126,18 @@ export const readableSessionSql = (
   const a = aliasSql(alias);
   const org = Prisma.sql`${a}.organization_id = ${c.organizationId}::uuid`;
   const members = Prisma.sql`${a}.access = 'members'::"chat"."session_access"`;
-  const participates = Prisma.sql`EXISTS (SELECT 1 FROM "chat"."session_participants" sp WHERE sp.session_id = ${a}.id AND sp.user_id = ${c.principalId}::uuid AND sp.left_at IS NULL)`;
+  const participates = Prisma.sql`EXISTS (SELECT 1 FROM "chat"."session_participants" _rp_sp WHERE _rp_sp.session_id = ${a}.id AND _rp_sp.user_id = ${c.principalId}::uuid AND _rp_sp.left_at IS NULL)`;
   const membersBranch = c.isAdmin
     ? [members]
     : [
         Prisma.sql`(${members} AND ${participates})`,
         ...(grantedKinds.length > 0
           ? [
-              Prisma.sql`(${members} AND EXISTS (SELECT 1 FROM "chat"."spaces" gs WHERE gs.id = ${a}.space_id AND gs.kind = ANY(${grantedKinds}::text[])))`,
+              Prisma.sql`(${members} AND EXISTS (SELECT 1 FROM "chat"."spaces" _rp_gs WHERE _rp_gs.id = ${a}.space_id AND _rp_gs.kind = ANY(${grantedKinds}::text[])))`,
             ]
           : []),
       ];
-  const inSpace = Prisma.sql`(${a}.space_id IS NOT NULL AND EXISTS (SELECT 1 FROM "chat"."spaces" rs WHERE rs.id = ${a}.space_id AND ${readableSpaceSql(c, grantedKinds, "rs")}) AND (${Prisma.join(
+  const inSpace = Prisma.sql`(${a}.space_id IS NOT NULL AND EXISTS (SELECT 1 FROM "chat"."spaces" _rp_rs WHERE _rp_rs.id = ${a}.space_id AND ${spaceSql(c, grantedKinds, Prisma.raw("_rp_rs"))}) AND (${Prisma.join(
     [
       Prisma.sql`${a}.access = 'space'::"chat"."session_access"`,
       ...membersBranch,

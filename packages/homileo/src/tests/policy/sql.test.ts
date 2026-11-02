@@ -220,9 +220,36 @@ describe("the raw SQL forms", () => {
     expect(spaces).toEqual([]);
   });
 
+  it("return no space-less session to its participant in another organization", async () => {
+    const caller = { ...callers.participant, organizationId: uuidv7() };
+    const sessions = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."sessions" s WHERE s.id = ${sessionIds.group}::uuid AND ${readableSessionSql(caller, [], "s")}`
+    );
+    expect(sessions).toEqual([]);
+  });
+
   it("refuse an alias that is not a plain identifier", () => {
     expect(() => readableSessionSql(callers.admin, [], "s; drop")).toThrow();
     expect(() => readableSpaceSql(callers.admin, [], "S")).toThrow();
+  });
+
+  it("refuse an alias with the reserved prefix", () => {
+    expect(() => readableSessionSql(callers.admin, [], "_rp_sp")).toThrow();
+    expect(() => readableSpaceSql(callers.admin, [], "_rp_x")).toThrow();
+  });
+
+  it("work over a caller alias their old inner aliases used", async () => {
+    const caller = callers.participant;
+    const rows = await prisma.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM "chat"."sessions" sp WHERE sp.id = ANY(${Object.values(sessionIds)}::uuid[]) AND ${readableSessionSql(caller, [], "sp")}`
+    );
+    expect(sorted(rows.map((r) => r.id))).toEqual(
+      sorted(
+        ["C.space", "C.members", "group"].map(
+          (n) => sessionIds[n as SessionName]
+        )
+      )
+    );
   });
 });
 
