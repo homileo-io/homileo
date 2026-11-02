@@ -79,7 +79,14 @@ adding or moving a route.
   the caller cannot read exists.
 - Prisma constraint errors: `mapUniqueViolation(fn, msg, code)` and
   `rethrowRestrictedAsConflict(err, msg)` (`utils/prismaErrors.ts`) turn them into 409s.
-- `errorHandler` (last in `app.ts`, after a catch-all `NotFoundError`) writes the body.
+- `errorHandler` (last in `app.ts`, after a catch-all `NotFoundError`) writes the body. Unmapped
+  database errors become: busy (`isDatabaseBusy`: transaction or lock timeout, no connection,
+  too many connections, starting up) 503 with `Retry-After`; deadlock or write conflict 409
+  `version_conflict`; unique or foreign-key violation 409 `conflict`. A library error passes
+  through only as tereo's 401/403/404; anything else, a tereo `RequestError` included, is 500
+  `server_error` with nothing of its own.
+- A new code goes in docs/api.md's error table under its status (sockets: docs/realtime.md);
+  `conventions/errorCodes.unit.test.ts` reads both from the source and fails otherwise.
 
 ## Authentication, Organizations and Access
 
@@ -92,10 +99,18 @@ adding or moving a route.
 - **Every space and session belongs to one tereo organization**; every read, write, event and
   search is limited to the caller's current organization. Lists put `organizationId` in the base
   `where`. Principals themselves are not organization-scoped.
-- **Access is decided only in `src/policy/`** (`canReadSpace`, `canPostInSession`, the "readable
-  sessions" SQL condition, …). Routes, controllers, the socket layer and search call the policy;
-  they never inline a visibility, role or grant check. `homileo.chat.admin` does not read DMs or
-  space-less sessions.
+- **Access is decided only in `src/policy/`** (`canReadSpace`, `canPostInSession`, `canWriteChat`,
+  …). Routes, controllers, the socket layer and search call the policy; they never inline a
+  visibility, role or grant check. `homileo.chat.admin` does not read DMs or space-less sessions.
+- **Lists filter in SQL**: `readableSpaceWhere` and `readableSessionWhere` build the Prisma `where`
+  for "spaces / sessions the caller can read", the policy's rules in SQL form. A change to a read
+  rule changes both the policy function and the condition, and the tests run the same cases
+  through each.
+- **Token gates are route middleware** from `middleware/auth.ts`, after `authenticate`:
+  `requireChatWrite` (403 unless the token may write chat, `canWriteChat`: `homileo.spaces.write`
+  or `homileo.chat.admin`) on every mutating route, `requireChatWriteUnlessSelf` on removals a
+  read-only caller may do to itself, and the read gate (`homileo.spaces.read`) on every `/v1`
+  read. A new route takes the gate its siblings take; `routes.permissions.test.ts` checks it.
 - Permissions are tereo's dotted, hierarchical form (`utils/permissions.ts`, `hasPermission`):
   `x.admin` includes `x.write` includes `x.read`; the bare `admin` covers everything.
 
@@ -105,7 +120,11 @@ adding or moving a route.
   export: `import db from "../../utils/db/index.js"` → `db.principals.findOrCreateUser(…)`.
 - Controllers call `db.*`, not `prisma`.
 - Every write function takes an optional transaction: `(…, tx?: Prisma.TransactionClient)` with
-  `const db = tx ?? prisma;`. Controllers open `db.$transaction(async (tx) => …)`.
+  `const db = tx ?? prisma;`. Controllers open a mutation's transaction with `withChanges`
+  (`utils/transaction.ts`), never `prisma.$transaction` directly.
+- No call to tereo (`filesClient()`, a user lookup, …) inside `withChanges`: the round trip would
+  hold the transaction's row locks. Make it before the transaction, or after commit. In test mode
+  such a call throws (`assertNoTransaction`, `utils/tereo.ts`).
 - `get` throws `NotFoundError`; `findById` / `getBy…` return `null` for the caller to decide.
 - **Raw SQL** names the schema on every table — `"chat"."events"`, `"core"."outbox"`. There is no
   `public` schema.
@@ -135,30 +154,38 @@ adding or moving a route.
 
 ## The Write Path: `recordChange`
 
-Every mutation runs **in one transaction** that updates the rows, then calls `recordChange(tx, …)`
-from `utils/changes.ts`, which validates the payload against the SDK's event schema, inserts into
-`chat.events`, and — through `@tereo-io/sdk`'s outbox — writes the tereo webhook row
-(`outbox.emit`) and, when `audit` is given, the audit row (`outbox.audit`):
+Every mutation runs **in one `withChanges` transaction** (`utils/transaction.ts`) that loads what
+it checks with `{ tx, lock: true }`, updates the rows, then calls `record(…)`. `record` is
+`recordChange(tx, …)` from `utils/changes.ts`, which validates the payload against the SDK's event
+schema (a failure is a bug: 500), inserts into `chat.events`, and — through `@tereo-io/sdk`'s
+outbox — writes the tereo webhook row (`outbox.emit`) and, when `audit` is given, the audit row
+(`outbox.audit`):
 
 ```typescript
-const session = await prisma.$transaction(async (tx) => {
-  const created = await db.sessions.create(input, tx);
-  await recordChange(tx, {
-    type: "session.created",
-    organizationId: caller.organizationId,
-    spaceId: created.spaceId,
-    sessionId: created.id,
-    actorId: caller.principalId,
-    entity: { type: "Session", id: created.id },
-    payload: formatSession(created),
-    audit: { action: "CREATE", userId: caller.tereoUserId },
+const row = await withChanges(async (tx, record) => {
+  const { facts } = await readableSession(caller, sessionId, { tx, lock: true });
+  if (!canArchiveSession(caller, facts)) throw new ForbiddenError("…");
+  const row = await tx.session.update({
+    where: { id: sessionId },
+    data: { archivedAt: new Date() },
   });
-  return created;
+  await record({
+    type: "session.archived",
+    organizationId: row.organizationId,
+    spaceId: row.spaceId,
+    sessionId: row.id,
+    actorId: caller.principalId,
+    entity: { type: "session", id: row.id },
+    payload: { session: sessionView(row) },
+    audit: { action: "UPDATE", userId: caller.tereoUserId },
+  });
+  return row;
 });
 ```
 
-After commit, the socket layer publishes the event; realtime, `GET /v1/sync` and webhooks therefore
-carry the same events with the same ids. For the outbox mechanics, invoke the `outbox` skill.
+`withChanges` sets `lock_timeout` and, once the transaction commits, puts its events on `changeBus`,
+from which the socket layer fans them out; realtime, `GET /v1/sync` and webhooks therefore carry
+the same events with the same ids. For the outbox mechanics, invoke the `outbox` skill.
 
 - Event types are `<area>.<verb>` in Homileo and `homileo.<area>.<verb>` in tereo; they live in the
   SDK's `EVENT_TYPES` registry. `recordChange` throws on an unlisted type.

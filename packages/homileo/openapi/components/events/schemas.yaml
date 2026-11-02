@@ -4,6 +4,12 @@ EventEnvelope:
     One event, the same on the socket (where the socket.io event name is its `type`) and from
     `GET /v1/sync`. `payload` is the type's payload as `@homileo-io/sdk`'s `EVENT_TYPES`
     defines it: for a webhook event type, its webhook's `data` without `eventId`.
+
+    From `GET /v1/sync`, an event whose payload holds a message view (`message.created`,
+    `message.edited`, `message.deleted`) carries the message's current view in place of the one
+    stored at commit, built as `GET /v1/messages/{messageId}` builds it, so every event of one
+    message agrees with the others; a socket event carries the view as of its commit. Every other
+    payload is as it was at commit. See docs/realtime.md, *GET /v1/sync*.
   required: [id, type, createdAt, organizationId, spaceId, sessionId, actorId, payload]
   additionalProperties: false
   properties:

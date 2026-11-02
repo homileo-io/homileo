@@ -1,8 +1,16 @@
 # Events
 
-Every change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
+A change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
 the change by `recordChange` (`src/utils/changes.ts`). Realtime pushes, `GET /v1/sync` and webhooks
 all carry these events, with the same ids.
+
+A few changes record no event, as no client needs to follow them:
+
+- a session's notification setting (`PUT /v1/sessions/:id/notify`);
+- following or unfollowing a thread (`PUT /v1/threads/:id/follow`);
+- the owner promotion when the last owner of a space-less group leaves or is removed (the
+  `session.participant_removed` is recorded; the promoted participant's new role is not);
+- the sender's read position moving on send (no `read.updated`).
 
 ## Registry
 
@@ -77,8 +85,9 @@ await withChanges(async (tx, record) => {
 
 `recordChange(tx, change)`:
 
-1. Parses `payload` with the type's schema; a rejected payload throws `ValidationError` and nothing
-   is written.
+1. Parses `payload` with the type's schema. The payload is built by Homileo, not taken from the
+   request, so a rejected one is a bug: it throws a plain `Error`, the request answers
+   `500 server_error`, and nothing is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
    `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from

@@ -44,13 +44,20 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write or deadlock; re-read and retry) |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write conflict, deadlock or serialization failure; re-read and retry) |
 | 410 | `resync_required` |
 | 413 | `payload_too_large` (the body is over the route's size limit) |
 | 500 | `server_error` |
-| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time; retry after `Retry-After` when given) |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time, no connection was free or could be opened in time, Postgres refused a connection as too many, or it is starting up; retry after `Retry-After` when given) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
+
+A body that cannot be read (malformed JSON, an unsupported charset or content encoding) is
+`400 invalid_request`; only a body over the limit has a status of its own. Each code answers with
+the one status it is listed under. An error from a library is passed on only as `401
+unauthorized`, `403 forbidden` or `404 not_found` (tereo's auth middleware); anything else,
+a failed call to tereo included, is `500 server_error` and carries none of the library's code or
+message.
 
 ## Pagination
 
