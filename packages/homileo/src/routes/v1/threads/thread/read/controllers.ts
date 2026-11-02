@@ -17,10 +17,9 @@ export const putThreadRead = async (req: Request, res: Response) => {
   const { seq } = validateBody(ThreadReadBodySchema, req);
 
   const lastReadSeq = await withChanges(async (tx, record) => {
-    // The session row first, then the follower row.
+    // No session lock: sends take it, and only the follower row needs serializing.
     const { message: root, session } = await readableMessage(caller, rootId, {
       tx,
-      lock: true,
     });
     if (root.threadRootId !== null) {
       throw new BadRequestError(
@@ -37,7 +36,7 @@ export const putThreadRead = async (req: Request, res: Response) => {
       caller.principalId,
       target
     );
-    if (moved.after !== moved.before) {
+    if (moved.moved) {
       await record({
         type: "read.updated",
         organizationId: session.organizationId,
@@ -49,11 +48,11 @@ export const putThreadRead = async (req: Request, res: Response) => {
           principalId: caller.principalId,
           sessionId: session.id,
           threadRootId: root.id,
-          lastReadSeq: Number(moved.after),
+          lastReadSeq: Number(moved.lastReadSeq),
         },
       });
     }
-    return Number(moved.after);
+    return Number(moved.lastReadSeq);
   });
 
   res.status(200).json({ lastReadSeq });

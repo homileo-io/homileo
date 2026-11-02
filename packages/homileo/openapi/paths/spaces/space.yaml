@@ -37,7 +37,7 @@
 
       **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
       `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
-      `409 resource_archived`.
+      `409 resource_archived` (checked before the moderation check).
     operationId: updateSpace
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'

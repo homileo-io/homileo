@@ -73,9 +73,18 @@ a session in the space and becomes its participant without becoming a member. Th
 the creator is not enrolled in the space, because the read rule above already ends their access
 when the grant goes.
 
-The listing `GET /sessions?externalRef=` without `spaceId` applies the same table in SQL
-(`readableSessionWhere` in `utils/db/sessions.ts`, beside `readableSpaceWhere` in `spaces.ts`), so
+The listing `GET /sessions?externalRef=` without `spaceId` applies the same table in SQL, so
 sessions the caller cannot read never take a page's places; the policy then checks each row again.
+The SQL conditions live in `policy/sql.ts` (`readableSessionWhere`, `readableSpaceWhere`,
+`spaceSessionsWhere`): pure Prisma `where` builders that take the kinds whose grants the caller
+holds, which `utils/db` loads (`grantedKindsOf`). `tests/policy/sql.test.ts` runs them and the policy
+over the same fixtures (members, participants, a left participant, a kind grant, admin, a public
+space) and expects the same rows.
+
+A participant who cannot read the session (a grant moderator who created it and lost the grant)
+can still leave it and set its `notify`: those routes load the session through the caller's own
+current participant row (`actsOnOwnParticipation`, `readableSession(…, { ownParticipation: true })`)
+instead of the read check. Nothing else is reachable that way.
 
 ## Webhooks
 
@@ -103,7 +112,7 @@ permission implies it, `homileo.chat.admin` included. See [events.md](events.md)
 | Role | Can |
 |---|---|
 | Sender | edit and delete their own messages (editing within the kind's `editWindowSeconds`) |
-| Moderator, or a grant with `access: moderate` | delete any message, remove members and participants, approve join requests, change overridable settings (`canModerateSpace`) |
+| Moderator, or a grant with `access: moderate` | delete any message, remove members and participants, approve join requests, change overridable settings (`canModerateSpace`); archive the space's sessions, remove their participants and delete their messages even in an `access: members` session they cannot read |
 | Owner | all of the above, archive the space, transfer ownership, promote moderators (`canManageSpace`) |
 | `homileo.chat.admin` | moderate and archive any space or session; read anything except space-less sessions; remove (not add) participants of space-less sessions |
 
@@ -115,9 +124,16 @@ Participants are added with `canAddParticipant` and removed with `canRemoveParti
 - In a space-less group the participant `owner` adds and removes participants and renames it.
   `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
   delete its messages: admins archive DMs and remove people, not touch their content. An admin who
-  could add would add themselves and then read it. For archiving and removing, the routes load a
-  space-less session for an admin of its organization without the read check
-  (`readableSession(…, { adminManage: true })`); every other route still answers `404`.
+  could add would add themselves and then read it.
+- **Managing without reading.** Archiving a session and removing its participants load it without
+  the read check for `managesWithoutReading`: an admin of its organization, or whoever moderates its
+  space (`readableSession(…, { manage: true })`). Deleting a message loads it for
+  `moderatesWithoutReading` only, a moderator of the session's space (`readableMessage(…,
+  { moderate: true })`), since a space-less session's content has no moderator. So a space owner or
+  moderator who is not a participant manages an `access: members` session without reading it. The
+  action's own rule still decides, and every other route still answers `404`. The answer carries no
+  content to a caller who cannot read the session: archive and message delete answer `204` with no
+  body (a reader gets `200` and the view), and participant removal always answers `204`.
 - In a space's session, whoever can moderate the space adds and removes participants, grant
   `moderate` holders included (moderators remove members).
 
@@ -126,8 +142,8 @@ Participants are added with `canAddParticipant` and removed with `canRemoveParti
 The design does not state these.
 
 - **Archived is read-only.** An archived space or session (or a session in an archived space) refuses
-  join, post, edit, delete, member and participant changes with `409 resource_archived`, checked
-  before the policy. Leaving (a space or a session) is the exception. Reading stays allowed.
+  join, post, edit, delete, member and participant changes, space `PATCH` and join-request
+  decisions with `409 resource_archived`, checked before the policy. Leaving (a space or a session) is the exception. Reading stays allowed.
   Moderation and management of the space itself (`canModerateSpace`, `canManageSpace`) are not
   blocked by archiving.
 - **A deleted message cannot be edited, and cannot be deleted again.**
@@ -141,15 +157,17 @@ The design does not state these.
   cannot edit or delete them. A moderator's delete is unchanged. `editWindowOpen` answers the window
   alone, so a route can tell `403 edit_window_closed` from other refusals.
 - **Moderator delete is by space.** A space-less session has no moderators: only the sender deletes.
+  In a space, `canDeleteMessage` lets the space's moderator delete without reading the session;
+  the sender's own delete still needs read.
 - A kind's `editWindowSeconds` of `null` means no limit; a space-less session has none.
 
 ## Session and member actions
 
 - **Archive a session** (`canArchiveSession`): in a space, `canModerateSpace`; in a space-less group,
   its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`. The admin need
-  not be a participant. A caller who can read the session gets `200` with its view; an admin who
-  archives one it cannot read (a DM, a space-less group) gets `204` and no body, as removing a
-  participant answers `204`.
+  not be a participant. A caller who can read the session gets `200` with its view; an admin or
+  space moderator who archives one it cannot read (a DM, a space-less group, an `access: members`
+  session) gets `204` and no body, as removing a participant answers `204`.
 - **`409 external_ref_taken` is a known oracle.** Creating or editing a space with an `externalRef`
   that another space of the kind in the organization already has answers `409 external_ref_taken`,
   even when the caller cannot read that space. It is accepted: the uniqueness is the point of the
@@ -157,7 +175,9 @@ The design does not state these.
   content), and only to a caller of the same organization who may create or edit spaces of that
   kind.
 - **Create a session in a space** (`canCreateSessionIn`): space membership or `canModerateSpace`, an
-  unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. Space-less groups and
+  unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. `createSessionRefusal`
+  names why it is false, in order: `not_found`, `archived` (`409 resource_archived`),
+  `posting_restricted` (`403`), `not_a_member` (`403 forbidden`). Space-less groups and
   DMs are open to any caller (no function; routes need no check).
 - **Member changes** (`canChangeMember`, in `members.ts`): `canModerateSpace` adds a `member` and
   removes a `member`. Adding a moderator or owner, any role change, and removing a moderator or
@@ -212,12 +232,19 @@ The design does not state these.
   revisions too.
 - **Read position on send:** a top-level message moves the sender's `last_read_seq` to its `seq`,
   and a reply moves the sender's thread `last_read_seq`. Your own messages are never unread.
-- **Mentions:** a `<@id>` is stored in `message_mentions` only when that principal is a current
-  participant of the session or, in an `access: space` session, a member of its space
-  (`isMentionReader`, through `mentionReaders` in `utils/access.ts`). Visibility does not count:
-  principals are not organization-scoped, so a `public` space would admit any id, even one from
-  another organization. Permissions are not known to the sender's request, so a reader only
-  through a kind grant or `homileo.chat.admin` is not mentioned. A token that is not a UUID stays
+- **Mentions:** a `<@id>` is stored in `message_mentions` only when `canReadSession` would let that
+  principal read the session with no permissions (`isMentionReader`, through `mentionReaders` in
+  `utils/access.ts`): in a space-less session, a current participant; in an `access: space`
+  session, a member of the space, or a participant when the space is `public`; in an
+  `access: members` session, a participant who is a member of the space or whose space is
+  `public`. A `public` space alone does not count for a non-participant: principals are not
+  organization-scoped, so it would admit any id, even one from another organization. Permissions
+  are not known to the sender's request, so a reader only through a kind grant or
+  `homileo.chat.admin` is not mentioned, and a participant who lost read on a members-only space
+  gets no mention email. Sockets and `/sync` judge stored mentions again with the same function and
+  the principal's current participation, membership and the space's visibility
+  (`currentMentionReaders`), and `/me/mentions` and `/me/unread` keep only sessions the caller can
+  read now. A token that is not a UUID stays
   text, and only the first 100 distinct ids of a message count (later ones are still rendered by
   name in `body_text`). Each stored reader is emailed
   through `core.outbox.notify` (recipient `userId` = their tereo user id) unless their `notify` is
@@ -246,7 +273,9 @@ leaked id of another organization's row locks nothing before the `404`. Because 
 shared, a self-join that makes the caller a space member inserts the membership with
 `ON CONFLICT DO NOTHING`: the caller's parallel join of another session of the space may have
 inserted it first, and then this join records no `space.member_added`. Space changes (`PATCH`, archive, member changes, join) take the space
-`FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
-only the caller's participant row; an attachment upload takes no lock. Removing a member locks the
+`FOR UPDATE`. Sending a message locks only the session row, and a session read only the caller's
+participant row. A thread read and a thread follow take no session lock: each is one statement on
+the caller's follower row (`INSERT … ON CONFLICT`), as are a reply's follower writes, so they wait
+only on each other. An attachment upload takes no lock. Removing a member locks the
 space, then the owner rows, then the member's active sessions in id order, and only then changes
 participants.

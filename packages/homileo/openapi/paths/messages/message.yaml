@@ -76,8 +76,10 @@
       `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
       reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
-      The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
-      already deleted message is `409 resource_archived`; any other refusal is `403`.
+      The sender (while a participant) may delete. In a space, so may whoever can moderate it, even
+      in an `access: members` session they cannot read; such a caller gets `204` with no body
+      instead of the message's view. An already deleted message is `409 resource_archived`; any
+      other refusal is `403`.
 
       Records `message.deleted` (and `thread.updated` for a reply), emitting
       `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
@@ -94,6 +96,8 @@
           application/json:
             schema:
               $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '204':
+        description: Deleted by a space moderator who cannot read the session
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }

@@ -31,10 +31,10 @@ export const updateSpace = async (req: Request, res: Response) => {
       tx,
       lock: true,
     });
+    if (facts.archived) throw new ArchivedError("The space is archived");
     if (!canModerateSpace(caller, facts)) {
       throw new ForbiddenError("Only a moderator can change a space");
     }
-    if (facts.archived) throw new ArchivedError("The space is archived");
     assertOverridable(facts.kind, body);
     assertState(facts.kind, body.state);
 

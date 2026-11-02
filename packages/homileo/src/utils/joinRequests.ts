@@ -68,6 +68,7 @@ export const decideJoinRequest = (
       tx,
       lock: true,
     });
+    if (facts.archived) throw new ArchivedError("The space is archived");
     if (!canModerateSpace(caller, facts)) {
       throw new ForbiddenError("Only a moderator can decide a join request");
     }
@@ -79,7 +80,6 @@ export const decideJoinRequest = (
     if (latest.status !== "pending") {
       throw new ConflictError(`The join request is already ${latest.status}`);
     }
-    if (facts.archived) throw new ArchivedError("The space is archived");
     const existing = await tx.spaceMember.findUnique({
       where: { spaceId_userId: { spaceId, userId: principalId } },
     });

@@ -192,12 +192,12 @@ documented oracle (see [access.md](access.md)).
 | `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
-| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin who cannot read it | `403`, `409 already_archived` | `session.archived` |
+| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin or space moderator who cannot read it | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
 | `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant`; a current participant is `200` to any reader, before the policy | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
-| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived) or `canRemoveParticipant` | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
+| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived or no longer readable) or `canRemoveParticipant` (a space moderator need not read the session) | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
-| `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` (also when a leave commits first) | |
+| `PUT /sessions/:sessionId/notify` | participant, even one who can no longer read the session | `403 not_a_participant` (also when a leave commits first) | |
 | `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
@@ -233,7 +233,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 |---|---|---|---|
 | `GET /messages/:messageId` | `canReadSession` | | |
 | `PATCH /messages/:messageId` | `canEditMessage` | `403`, `403 edit_window_closed`, `409 resource_archived` (deleted message, archived session or space), `400 invalid_payload` | `message.edited` |
-| `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
+| `DELETE /messages/:messageId` | `canDeleteMessage`; `200` with the message, or `204` with no body for a space moderator who cannot read the session | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
 | `PUT /messages/:messageId/reactions/:emoji` | `reactRefusal` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |

@@ -9,9 +9,11 @@ import {
   OTHER_ORG,
 } from "../support/pure/policyFacts.js";
 import {
+  actsOnOwnParticipation,
   canAddParticipant,
   canArchiveSession,
-  canCreateSessionIn,
+  managesWithoutReading,
+  moderatesWithoutReading,
   canEditSessionSettings,
   canJoinSession,
   canLeaveSession,
@@ -21,7 +23,6 @@ import {
   canRemoveParticipant,
   isPrivateSession,
   postRefusal,
-  reactRefusal,
   readsEverySessionOf,
 } from "../../policy/index.js";
 
@@ -552,148 +553,59 @@ describe("canEditSessionSettings", () => {
   });
 });
 
-describe("canCreateSessionIn", () => {
+describe("loading a session without reading it", () => {
+  const unread = { access: "members", space: space() };
   it.each([
-    ["member", space({ role: "member" }), {}, true],
-    ["non-member", space(), {}, false],
-    ["moderator", space({ role: "moderator" }), {}, true],
-    ["admin non-member", space(), admin, true],
-    ["archived space", space({ role: "owner", archived: true }), {}, false],
     [
-      "member of a moderators posting space",
-      space({ role: "member", postPolicy: "moderators" }),
+      "space moderator",
+      { space: space({ role: "moderator" }), access: "members" },
       {},
-      false,
+      [true, true, false],
     ],
     [
-      "moderator of a moderators posting space",
-      space({ role: "moderator", postPolicy: "moderators" }),
+      "space owner",
+      { space: space({ role: "owner" }), access: "members" },
       {},
-      true,
+      [true, true, false],
     ],
     [
-      "other organization",
-      space({ role: "owner", organizationId: OTHER_ORG }),
+      "plain member",
+      { space: inSpace(), access: "members" },
       {},
-      false,
+      [false, false, false],
     ],
-  ])("%s -> %s", (_n, s, c, want) => {
-    expect(canCreateSessionIn(caller(c), s)).toBe(want);
-  });
-});
-
-describe("postRefusal", () => {
-  const readable = { participantRole: "member", space: inSpace() };
-  it.each([
-    ["cannot read", session({ space: space() }), {}, "not_found"],
+    ["admin, space session", unread, admin, [true, true, false]],
+    ["admin, space-less group", { space: null }, admin, [true, false, false]],
     [
-      "other organization",
-      session({ organizationId: OTHER_ORG }),
+      "participant of a space-less group",
+      { space: null, participantRole: "member" },
       {},
-      "not_found",
+      [false, false, true],
     ],
     [
-      "archived and unreadable reports not_found",
-      session({ archived: true, space: space() }),
+      "participant who lost read",
+      { ...unread, participantRole: "member" },
       {},
-      "not_found",
+      [false, false, true],
     ],
+    ["non-participant", unread, {}, [false, false, false]],
     [
-      "archived session",
-      session({ ...readable, archived: true }),
-      {},
-      "archived",
-    ],
-    [
-      "archived space",
-      session({
+      "other organization's moderator",
+      {
+        space: space({ role: "moderator", organizationId: OTHER_ORG }),
+        organizationId: OTHER_ORG,
         participantRole: "member",
-        space: inSpace({ archived: true }),
-      }),
-      {},
-      "archived",
+      },
+      admin,
+      [false, false, false],
     ],
-    [
-      "archived, not a participant",
-      session({ space: inSpace(), archived: true }),
-      {},
-      "archived",
-    ],
-    [
-      "readable, not a participant",
-      session({ space: inSpace() }),
-      {},
-      "not_a_participant",
-    ],
-    [
-      "moderators posting, plain participant",
-      session({
-        participantRole: "member",
-        space: inSpace({ postPolicy: "moderators" }),
-      }),
-      {},
-      "posting_restricted",
-    ],
-    ["may post", session(readable), {}, null],
-  ])("%s -> %s", (_n, ss, c, want) => {
-    expect(postRefusal(caller(c), ss)).toBe(want);
-  });
-
-  it("is null exactly when canPost is true", () => {
-    const roles = [null, "member", "moderator"];
-    for (const org of [undefined, OTHER_ORG])
-      for (const archived of [false, true])
-        for (const participantRole of [null, "member", "owner"])
-          for (const postPolicy of ["members", "moderators"])
-            for (const role of roles)
-              for (const access of ["space", "members"])
-                for (const hasSpace of [true, false])
-                  for (const c of [{}, admin]) {
-                    const ss = session({
-                      ...(org ? { organizationId: org } : {}),
-                      archived,
-                      participantRole,
-                      access,
-                      space: hasSpace ? space({ role, postPolicy }) : null,
-                    });
-                    expect(postRefusal(caller(c), ss) === null).toBe(
-                      canPost(caller(c), ss)
-                    );
-                  }
-  });
-});
-
-describe("reactRefusal", () => {
-  it.each([
-    ["cannot read", session({ space: space() }), "not_found"],
-    [
-      "members-session participant who lost read on the space",
-      session({ participantRole: "member", access: "members", space: space() }),
-      "not_found",
-    ],
-    [
-      "archived space",
-      session({
-        participantRole: "member",
-        space: inSpace({ archived: true }),
-      }),
-      "archived",
-    ],
-    [
-      "readable, not a participant",
-      session({ space: inSpace() }),
-      "not_a_participant",
-    ],
-    [
-      "moderators posting, plain participant",
-      session({
-        participantRole: "member",
-        space: inSpace({ postPolicy: "moderators" }),
-      }),
-      null,
-    ],
-  ])("%s -> %s", (_n, ss, want) => {
-    expect(reactRefusal(caller(), ss)).toBe(want);
+  ])("%s -> manage, moderate, own participation %j", (_n, o, c, want) => {
+    const ss = session(o);
+    expect([
+      managesWithoutReading(caller(c), ss),
+      moderatesWithoutReading(caller(c), ss),
+      actsOnOwnParticipation(caller(c), ss),
+    ]).toEqual(want);
   });
 });
 

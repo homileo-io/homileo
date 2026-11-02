@@ -176,6 +176,21 @@ describe("canDeleteMessage", () => {
     );
   });
 
+  it("lets a space moderator delete in a members-access session they cannot read", () => {
+    const ss = session({
+      access: "members",
+      space: space({ role: "moderator" }),
+    });
+    expect(
+      canDeleteMessage(caller(), ss, message({ senderId: "someone" }))
+    ).toBe(true);
+  });
+
+  it("refuses a sender who participates but lost read on the space", () => {
+    const ss = session({ access: "members", participantRole: "member" });
+    expect(canDeleteMessage(caller(), ss, message())).toBe(false);
+  });
+
   it("refuses edit and delete in another organization", () => {
     const ss = {
       ...inSession(null, "moderator"),
@@ -350,8 +365,36 @@ describe("isMentionReader", () => {
       false,
     ],
     [
-      "a participant of an access: members session",
+      "a participant of a public space's access: members session",
       spaceSession("members"),
+      "member",
+      null,
+      true,
+    ],
+    [
+      "a participant and space member of an access: members session",
+      spaceSession("members", "members"),
+      "member",
+      "member",
+      true,
+    ],
+    [
+      "a participant of a members-only space's access: members session, not a member",
+      spaceSession("members", "members"),
+      "member",
+      null,
+      false,
+    ],
+    [
+      "a participant of a members-only space's access: space session, not a member",
+      spaceSession("space", "members"),
+      "member",
+      null,
+      false,
+    ],
+    [
+      "a participant of a public space's access: space session, not a member",
+      spaceSession("space"),
       "member",
       null,
       true,

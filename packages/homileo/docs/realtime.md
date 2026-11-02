@@ -146,8 +146,9 @@ More precisely:
   `access: members` session do not, not even to readers of the space who could read the session
   through a kind grant or `homileo.chat.admin`: they hear it by taking part or subscribing.
 - **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the sockets of
-  each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
-  participant, or a member of the space of an `access: space` session) and, judged by the
+  each mentioned user who is still a mention reader of the session (`isMentionReader`: whom
+  `canReadSession` admits with no permissions, from current participation, space membership and
+  the space's visibility; see [access.md](access.md)) and, judged by the
   socket's own token, can read the session, as `/sync` requires. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.

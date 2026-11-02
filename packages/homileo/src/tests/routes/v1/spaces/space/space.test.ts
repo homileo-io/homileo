@@ -192,6 +192,17 @@ describe("/v1/spaces/:spaceId", () => {
       expect(res.body.error).toBe("resource_archived");
     });
 
+    it("returns 409 resource_archived before the policy, to a member who cannot moderate", async () => {
+      const { org, space } = await ownedSpace({ archived: true });
+      const member = await api.actor(org);
+      await fixtures.member(space, member.principal, "member");
+
+      const res = await patch(member.token, space.id, { name: "x" });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("resource_archived");
+    });
+
     it("returns the space unchanged for a repeat that changes nothing", async () => {
       const { owner, space } = await ownedSpace();
       const first = await patch(owner.token, space.id, { name: "Same" });
