@@ -50,14 +50,15 @@ describe("PUT/DELETE /v1/messages/:messageId/reactions/:emoji", () => {
     expect(added.body.reactions).toEqual([
       { emoji: "👍", count: 1, principalIds: [member.principalId] },
     ]);
+    expect(added.body.reactionSeq).toBe(1);
 
     const again = await addReaction(id, member.token, "👍");
     expect(again.status).toBe(200);
-    expect(again.body.reactions).toEqual(added.body.reactions);
+    expect(again.body).toEqual(added.body);
 
     const removed = await removeReaction(id, member.token, "👍");
     expect(removed.status).toBe(200);
-    expect(removed.body.reactions).toEqual([]);
+    expect(removed.body).toEqual({ reactions: [], reactionSeq: 2 });
 
     const gone = await removeReaction(id, member.token, "👍");
     expect(gone.status).toBe(404);

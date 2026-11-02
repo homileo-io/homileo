@@ -327,6 +327,8 @@ components:
       $ref: './components/messages/schemas.yaml#/AttachmentResponse'
     ReactionSummary:
       $ref: './components/messages/schemas.yaml#/ReactionSummary'
+    ReactionSeq:
+      $ref: './components/messages/schemas.yaml#/ReactionSeq'
     Message:
       $ref: './components/messages/schemas.yaml#/Message'
     SendMessageRequest:

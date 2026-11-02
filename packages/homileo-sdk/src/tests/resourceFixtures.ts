@@ -107,6 +107,7 @@ export const message = {
   deletedBy: null,
   attachments: [attachment],
   reactions: [reactionSummary],
+  reactionSeq: 1,
 };
 
 export const messageRevision = {
@@ -143,12 +144,16 @@ export const EVENT_EXAMPLES: Record<string, unknown> = {
     messageId: id(8),
     principalId: id(1),
     emoji: "👍",
+    reactions: [reactionSummary],
+    reactionSeq: 1,
   },
   "reaction.removed": {
     sessionId: id(6),
     messageId: id(8),
     principalId: id(1),
     emoji: "👍",
+    reactions: [],
+    reactionSeq: 2,
   },
   "thread.updated": {
     sessionId: id(6),

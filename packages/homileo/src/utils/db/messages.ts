@@ -253,6 +253,7 @@ export interface StoredMention {
   visibility: "public" | "members" | null;
   /** `null` when not a current participant. */
   participantRole: ParticipantRole | null;
+  participantJoinedAt: Date | null;
   /** `null` when not a member of the session's space (or it has none). */
   spaceRole: SpaceRole | null;
 }
@@ -267,7 +268,8 @@ export const storedMentionsOf = async (
   return client.$queryRaw<StoredMention[]>`
     SELECT mm.message_id::text AS "messageId", mm.user_id::text AS "userId",
       s.access::text AS access, sx.visibility::text AS visibility,
-      sp.role::text AS "participantRole", sm.role::text AS "spaceRole"
+      sp.role::text AS "participantRole", sp.joined_at AS "participantJoinedAt",
+      sm.role::text AS "spaceRole"
     FROM "chat"."message_mentions" mm
     JOIN "chat"."sessions" s ON s.id = mm.session_id
     LEFT JOIN "chat"."spaces" sx ON sx.id = s.space_id
@@ -297,6 +299,8 @@ export const markDeleted = (
       metadata: {},
       deletedAt: at,
       deletedBy: by,
+      // The view drops the reactions, so their version moves on.
+      reactionSeq: { increment: 1 },
     },
   });
 

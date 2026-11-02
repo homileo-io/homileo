@@ -1,10 +1,10 @@
 import { handleSubscriptions, watchSubscriptionLoss } from "./subscriptions.js";
+import { leaveUnheldRooms, recheckSockets, roomsOnConnect } from "./rooms.js";
 import { claimSocketSlot, limitEvents, MAX_PACKET_BYTES } from "./limits.js";
 import { handleEphemeral, startPresenceSweep } from "./ephemeral.js";
 import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import { redisRetryStrategy } from "../utils/redisRetry.js";
 import { closeRedisClient, redis } from "../utils/redis.js";
-import { recheckSockets, roomsOnConnect } from "./rooms.js";
 import { createAdapter } from "@socket.io/redis-adapter";
 import type { AppSocket, IOServer } from "./types.js";
 import { startFanout, stopFanout } from "./fanout.js";
@@ -101,6 +101,7 @@ const settleRooms = async (socket: AppSocket): Promise<void> => {
     // Joining after the disconnect would leave the id in the adapter's rooms.
     if (socket.disconnected) return;
     await socket.join(rooms);
+    await leaveUnheldRooms(socket, rooms);
     await recheckSockets([socket]);
     // Taken after the joins: every transaction from here on fans out to these rooms.
     const until = encodeSyncCursor(await db.events.tail());
@@ -211,7 +212,11 @@ export const attachSockets = async (http: HttpServer): Promise<void> => {
 
 /** Closes this node's sockets, keeping the Redis clients for requests still draining. */
 export const disconnectSockets = async (): Promise<void> => {
+  // First, so the HTTP drain introspects no token of a socket already closed.
+  const recheckStopped = stopTokenRecheck?.();
+  stopTokenRecheck = null;
   if (io) await disconnectSocketServer(io);
+  await recheckStopped;
 };
 
 export const closeSockets = async (): Promise<void> => {

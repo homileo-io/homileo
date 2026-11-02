@@ -1924,7 +1924,8 @@ paths:
         The events the caller would have received on the socket after `since`, with the same ids, in
         commit order. A client calls it on reconnect, with the socket already connected and
         buffering, passing as `until` the position the socket's `ready` event (and its `subscribe`
-        acks) gave, until `hasMore` is false; then it applies the buffered socket events, skipping
+        acks) gave, until `hasMore` is false, backing off briefly only after a page whose `next` is
+        the cursor it sent (an empty page that advanced is normal: go on at once); then it applies the buffered socket events, skipping
         ids it has seen. Without `since` it returns no events and the head as `next`.
 
         Events are read only from transactions older than every one still running on the database
@@ -1952,9 +1953,10 @@ paths:
         `message.created`, `message.edited` and `message.deleted` carry the message's **current**
         view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
         at the event: every event of a deleted message carries its deleted view, and every event of
-        an edited one its latest revision. The exception is `reactions`, which keeps the summary
-        stored with the event: the page's later `reaction.added` and `reaction.removed` events are
-        deltas from it, so applying the events in order ends at the REST count. The cursor is not
+        an edited one its latest revision. The exception is `reactions` with `reactionSeq`, which keep
+        the pair stored with the event (a deleted message's are its view's: none). Every reaction
+        event carries the message's whole summary and `reactionSeq` too; a client keeps the summary
+        with the highest `reactionSeq`, so it converges whatever order the events arrive in. The cursor is not
         signed; because of this and the rule above, a made-up cursor reveals nothing the REST
         routes do not.
 
@@ -4178,12 +4180,15 @@ components:
       type: object
       required:
         - reactions
+        - reactionSeq
       properties:
         reactions:
           type: array
           description: The message's reactions after the change
           items:
             $ref: '#/components/schemas/ReactionSummary'
+        reactionSeq:
+          $ref: '#/components/schemas/ReactionSeq'
     ReactionEventData:
       type: object
       description: The data of `reaction.added` and `reaction.removed`
@@ -4192,6 +4197,8 @@ components:
         - messageId
         - principalId
         - emoji
+        - reactions
+        - reactionSeq
         - eventId
       properties:
         sessionId:
@@ -4205,6 +4212,13 @@ components:
           format: uuid
         emoji:
           type: string
+        reactions:
+          type: array
+          description: The message's whole summary after this change, as the reaction routes answer it
+          items:
+            $ref: '#/components/schemas/ReactionSummary'
+        reactionSeq:
+          $ref: '#/components/schemas/ReactionSeq'
         eventId:
           type: string
     CreateAttachmentRequest:
@@ -4278,6 +4292,14 @@ components:
           items:
             type: string
             format: uuid
+    ReactionSeq:
+      type: integer
+      minimum: 0
+      description: |
+        The version of the message's reactions: every reaction added or removed, and the delete,
+        raises it by one. Of two summaries of one message, from message views, reaction events or the
+        reaction routes, the one with the higher `reactionSeq` is newer, whatever order they arrive
+        in; a client keeps the summary with the highest it has seen.
     Message:
       type: object
       description: |
@@ -4303,6 +4325,7 @@ components:
         - deletedBy
         - attachments
         - reactions
+        - reactionSeq
       properties:
         id:
           type: string
@@ -4374,6 +4397,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReactionSummary'
+        reactionSeq:
+          $ref: '#/components/schemas/ReactionSeq'
     SendMessageRequest:
       type: object
       additionalProperties: false
@@ -4687,11 +4712,9 @@ components:
         From `GET /v1/sync`, an event whose payload holds a message view (`message.created`,
         `message.edited`, `message.deleted`) carries the message's current view in place of the one
         stored at commit, built as `GET /v1/messages/{messageId}` builds it, so every event of one
-        message agrees with the others; a socket event carries the view as of its commit. The view's
-        `reactions` is the exception: it keeps the summary stored at commit, since the
-        `reaction.added` and `reaction.removed` events after it are deltas from that summary, so a
-        client applying the events in order ends at the count REST returns. Every other payload is as
-        it was at commit. See docs/realtime.md, *GET /v1/sync*.
+        message agrees with the others, except for `reactions` and `reactionSeq`, which stay as stored
+        (see `ReactionSeq`); a socket event carries the view as of its commit. Every other
+        payload is as it was at commit. See docs/realtime.md, *GET /v1/sync*.
       required:
         - id
         - type
@@ -4777,7 +4800,8 @@ components:
           type: boolean
           description: |
             Whether events remain past `next`, or, with `until`, transactions older than it are still
-            running; call again with it until this is false
+            running; call again with it until this is false. An empty page with `hasMore` is normal
+            (a page stops after scanning 5000 rows); back off only when `next` equals the `since` sent
     MePrincipal:
       type: object
       description: The caller's principal

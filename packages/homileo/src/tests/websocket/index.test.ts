@@ -1,11 +1,11 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag race
+import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
 import { decodeSyncCursor } from "../../realtime/syncCursor.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { roomsOnConnect } from "../../websocket/rooms.js";
 import type * as rooms from "../../websocket/rooms.js";
-import { sessionRoom } from "../../realtime/rooms.js";
 import { personToken } from "../support/tokens.js";
 import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
@@ -77,6 +77,31 @@ describe("createSocketServer", () => {
           .sockets.get(socket.id!)
           ?.rooms.has(sessionRoom(session.id)) === false
     );
+  });
+
+  it("leaves a participation room removed before the joins, though the socket can still read the session", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    // As if the handshake read a participation that was removed before the joins.
+    vi.mocked(roomsOnConnect).mockImplementationOnce(async (c) => [
+      ...(await vi
+        .importActual<typeof rooms>("../../websocket/rooms.js")
+        .then((m) => m.roomsOnConnect(c))),
+      sessionRoom(session.id),
+      spaceOfRoom(space.id),
+    ]);
+
+    const { socket } = await openReadySocket(
+      personToken({ userId: who.tereoUserId!, org }),
+      local.url
+    );
+    opened.push(socket);
+
+    const onServer = local.io.of("/").sockets.get(socket.id!)!;
+    expect(onServer.rooms.has(sessionRoom(session.id))).toBe(false);
+    expect(onServer.rooms.has(spaceOfRoom(space.id))).toBe(false);
   });
 
   it("joins a participation added between the handshake's load and the joins", async () => {

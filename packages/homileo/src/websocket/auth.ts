@@ -88,11 +88,11 @@ export const closeAtExpiry = (socket: AppSocket): void => {
  * token tereo no longer accepts (revoked, expired, or tereo unreachable, as a request would be
  * refused). Sockets of a token still active take its current caller, and are re-checked when
  * its permissions changed. `spreadMs` paces the introspections over that span; none starts
- * once `stopped()` holds.
+ * once `signal` aborts.
  */
 export const revalidateSockets = async (
   sockets: AppSocket[],
-  o: { spreadMs?: number; stopped?: () => boolean } = {}
+  o: { spreadMs?: number; signal?: AbortSignal } = {}
 ): Promise<void> => {
   const byToken = new Map<string, AppSocket[]>();
   for (const socket of sockets) {
@@ -140,21 +140,21 @@ const revalidateToken = async (
 
 /**
  * Re-introspects this node's sockets' tokens every `intervalMs`, pacing them over half of it
- * so tereo sees no burst. The returned stop waits up to `TOKEN_RECHECK_STOP_MS` for a run in
- * flight, which starts no introspection once stopped.
+ * so tereo sees no burst. The returned stop ends the run's paced waits at once, so it starts
+ * no other introspection, and waits up to `TOKEN_RECHECK_STOP_MS` for those in flight.
  */
 export const startTokenRecheck = (
   io: IOServer,
   intervalMs = TOKEN_RECHECK_INTERVAL_MS
 ): (() => Promise<void>) => {
-  let stopped = false;
+  const stop = new AbortController();
   let run: Promise<void> | null = null;
   const timer = setInterval(() => {
     // A run still going (tereo slow) is not overlapped.
     if (run) return;
     run = revalidateSockets([...io.of("/").sockets.values()], {
       spreadMs: intervalMs / 2,
-      stopped: () => stopped,
+      signal: stop.signal,
     })
       .catch((err: unknown) => {
         logger.error({ err }, "Re-checking the sockets' tokens failed");
@@ -165,7 +165,7 @@ export const startTokenRecheck = (
   }, intervalMs);
   timer.unref();
   return async () => {
-    stopped = true;
+    stop.abort();
     clearInterval(timer);
     if (!run) return;
     let bound: NodeJS.Timeout | undefined;

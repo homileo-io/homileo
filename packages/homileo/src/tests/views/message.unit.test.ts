@@ -14,6 +14,7 @@ describe("message views", () => {
     const view = messageView(messageRow);
     expect(MessageSchema.safeParse(view).success).toBe(true);
     expect(view.seq).toBe(12);
+    expect(view.reactionSeq).toBe(3);
     expect(view.createdAt).toBe("2026-10-30T12:00:00.000Z");
     expect(view.attachments[0].size).toBe(2048);
     expect(AttachmentSchema.safeParse(view.attachments[0]).success).toBe(true);

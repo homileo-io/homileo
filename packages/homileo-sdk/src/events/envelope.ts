@@ -48,6 +48,14 @@ export const SocketReadySchema = z.strictObject({ until: z.string().min(1) });
 
 export type SocketReady = z.infer<typeof SocketReadySchema>;
 
+/** The socket's `unsubscribed` event: it lost a room it held by explicit subscription. */
+export const SocketUnsubscribedSchema = z.union([
+  z.strictObject({ sessionId: Id }),
+  z.strictObject({ spaceId: Id }),
+]);
+
+export type SocketUnsubscribed = z.infer<typeof SocketUnsubscribedSchema>;
+
 /** A `subscribe` ack: on success, `until` is for `/sync` as `ready`'s is. */
 export const SubscribeAckSchema = z.discriminatedUnion("ok", [
   z.strictObject({ ok: z.literal(true), until: z.string().min(1) }),

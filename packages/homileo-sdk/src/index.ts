@@ -7,12 +7,14 @@ export {
 export {
   EventEnvelopeSchema,
   SocketReadySchema,
+  SocketUnsubscribedSchema,
   SubscribeAckSchema,
   SyncResponseSchema,
 } from "./events/envelope.js";
 export type {
   EventEnvelope,
   SocketReady,
+  SocketUnsubscribed,
   SubscribeAck,
   SyncResponse,
 } from "./events/envelope.js";

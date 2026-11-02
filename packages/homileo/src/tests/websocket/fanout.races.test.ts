@@ -8,6 +8,7 @@ import type { ChangeEvent } from "../../utils/changes.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
 import { sendMessage } from "../support/messageApi.js";
 import type { JsonResponse } from "../support/http.js";
+import { prisma } from "../../utils/db/prisma.js";
 import { startV1App } from "../support/v1App.js";
 import {
   collect,
@@ -119,5 +120,48 @@ describe("startFanout ordering", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(onServer.rooms.has(sessionRoom(session.id))).toBe(false);
     expect(onServer.rooms.has(spaceOfRoom(space.id))).toBe(false);
+  });
+
+  it("pushes a mention to a participant added after the message, before its fan-out", async () => {
+    const org = api.organization();
+    const owner = await api.actor(org);
+    const mentioned = await api.actor(org);
+    const space = await fixtures.space({ org, visibility: "members" });
+    const session = await fixtures.session({ space, access: "space" });
+    await fixtures.member(space, owner.principal, "owner");
+    await fixtures.participant(session, owner.principal, "owner");
+    await fixtures.member(space, mentioned.principal);
+    const sent = await sendMessage(
+      session.id,
+      owner.token,
+      { body: `<@${mentioned.principal.id}> hi` },
+      app.url
+    );
+    expect(sent.status, JSON.stringify(sent.body)).toBe(201);
+    const row = await prisma.event.findFirstOrThrow({
+      where: { sessionId: session.id, type: "message.created" },
+    });
+    const socket = await openLocalSocket(mentioned.token, local);
+    opened.push(socket);
+    const onServer = local.io.of("/").sockets.get(socket.id!)!;
+    // Added later, in a batch that has not fanned out: the socket is not in the room yet.
+    await fixtures.participant(session, mentioned.principal);
+    expect(onServer.rooms.has(sessionRoom(session.id))).toBe(false);
+    const arriving = nextEvent<JsonResponse["body"]>(socket, "message.created");
+
+    publishCommitted([
+      {
+        id: row.id,
+        createdAt: row.createdAt,
+        type: "message.created",
+        organizationId: org,
+        spaceId: space.id,
+        sessionId: session.id,
+        actorId: owner.principal.id,
+        payload: row.payload,
+      },
+    ]);
+
+    expect((await arriving).payload.message.id).toBe(sent.body.message.id);
   });
 });

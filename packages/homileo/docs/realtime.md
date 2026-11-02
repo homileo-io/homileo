@@ -35,8 +35,9 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
   `homileo.spaces.read`, so every socket action runs for a caller with read. A token still active
   gives its sockets its current permissions, and those whose permissions changed (in any order: a
   reordering is no change) are re-checked. With tereo's introspection
-  cache (60 s), a revoked token's sockets close within about two minutes. On shutdown the node
-  starts no further introspection and waits up to 5 s for those in flight.
+  cache (60 s), a revoked token's sockets close within about two minutes. On shutdown, as it
+  starts closing its sockets and before the HTTP drain, the node starts no further introspection
+  (a paced wait ends at once) and waits up to 5 s for those in flight.
 - **Scale bound of the re-check.** A round takes at least `tokens × latency / 10`. At 50 ms per
   introspection that is 12,000 distinct tokens per node in 60 s; past about 6,000 (the 30 s
   pacing span) or with a slower tereo, a round outlasts its pacing, the next round is skipped,
@@ -74,7 +75,9 @@ made good by the sweep (below).
 A socket joined for membership or participation never leaves it on `unsubscribe`; that only undoes
 `subscribe`. `unsubscribe` checks participation or membership again after leaving, and joins again
 if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
-socket is up, so a change committed in between is not missed.
+socket is up, so a change committed in between is not missed: a participation or membership
+removed meanwhile leaves its room even when the socket could still read the resource, unless
+an explicit subscription holds it.
 
 A join on being added gives no such guarantee. The socket joins the room when the
 `session.participant_added` or `space.member_added` event naming it is fanned out, so events of
@@ -140,7 +143,27 @@ have no id (they are not part of `/sync`):
   `subscribe` other than by `unsubscribe`: a re-check found it can no longer read the resource,
   or a removal left the room (see [Losing access](#losing-access)). The subscription is gone; to
   follow the resource again the client subscribes again. A `subscribe` whose own re-check drops
-  the room answers `not_found` instead.
+  the room answers `not_found` instead. `@homileo-io/sdk` exports its schema as
+  `SocketUnsubscribedSchema` (and `ready`'s as `SocketReadySchema`).
+
+## Reactions
+
+A message's reactions have a version, `reactionSeq`: every reaction added or removed, and the
+message's delete, raises it by one under the session lock. Each message view carries `reactions`
+with its `reactionSeq`, and each `reaction.added` and `reaction.removed` carries the message's
+whole summary after the change (`reactions`) with its `reactionSeq`, as the reaction routes answer
+it. **A client keeps, per message, the summary with the highest `reactionSeq` it has seen**, from
+a REST view, a reaction route's answer, a message event or a reaction event, and ignores one whose
+`reactionSeq` is not above the one it holds. The message's other fields come from its latest view
+as usual.
+
+The rule is needed because no order of delivery is promised to agree with the lock order the
+summaries were built in. `/sync` returns events in transaction-id order, and a transaction takes
+its id when it first locks the space, before it waits for the session lock: an edit may hold the
+lower id while a reaction gets the session lock first, so the edit's view, which already counts
+the reaction, comes before the reaction's event. Two reactions can cross the same way. Each
+summary is exact for its `reactionSeq`, so keeping the highest ends at the state REST shows,
+whatever order the events arrive in. Applying reaction events as deltas would not.
 
 ## The audience rule
 
@@ -172,10 +195,11 @@ More precisely:
   each mentioned user who is still a mention reader of the session (`isMentionReader`: whom
   `canReadSession` admits with no permissions, from current participation, space membership and
   the space's visibility; see [access.md](access.md)) and, judged by the
-  socket's own token, can read the session, as `/sync` requires. Mentioned participants get it
-  through the session room, which holds their sockets exactly while they can read the session
-  (`/sync` likewise returns a participant's event only then); only the other mention readers'
-  sockets are fetched, once per committed transaction, from every node. Someone removed since the
+  socket's own token, can read the session, as `/sync` requires. Mentioned participants who
+  joined by the event's time get it through the session room, which holds their sockets exactly
+  while they can read the session (`/sync` likewise returns a participant's event only then);
+  only the other mention readers' sockets, those who joined later included (their room join may
+  not have fanned out yet), are fetched, once per committed transaction, from every node. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that
@@ -226,7 +250,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 - Every 300 s each node sweeps its local sockets, as a backstop for changes that record no event
   (a kind grant changed by provisioning) and for joins and leaves Redis lost. It loads each
   socket's participation and membership rooms as on connect, joins those it is missing, drops
-  the explicit subscriptions they now hold, then re-checks every room. A join it makes is checked
+  the explicit subscriptions they now hold, leaves `session:` and `space:` rooms no load returns
+  and no subscription holds, then re-checks every room. A join it makes is checked
   against a second load, so a removal committed meanwhile is not undone.
 - A re-check uses the socket's own caller, so a token's permissions, not the principal's current
   ones, decide kind grants and admin.
@@ -297,11 +322,10 @@ the catch-up must reach). It answers
   body, payload, revision and attachments as they stand when the page is read. A deleted
   message's events all carry its deleted view (no body, payload or attachments); an edited
   message's events all carry the latest revision, never an earlier one, so earlier text stays
-  limited to `/revisions`. **`reactions` is the exception:** it keeps the summary stored with the
-  event, because the `reaction.added` and `reaction.removed` events after it in the log are deltas
-  from that summary. A client that applies the events in order (a message event setting the
-  summary, each reaction event adding or removing one) ends at the count REST returns; an
-  overlaid current summary would count each later reaction twice. Ids, order, types and the
+  limited to `/revisions`. **`reactions` and `reactionSeq` are the exception:** they keep the pair
+  stored with the event, exact for each other, except that a deleted message's events carry its
+  view's (no reactions, its final `reactionSeq`). A client applies them by the rule in
+  [Reactions](#reactions). Ids, order, types and the
   cursor are unchanged. The current rows are loaded once per page. A message row that no longer
   exists drops its events from the page (Homileo never removes message rows, so this is defensive).
   Live socket events keep the view as of their commit, which is current when they are sent.
@@ -341,9 +365,11 @@ socket.on("ready", async ({ until }) => {
     for (;;) {
       const page = await sync({ since: cursor, until, sessionIds, spaceIds });
       page.events.forEach(apply);
+      const advanced = page.next !== cursor;
       cursor = page.next;
       if (!page.hasMore) break;
-      if (page.events.length === 0) await sleep(100 + Math.random() * 150);
+      // An empty page that advanced is a scan cut short: go on at once.
+      if (!advanced) await sleep(100 + Math.random() * 150);
     }
   } catch (e) {
     if (e.status === 410) return reloadEverything(); // resync_required
@@ -360,7 +386,8 @@ const apply = (e) => {
 ```
 
 Pass the subscribed resources in `sessionIds`/`spaceIds` so `/sync` covers what they missed. An
-empty page with `hasMore` means an older transaction is still open: back off briefly and call
-again. After a long gap, or on `410`,
+empty page with `hasMore` is normal: a page stops after scanning 5000 rows, matching or not.
+Only a page whose `next` is the cursor sent made no progress (an older transaction is still
+open, or `until` is not reached yet): back off briefly then, and call again at once otherwise. After a long gap, or on `410`,
 reload state from the REST routes instead. Events pushed on the socket carry no cursor; keep the
 `next` from `/sync`, since socket events do not advance it.

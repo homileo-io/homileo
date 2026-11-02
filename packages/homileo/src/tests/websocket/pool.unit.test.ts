@@ -71,19 +71,43 @@ describe("runPool", () => {
     await run;
   });
 
-  it("starts nothing more once stopped", async () => {
-    let stopped = false;
+  it("starts nothing more once the signal aborts", async () => {
+    const stop = new AbortController();
     const started: number[] = [];
     await runPool(
       [0, 1, 2, 3],
       1,
       async (i) => {
         started.push(i);
-        if (i === 1) stopped = true;
+        if (i === 1) stop.abort();
       },
-      { stopped: () => stopped }
+      { signal: stop.signal }
     );
 
     expect(started).toEqual([0, 1]);
+  });
+
+  it("ends a paced wait as soon as the signal aborts", async () => {
+    vi.useFakeTimers();
+    const stop = new AbortController();
+    const started: number[] = [];
+    let done = false;
+    const run = runPool(
+      [0, 1, 2],
+      3,
+      async (i) => {
+        started.push(i);
+      },
+      { spreadMs: 60_000, signal: stop.signal }
+    ).then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started).toEqual([0]);
+
+    stop.abort();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(done).toBe(true);
+    expect(started).toEqual([0]);
+    await run;
   });
 });

@@ -299,6 +299,8 @@ model Message {
   replyCount      Int       @default(0) @map("reply_count")
   lastReplyAt     DateTime? @map("last_reply_at") @db.Timestamp(3)
   revision        Int       @default(1)
+  // Bumped under the session lock by every change to the message's reactions, delete included.
+  reactionSeq     BigInt    @default(0) @map("reaction_seq")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)
   editedAt        DateTime? @map("edited_at") @db.Timestamp(3)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamp(3)

@@ -4,6 +4,7 @@ import * as fx from "./resourceFixtures.js";
 import {
   EventEnvelopeSchema,
   SocketReadySchema,
+  SocketUnsubscribedSchema,
   SubscribeAckSchema,
   SyncResponseSchema,
 } from "../events/envelope.js";
@@ -104,6 +105,23 @@ describe("SocketReadySchema", () => {
     ["an extra key", { until: "x", next: "y" }],
   ])("rejects %s", (_name, input) => {
     expect(SocketReadySchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("SocketUnsubscribedSchema", () => {
+  it.each([
+    ["a session", { sessionId: fx.session.id }],
+    ["a space", { spaceId: fx.space.id }],
+  ])("accepts %s", (_name, input) => {
+    expect(SocketUnsubscribedSchema.safeParse(input).success).toBe(true);
+  });
+
+  it.each([
+    ["neither id", {}],
+    ["both ids", { sessionId: fx.session.id, spaceId: fx.space.id }],
+    ["a non-uuid id", { sessionId: "s-1" }],
+  ])("rejects %s", (_name, input) => {
+    expect(SocketUnsubscribedSchema.safeParse(input).success).toBe(false);
   });
 });
 
