@@ -45,7 +45,9 @@
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   delete:
     tags: [Spaces]
     summary: Remove a member, or leave a space
@@ -76,3 +78,4 @@
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

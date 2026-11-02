@@ -6,10 +6,13 @@ import { spacePayload } from "../support/eventPayloads.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import type { ChangeEvent } from "../../utils/changes.js";
 import { withChanges } from "../../utils/transaction.js";
+import { isDatabaseBusy } from "../../utils/errors.js";
 import { changeBus } from "../../utils/changeBus.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { logger } from "../../utils/logger.js";
 import { v7 as uuidv7 } from "uuid";
+import env from "../../env.js";
+import { Client } from "pg";
 import {
   afterAll,
   afterEach,
@@ -183,6 +186,43 @@ describe("withChanges", () => {
       expect(queriesInside.after).toBe(1);
     } finally {
       load.mockRestore();
+    }
+  });
+
+  it("runs fn under DB_LOCK_TIMEOUT_MS", async () => {
+    const setting = await withChanges(
+      (tx) => tx.$queryRaw<Array<{ lock_timeout: string }>>`SHOW lock_timeout`
+    );
+
+    expect(setting[0].lock_timeout).toBe(
+      env.DB_LOCK_TIMEOUT_MS % 1000 === 0
+        ? `${env.DB_LOCK_TIMEOUT_MS / 1000}s`
+        : `${env.DB_LOCK_TIMEOUT_MS}ms`
+    );
+  });
+
+  it("a lock wait past the lock timeout fails as busy (503), not 500", async () => {
+    const actor = await fixtures.principal();
+    const holder = new Client({ connectionString: env.DATABASE_URL });
+    await holder.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        `SELECT id FROM "chat"."principals" WHERE id = $1 FOR UPDATE`,
+        [actor.id]
+      );
+
+      const failure = await withChanges(async (tx) => {
+        // Shortened from the env value so the test does not wait seconds.
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout = 100");
+        await tx.$queryRaw`
+          SELECT id FROM "chat"."principals" WHERE id = ${actor.id} FOR UPDATE`;
+      }).catch((err: unknown) => err);
+
+      expect(isDatabaseBusy(failure)).toBe(true);
+    } finally {
+      await holder.query("ROLLBACK");
+      await holder.end();
     }
   });
 });

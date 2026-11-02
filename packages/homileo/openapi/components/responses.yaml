@@ -54,21 +54,36 @@ NotFoundResponse:
         $ref: '#/Error'
 
 ConflictResponse:
-  description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
+  description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, or `version_conflict` (a concurrent write or deadlock; re-read and retry)
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+PayloadTooLargeResponse:
+  description: Payload too large - `payload_too_large`, the body is over the route's size limit
   content:
     application/json:
       schema:
         $ref: '#/Error'
 
 ServerErrorResponse:
-  description: Server error
+  description: Server error - `server_error`
   content:
     application/json:
       schema:
         $ref: '#/Error'
 
 ServiceUnavailableResponse:
-  description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
+  description: |
+    Service unavailable - `temporarily_unavailable`: tereo's file storage did not answer, or the
+    database was too busy (a transaction or a lock wait ran out of time, or no connection was free).
+    Nothing was changed; retry, after `Retry-After` when it is given.
+  headers:
+    Retry-After:
+      description: Seconds to wait before retrying; sent when the database was too busy
+      schema:
+        type: integer
   content:
     application/json:
       schema:

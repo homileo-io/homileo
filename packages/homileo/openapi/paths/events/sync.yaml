@@ -50,3 +50,4 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

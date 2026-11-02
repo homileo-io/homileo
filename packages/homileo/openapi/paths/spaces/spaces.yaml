@@ -28,6 +28,7 @@
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   post:
     tags: [Spaces]
     summary: Create a space
@@ -63,4 +64,6 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

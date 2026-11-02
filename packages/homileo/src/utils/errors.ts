@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import {
   isForeignKeyConstraintError,
   isUniqueConstraintError,
+  pgErrorCodes,
 } from "./prismaErrors.js";
 
 export interface AppErrorOptions {
@@ -185,6 +186,32 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+const BUSY_RETRY_AFTER_SECONDS = 1;
+
+// pg-pool's error for a connection it could not hand out in time carries no code.
+const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
+
+const isPoolTimeout = (err: unknown): boolean => {
+  const seen = new Set<unknown>();
+  for (let e = err; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    if (e.message === POOL_TIMEOUT_MESSAGE) return true;
+  }
+  return false;
+};
+
+/**
+ * The database was too busy, not wrong: a transaction that could not start or
+ * expired (P2028), a lock wait past `lock_timeout` (55P03), or no pool
+ * connection in time. Each rolled back, so the request can be retried.
+ */
+export const isDatabaseBusy = (err: unknown): boolean => {
+  const codes = pgErrorCodes(err);
+  return (
+    codes.includes("P2028") || codes.includes("55P03") || isPoolTimeout(err)
+  );
+};
+
 /**
  * An AppError, or anything shaped like one — a library error carrying an HTTP
  * status. Prisma errors have a string `code` but no `statusCode`, so they fall
@@ -292,6 +319,19 @@ const errorResponse = (err: Error): ErrorResponse => {
   // An audit entry the SDK refused before queueing it: the caller's input.
   if (err instanceof InvalidAuditEntryError) {
     return { status: 400, code: "invalid_request", message: err.message };
+  }
+
+  if (isDatabaseBusy(err)) {
+    const unavailable = new ServiceUnavailableError(
+      "The service is busy; retry the request shortly",
+      BUSY_RETRY_AFTER_SECONDS
+    );
+    return {
+      status: unavailable.statusCode,
+      code: unavailable.code,
+      message: unavailable.message,
+      headers: unavailable.headers,
+    };
   }
 
   // A write conflict or deadlock (P2034): retryable, so 409 lets clients
