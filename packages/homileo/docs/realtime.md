@@ -192,10 +192,11 @@ More precisely:
   each mentioned user who is still a mention reader of the session (`isMentionReader`: whom
   `canReadSession` admits with no permissions, from current participation, space membership and
   the space's visibility; see [access.md](access.md)) and, judged by the
-  socket's own token, can read the session, as `/sync` requires. Mentioned participants get it
-  through the session room, which holds their sockets exactly while they can read the session
-  (`/sync` likewise returns a participant's event only then); only the other mention readers'
-  sockets are fetched, once per committed transaction, from every node. Someone removed since the
+  socket's own token, can read the session, as `/sync` requires. Mentioned participants who
+  joined by the event's time get it through the session room, which holds their sockets exactly
+  while they can read the session (`/sync` likewise returns a participant's event only then);
+  only the other mention readers' sockets, those who joined later included (their room join may
+  not have fanned out yet), are fetched, once per committed transaction, from every node. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that

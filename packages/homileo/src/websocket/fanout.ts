@@ -212,19 +212,30 @@ const step = async (
 
 /**
  * The mentioned principals each message event still reaches beyond its session room, by
- * message id. Current participants are left out: the room reaches them, under its own checks,
- * as `/sync` reaches a participant only while they can read the session.
+ * message id. Participants who joined by the message's first event in the batch are left out:
+ * the room reaches them, under its own checks, as `/sync` reaches a participant only while they
+ * can read the session. One who joined later may not be in the room yet.
  */
 const loadMentions = async (
   events: ChangeEvent[]
 ): Promise<Map<string, string[]>> => {
   try {
-    const stored = await db.messages.storedMentionsOf(
-      prisma,
-      events.flatMap((e) => mentionedMessageOf(e) ?? [])
-    );
+    const firstEventAt = new Map<string, Date>();
+    for (const e of events) {
+      const id = mentionedMessageOf(e);
+      const seen = id ? firstEventAt.get(id) : undefined;
+      if (id && (!seen || e.createdAt < seen))
+        firstEventAt.set(id, e.createdAt);
+    }
+    const stored = await db.messages.storedMentionsOf(prisma, [
+      ...firstEventAt.keys(),
+    ]);
     return currentMentionReaders(
-      stored.filter((m) => m.participantRole === null)
+      stored.filter(
+        (m) =>
+          m.participantJoinedAt === null ||
+          m.participantJoinedAt > firstEventAt.get(m.messageId)!
+      )
     );
   } catch (err) {
     // The messages still reach their sessions' rooms; mentioned readers outside them
