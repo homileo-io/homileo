@@ -1,15 +1,16 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag events
+import { sessionRoom, spaceRoom } from "../../realtime/rooms.js";
 import { publishCommitted } from "../../utils/changeBus.js";
 import type { ChangeEvent } from "../../utils/changes.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import type { JsonResponse } from "../support/http.js";
-import { spaceRoom } from "../../realtime/rooms.js";
 import { personToken } from "../support/tokens.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { v7 as uuidv7 } from "uuid";
 import {
+  eventually,
   nextEvent,
   noEvent,
   openLocalSocket,
@@ -207,5 +208,71 @@ describe("startFanout update re-check failures", () => {
 
     await silentOutside;
     await silentInside;
+  });
+});
+
+describe("startFanout loss of access when other nodes cannot be reached", () => {
+  /** A participant's socket on this node, and cluster fetches that fail. */
+  const unreachable = async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const session = await fixtures.session({ org, type: "group" });
+    await fixtures.participant(session, who);
+    const socket = await openLocalSocket(
+      personToken({ userId: who.tereoUserId!, org }),
+      local
+    );
+    opened.push(socket);
+    const adapter = local.io.of("/").adapter;
+    const original = adapter.fetchSockets.bind(adapter);
+    vi.spyOn(adapter, "fetchSockets").mockImplementation((opts) =>
+      opts.flags?.local
+        ? original(opts)
+        : Promise.reject(new Error("timeout reached"))
+    );
+    const inRoom = () =>
+      local.io
+        .of("/")
+        .sockets.get(socket.id!)
+        ?.rooms.has(sessionRoom(session.id));
+    expect(inRoom()).toBe(true);
+    return { org, who, session, socket, inRoom };
+  };
+
+  it("still takes this node's sockets out of the room on a removal", async () => {
+    const { org, who, session, socket, inRoom } = await unreachable();
+    const removed = nextEvent(socket, "session.participant_removed");
+
+    publishCommitted([
+      event({
+        type: "session.participant_removed",
+        organizationId: org,
+        sessionId: session.id,
+        payload: { sessionId: session.id, principalId: who.id },
+      }),
+    ]);
+
+    await removed;
+    await eventually(() => inRoom() === false);
+  });
+
+  it("still re-checks this node's sockets and tells them on a revocation", async () => {
+    const { org, who, session, socket, inRoom } = await unreachable();
+    await prisma.sessionParticipant.updateMany({
+      where: { sessionId: session.id, userId: who.id },
+      data: { leftAt: new Date() },
+    });
+    const revoked = nextEvent(socket, "session.access_revoked");
+
+    publishCommitted([
+      event({
+        type: "session.access_revoked",
+        organizationId: org,
+        payload: { principalId: who.id, sessionId: session.id },
+      }),
+    ]);
+
+    await revoked;
+    expect(inRoom()).toBe(false);
   });
 });

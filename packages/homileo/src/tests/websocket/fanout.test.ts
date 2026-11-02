@@ -190,6 +190,29 @@ describe("startFanout", () => {
       ]);
     });
 
+    it("asks no other node for the sockets of mentioned participants: their session room reaches them", async () => {
+      const session = await fixtures.session({ org, type: "group" });
+      await fixtures.participant(session, owner.principal, "owner");
+      const mentioned = await api.actor(org);
+      await fixtures.participant(session, mentioned.principal);
+      const arriving = nextEvent<JsonResponse["body"]>(
+        await connect(mentioned),
+        "message.created"
+      );
+      const adapter = local.io.of("/").adapter;
+      const fetches = vi.spyOn(adapter, "fetchSockets");
+
+      const sent = await send(
+        session.id,
+        owner,
+        `hi <@${mentioned.principal.id}>`
+      );
+
+      expect((await arriving).payload.message.id).toBe(sent.id);
+      expect(fetches.mock.calls.filter(([o]) => !o.flags?.local)).toEqual([]);
+      fetches.mockRestore();
+    });
+
     it("does not send a mention to a principal who cannot read the session", async () => {
       const space = await fixtures.space({ org, visibility: "members" });
       const session = await fixtures.session({ space, access: "space" });

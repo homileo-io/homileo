@@ -3,8 +3,8 @@
 // @module-tag access
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Principal } from "../../../prisma/generated/client/index.js";
+import { recheckSockets, sweepSockets } from "../../websocket/rooms.js";
 import { chatFixtures } from "../support/chatFixtures.js";
-import { recheckSockets } from "../../websocket/rooms.js";
 import { personToken } from "../support/tokens.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { v7 as uuidv7 } from "uuid";
@@ -15,7 +15,12 @@ import {
   userRoom,
 } from "../../realtime/rooms.js";
 import {
+  collect,
+  eventually,
+  nextEvent,
+  noEvent,
   openLocalSocket,
+  openReadySocket,
   request,
   startSocketServer,
   type ClientSocket,
@@ -140,14 +145,16 @@ describe("recheckSockets", () => {
     expect(server.rooms.has(sessionRoom(joined.id))).toBe(true);
   });
 
-  it("drops a left room from the socket's explicit subscriptions", async () => {
+  it("drops a left room from the socket's explicit subscriptions, and tells it unsubscribed", async () => {
     const org = uuidv7();
     const who = await fixtures.principal();
     const space = await fixtures.space({ org, visibility: "public" });
     const session = await fixtures.session({ space, access: "space" });
     const client = await connectAs(who, org);
     await request(client, "subscribe", { sessionId: session.id });
+    await request(client, "subscribe", { spaceId: space.id });
     const server = serverSocket(client);
+    const notices = collect(client, "unsubscribed");
     await prisma.space.update({
       where: { id: space.id },
       data: { visibility: "members" },
@@ -157,6 +164,50 @@ describe("recheckSockets", () => {
 
     expect(server.data.subscriptions.size).toBe(0);
     expect(server.rooms.has(spaceOfRoom(space.id))).toBe(false);
+    await eventually(() => notices.length === 2);
+    expect(notices).toEqual(
+      expect.arrayContaining([{ sessionId: session.id }, { spaceId: space.id }])
+    );
+  });
+
+  it("tells a socket of another node unsubscribed when this node's re-check drops its subscription", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    // On the shared server, so this node reaches it through Redis.
+    const { socket: client } = await openReadySocket(
+      personToken({ userId: who.tereoUserId!, org })
+    );
+    opened.push(client);
+    expect(
+      await request(client, "subscribe", { sessionId: session.id })
+    ).toMatchObject({ ok: true });
+    const notice = nextEvent(client, "unsubscribed");
+    await prisma.space.update({
+      where: { id: space.id },
+      data: { visibility: "members" },
+    });
+
+    await recheckSockets(
+      await local.io.in(sessionRoom(session.id)).fetchSockets()
+    );
+
+    expect(await notice).toEqual({ sessionId: session.id });
+  });
+
+  it("sends no unsubscribed for the socket's own unsubscribe", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const client = await connectAs(who, org);
+    await request(client, "subscribe", { sessionId: session.id });
+    const silent = noEvent(client, "unsubscribed", 300);
+
+    await request(client, "unsubscribe", { sessionId: session.id });
+
+    await silent;
   });
 
   it("keeps spaceof while another session of the space stays readable", async () => {
@@ -195,5 +246,57 @@ describe("recheckSockets", () => {
 
     expect(left.get(client.id!)).toEqual([spaceRoom(space.id)]);
     expect(serverSocket(client).rooms.has(spaceRoom(space.id))).toBe(false);
+  });
+});
+
+describe("sweepSockets", () => {
+  it("joins a participation and a membership room whose join was lost", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "members" });
+    await fixtures.member(space, who);
+    const session = await fixtures.session({ space, access: "space" });
+    await fixtures.participant(session, who);
+    const server = serverSocket(await connectAs(who, org));
+    // As if the adapter's join never reached this node.
+    await server.leave(sessionRoom(session.id));
+    await server.leave(spaceOfRoom(space.id));
+    await server.leave(spaceRoom(space.id));
+
+    await sweepSockets(local.io);
+
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+    expect(server.rooms.has(spaceRoom(space.id))).toBe(true);
+  });
+
+  it("drops a subscription whose room is now held for participation, keeping the room", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const client = await connectAs(who, org);
+    await request(client, "subscribe", { sessionId: session.id });
+    // Added on another node, which could not touch this socket's list.
+    await fixtures.participant(session, who);
+    const server = serverSocket(client);
+
+    await sweepSockets(local.io);
+
+    expect(server.data.subscriptions.size).toBe(0);
+    expect(server.rooms.has(sessionRoom(session.id))).toBe(true);
+  });
+
+  it("still leaves the rooms a socket can no longer read", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "members" });
+    await fixtures.member(space, who);
+    const server = serverSocket(await connectAs(who, org));
+    await prisma.spaceMember.deleteMany({ where: { spaceId: space.id } });
+
+    await sweepSockets(local.io);
+
+    expect(server.rooms.has(spaceRoom(space.id))).toBe(false);
   });
 });

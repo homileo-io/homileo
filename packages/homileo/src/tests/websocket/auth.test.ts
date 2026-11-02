@@ -1,8 +1,8 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag auth
+import { revalidateSockets, startTokenRecheck } from "../../websocket/auth.js";
 import { botToken, personToken } from "../support/tokens.js";
-import { revalidateSockets } from "../../websocket/auth.js";
 import { UnauthorizedError } from "../../utils/errors.js";
 import * as auth from "../../middleware/auth.js";
 import { v7 as uuidv7 } from "uuid";
@@ -180,6 +180,54 @@ describe("socket token expiry", () => {
       await revalidateSockets([serverSocket(socket)]);
 
       expect(socket.connected).toBe(true);
+    });
+
+    it("keeps the token out of the handshake that other nodes' fetches receive", async () => {
+      // On the shared server: this node fetches it through Redis.
+      const socket = await open(personToken({ org: uuidv7() }));
+
+      const fetched = (await local.io.fetchSockets()).find(
+        (s) => s.id === socket.id
+      );
+
+      expect(fetched).toBeDefined();
+      expect(fetched!.handshake.auth).not.toHaveProperty("token");
+    });
+
+    it("waits on stop for a re-check in flight, and starts no other", async () => {
+      const token = personToken({ org: uuidv7() });
+      await open(token, local.url);
+      const { callerFromToken: original } = await vi.importActual<typeof auth>(
+        "../../middleware/auth.js"
+      );
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let calls = 0;
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementation(async (t) => {
+        if (t === token) {
+          calls++;
+          await gate;
+        }
+        return original(t);
+      });
+      try {
+        const stop = startTokenRecheck(local.io, 100);
+        await expect.poll(() => calls).toBe(1);
+
+        let stopped = false;
+        const stopping = stop().then(() => (stopped = true));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(stopped).toBe(false);
+        release();
+        await stopping;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        expect(calls).toBe(1);
+      } finally {
+        release();
+        real.mockImplementation(original);
+      }
     });
 
     it("introspects a token shared by several sockets once", async () => {

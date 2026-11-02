@@ -235,6 +235,26 @@ describe("subscribe", () => {
       await request(socket, "subscribe", { sessionId: session.id })
     ).toEqual(SUBSCRIBED);
   });
+
+  it("stops counting a subscription once its room is held for participation, at the limit", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const held = await fixtures.session({ space, access: "space" });
+    const next = await fixtures.session({ space, access: "space" });
+    const socket = await connectAs(who, org);
+    await request(socket, "subscribe", { sessionId: held.id });
+    // Joined for this on another node, which could not touch this socket's list.
+    await fixtures.participant(held, who);
+    await fill(socket, 199);
+
+    const ack = await request(socket, "subscribe", { sessionId: next.id });
+
+    expect(ack).toEqual(SUBSCRIBED);
+    const { subscriptions } = serverSocket(socket).data;
+    expect(subscriptions.has(sessionRoom(held.id))).toBe(false);
+    expect(subscriptions.has(sessionRoom(next.id))).toBe(true);
+  });
 });
 
 describe("unsubscribe", () => {
