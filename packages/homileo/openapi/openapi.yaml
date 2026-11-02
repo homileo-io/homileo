@@ -89,6 +89,9 @@ tags:
   - name: Events
     description: Catching up on the events the socket delivers
 
+  - name: Search
+    description: Full-text and typo-tolerant search of messages, spaces, sessions and principals
+
 x-tagGroups:
   - name: Spaces
     tags: [Spaces]
@@ -98,6 +101,8 @@ x-tagGroups:
     tags: [Messages]
   - name: Events
     tags: [Events]
+  - name: Search
+    tags: [Search]
   - name: Principals
     tags: [Principals]
   - name: Platform
@@ -171,6 +176,12 @@ paths:
     $ref: './paths/messages/thread-follow.yaml#/~1v1~1threads~1{rootId}~1follow'
   /v1/sync:
     $ref: './paths/events/sync.yaml#/~1v1~1sync'
+  /v1/search/messages:
+    $ref: './paths/search/messages.yaml#/~1v1~1search~1messages'
+  /v1/search/sessions:
+    $ref: './paths/search/sessions.yaml#/~1v1~1search~1sessions'
+  /v1/search/principals:
+    $ref: './paths/search/principals.yaml#/~1v1~1search~1principals'
 
 components:
   securitySchemes:
@@ -181,6 +192,18 @@ components:
       $ref: './components/parameters.yaml#/CursorParam'
     LimitParam:
       $ref: './components/parameters.yaml#/LimitParam'
+    SearchQueryParam:
+      $ref: './components/search/parameters.yaml#/SearchQueryParam'
+    SearchLimitParam:
+      $ref: './components/search/parameters.yaml#/SearchLimitParam'
+    SearchCursorParam:
+      $ref: './components/search/parameters.yaml#/SearchCursorParam'
+    SearchMetadataParam:
+      $ref: './components/search/parameters.yaml#/SearchMetadataParam'
+    SearchKindParam:
+      $ref: './components/search/parameters.yaml#/SearchKindParam'
+    SearchSpaceIdParam:
+      $ref: './components/search/parameters.yaml#/SearchSpaceIdParam'
   responses:
     BadRequestResponse:
       $ref: './components/responses.yaml#/BadRequestResponse'
@@ -203,6 +226,18 @@ components:
   schemas:
     Error:
       $ref: './components/responses.yaml#/Error'
+    SearchSnippet:
+      $ref: './components/search/schemas.yaml#/SearchSnippet'
+    MessageSearchHit:
+      $ref: './components/search/schemas.yaml#/MessageSearchHit'
+    SearchMessagesResponse:
+      $ref: './components/search/schemas.yaml#/SearchMessagesResponse'
+    SessionSearchHit:
+      $ref: './components/search/schemas.yaml#/SessionSearchHit'
+    SearchSessionsResponse:
+      $ref: './components/search/schemas.yaml#/SearchSessionsResponse'
+    SearchPrincipalsResponse:
+      $ref: './components/search/schemas.yaml#/SearchPrincipalsResponse'
     HealthStatus:
       $ref: './components/platform/schemas.yaml#/HealthStatus'
     MeResponse:

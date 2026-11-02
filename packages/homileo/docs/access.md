@@ -122,6 +122,13 @@ holds, which `utils/db` loads (`grantedKindsOf`). `tests/policy/sql.test.ts` run
 over the same fixtures (members, participants, a left participant, a kind grant, admin, a public
 space) and expects the same rows.
 
+Search runs on the raw-SQL form of the same rules, `readableSpaceSql` and `readableSessionSql`
+(`policy/sql.ts`), which `utils/db/search.ts` embeds in its queries. They include the organization
+filter, and reserve the inner aliases under `_rp_` so a caller's alias cannot collide. They run
+against the same parity cases as the policy and the Prisma `where` forms in
+`tests/policy/sql.test.ts`, so all three expect the same rows. `/search/principals` lists only
+principals with a participation row (current or past) in a session `readableSessionSql` admits.
+
 A participant who cannot read the session (a grant moderator who created it and lost the grant)
 can still leave it and set its `notify`: those routes load the session through the caller's own
 current participant row (`actsOnOwnParticipation`, `readableSession(…, { ownParticipation: true })`)

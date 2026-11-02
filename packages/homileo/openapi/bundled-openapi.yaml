@@ -80,6 +80,8 @@ tags:
     description: Messages, thread replies and mentions
   - name: Events
     description: Catching up on the events the socket delivers
+  - name: Search
+    description: Full-text and typo-tolerant search of messages, spaces, sessions and principals
 paths:
   /health:
     get:
@@ -1992,6 +1994,170 @@ paths:
           $ref: '#/components/responses/ServerErrorResponse'
         '503':
           $ref: '#/components/responses/ServiceUnavailableResponse'
+  /v1/search/messages:
+    get:
+      tags:
+        - Search
+      summary: Search messages
+      description: |
+        Messages in sessions the caller can read, best match first. Matches the message text by
+        full-text search (English stemming) and, for a query of 3 or more characters without a
+        phrase, exclusion or `OR`, by trigram similarity; also matches attachment filenames
+        (trigram). Ranking is `ts_rank_cd` plus trigram word similarity, then newer first.
+        Only the current revision is indexed; deleted messages never match; file contents are not
+        searched. Messages of archived spaces and sessions are included. A `metadata` filter
+        matches the message's session or its space.
+
+        `inThread=true` lists thread replies only; roots count as not in a thread.
+
+        Pages are offset-based, at most `SEARCH_MAX_DEPTH` results deep (default 1,000).
+
+        **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+      operationId: searchMessages
+      parameters:
+        - $ref: '#/components/parameters/SearchQueryParam'
+        - $ref: '#/components/parameters/SearchSpaceIdParam'
+        - $ref: '#/components/parameters/SearchKindParam'
+        - name: sessionId
+          in: query
+          required: false
+          description: Only messages of this session
+          schema:
+            type: string
+            format: uuid
+        - name: senderId
+          in: query
+          required: false
+          description: Only messages sent by this principal
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: Only messages created at or after this time (inclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only messages created before this time (exclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: hasAttachment
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: inThread
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/SearchMetadataParam'
+        - $ref: '#/components/parameters/SearchCursorParam'
+        - $ref: '#/components/parameters/SearchLimitParam'
+      responses:
+        '200':
+          description: A page of matching messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchMessagesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
+  /v1/search/sessions:
+    get:
+      tags:
+        - Search
+      summary: Search spaces and sessions
+      description: |
+        Spaces and sessions the caller can read, in one ranked list: each result is
+        `{ type: "space", space }` or `{ type: "session", session }`. Matches names and the
+        metadata keys a space kind's provisioning document lists under `search.metadata`, by
+        full-text search and, for a query of 3 or more characters without a phrase, exclusion or
+        `OR`, trigram similarity. Archived spaces and sessions are included. `metadata` filters
+        match each result's own metadata.
+
+        Pages are offset-based, at most `SEARCH_MAX_DEPTH` results deep (default 1,000).
+
+        **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+      operationId: searchSessions
+      parameters:
+        - $ref: '#/components/parameters/SearchQueryParam'
+        - $ref: '#/components/parameters/SearchKindParam'
+        - $ref: '#/components/parameters/SearchSpaceIdParam'
+        - $ref: '#/components/parameters/SearchMetadataParam'
+        - $ref: '#/components/parameters/SearchCursorParam'
+        - $ref: '#/components/parameters/SearchLimitParam'
+      responses:
+        '200':
+          description: A page of matching spaces and sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchSessionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
+  /v1/search/principals:
+    get:
+      tags:
+        - Search
+      summary: Search principals
+      description: |
+        Principals that have a participation row, current or past, in a session the caller can
+        read. Principals belong to no organization, so this is how a caller is kept from listing
+        everyone. A name matches by substring (`%`, `_` and `\` are literal) or by trigram
+        similarity; names that start with the query rank first. No cursor.
+
+        **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+      operationId: searchPrincipals
+      parameters:
+        - $ref: '#/components/parameters/SearchQueryParam'
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of principals
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: Matching principals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPrincipalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
+        '500':
+          $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -2790,6 +2956,75 @@ components:
         minimum: 1
         maximum: 100
         default: 50
+    SearchQueryParam:
+      name: q
+      in: query
+      required: true
+      description: |
+        The search text, 1–200 characters after trimming. Parsed with `websearch_to_tsquery('english')`:
+        `"a phrase"`, `-excluded` and `OR` work, and words are stemmed. A query of at least 3
+        characters without a phrase, exclusion or `OR` also matches by trigram similarity, which
+        tolerates typos. A query of only stop words (`the`) has no full-text terms, so only the
+        trigram match can find anything.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    SearchLimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of results per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    SearchCursorParam:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        The `nextCursor` of the previous page. Search pages by offset from the time the first page
+        ran, so results that change between pages can repeat or be skipped. A malformed cursor, or
+        one past the depth limit (`SEARCH_MAX_DEPTH`, default 1,000 results), is `400 invalid_request`.
+      schema:
+        type: string
+    SearchMetadataParam:
+      name: metadata
+      in: query
+      required: false
+      style: deepObject
+      explode: true
+      description: |
+        Exact metadata filters, `metadata[key]=value`, at most 5, every one of which must match. A key
+        must match the metadata key pattern (`__proto__` and other invalid keys are `400`). A value
+        matches a stored string, a stored number when the value is a canonical JSON number (`1234`
+        matches 1234; `01234` and `1.50` do not), or a stored boolean for `true` and `false`.
+      schema:
+        type: object
+        maxProperties: 5
+        additionalProperties:
+          type: string
+          minLength: 1
+          maxLength: 255
+    SearchKindParam:
+      name: kind
+      in: query
+      required: false
+      description: Only results of this space kind (or message kind, on messages)
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    SearchSpaceIdParam:
+      name: spaceId
+      in: query
+      required: false
+      description: Only results in this space
+      schema:
+        type: string
+        format: uuid
     SpacesMembershipParam:
       name: membership
       in: query
@@ -3074,6 +3309,106 @@ components:
                 description: The field, dotted (`metadata.key`); empty for the whole value
               message:
                 type: string
+    SearchSnippet:
+      type: object
+      description: |
+        The matched excerpt of a message as plain text, never HTML. `highlights` are `[start, end]`
+        offsets into `text` in UTF-16 code units (JavaScript string indices), end exclusive. A hit
+        found only by an attachment filename has an empty snippet.
+      required:
+        - text
+        - highlights
+      properties:
+        text:
+          type: string
+        highlights:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: integer
+                minimum: 0
+              - type: integer
+                minimum: 0
+            minItems: 2
+            maxItems: 2
+    MessageSearchHit:
+      type: object
+      required:
+        - message
+        - session
+        - snippet
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+        session:
+          $ref: '#/components/schemas/Session'
+        snippet:
+          $ref: '#/components/schemas/SearchSnippet'
+    SearchMessagesResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageSearchHit'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Null on the last page, and at the depth limit
+    SessionSearchHit:
+      description: A space or a session, in one ranked list
+      oneOf:
+        - type: object
+          required:
+            - type
+            - space
+          properties:
+            type:
+              type: string
+              const: space
+            space:
+              $ref: '#/components/schemas/Space'
+        - type: object
+          required:
+            - type
+            - session
+          properties:
+            type:
+              type: string
+              const: session
+            session:
+              $ref: '#/components/schemas/Session'
+      discriminator:
+        propertyName: type
+    SearchSessionsResponse:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSearchHit'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: Null on the last page, and at the depth limit
+    SearchPrincipalsResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Principal'
     HealthStatus:
       type: object
       required:
@@ -4863,6 +5198,9 @@ x-tagGroups:
   - name: Events
     tags:
       - Events
+  - name: Search
+    tags:
+      - Search
   - name: Principals
     tags:
       - Principals

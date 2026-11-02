@@ -1,0 +1,58 @@
+SearchQueryParam:
+  name: q
+  in: query
+  required: true
+  description: |
+    The search text, 1–200 characters after trimming. Parsed with `websearch_to_tsquery('english')`:
+    `"a phrase"`, `-excluded` and `OR` work, and words are stemmed. A query of at least 3
+    characters without a phrase, exclusion or `OR` also matches by trigram similarity, which
+    tolerates typos. A query of only stop words (`the`) has no full-text terms, so only the
+    trigram match can find anything.
+  schema: { type: string, minLength: 1, maxLength: 200 }
+
+SearchLimitParam:
+  name: limit
+  in: query
+  required: false
+  description: Maximum number of results per page
+  schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+
+SearchCursorParam:
+  name: cursor
+  in: query
+  required: false
+  description: |
+    The `nextCursor` of the previous page. Search pages by offset from the time the first page
+    ran, so results that change between pages can repeat or be skipped. A malformed cursor, or
+    one past the depth limit (`SEARCH_MAX_DEPTH`, default 1,000 results), is `400 invalid_request`.
+  schema: { type: string }
+
+SearchMetadataParam:
+  name: metadata
+  in: query
+  required: false
+  style: deepObject
+  explode: true
+  description: |
+    Exact metadata filters, `metadata[key]=value`, at most 5, every one of which must match. A key
+    must match the metadata key pattern (`__proto__` and other invalid keys are `400`). A value
+    matches a stored string, a stored number when the value is a canonical JSON number (`1234`
+    matches 1234; `01234` and `1.50` do not), or a stored boolean for `true` and `false`.
+  schema:
+    type: object
+    maxProperties: 5
+    additionalProperties: { type: string, minLength: 1, maxLength: 255 }
+
+SearchKindParam:
+  name: kind
+  in: query
+  required: false
+  description: Only results of this space kind (or message kind, on messages)
+  schema: { type: string, minLength: 1, maxLength: 128 }
+
+SearchSpaceIdParam:
+  name: spaceId
+  in: query
+  required: false
+  description: Only results in this space
+  schema: { type: string, format: uuid }
