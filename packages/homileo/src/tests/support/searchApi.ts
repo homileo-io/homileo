@@ -142,6 +142,13 @@ export const searchFixtures = () => {
       token
     );
 
+  const searchPrincipals = (token: string, params: Record<string, string>) =>
+    fetchJson(
+      "GET",
+      `${url()}/v1/search/principals?${new URLSearchParams(params)}`,
+      token
+    );
+
   const cleanup = async () => {
     await app?.close();
     await removeKinds();
@@ -160,6 +167,7 @@ export const searchFixtures = () => {
     attach,
     search,
     searchSessions,
+    searchPrincipals,
     cleanup,
   };
 };

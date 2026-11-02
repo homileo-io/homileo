@@ -1,11 +1,12 @@
 import { readableSessionSql, readableSpaceSql } from "../../policy/sql.js";
 import { Prisma } from "../../../prisma/generated/client/index.js";
+import { metadataFilterSql, parseSearchQuery } from "../search.js";
 import { HIGHLIGHT_START, HIGHLIGHT_STOP } from "../search.js";
 import type { OrgCaller } from "../../middleware/auth.js";
-import { metadataFilterSql } from "../search.js";
 import { prisma } from "./prisma.js";
 import type {
   Message,
+  Principal,
   Session,
 } from "../../../prisma/generated/client/index.js";
 
@@ -237,4 +238,46 @@ export const sessions = async (
     SELECT type, id FROM hits
     ORDER BY relevance DESC, recency DESC, id DESC
     OFFSET ${q.offset} LIMIT ${q.limit + 1}`;
+};
+
+export interface PrincipalSearch {
+  caller: OrgCaller;
+  granted: string[];
+  q: string;
+  limit: number;
+}
+
+const escapeLike = (s: string): string => s.replace(/[\\%_]/g, "\\$&");
+
+/**
+ * Principals whose display name matches `q`, best first: a name starting with it, then trigram
+ * word similarity, then name. Only principals with a participation row, current or past, in a
+ * session the caller can read: principals belong to no organization, so an open name search would
+ * show other organizations' people.
+ */
+export const principals = async (
+  client: PrincipalSearch
+): Promise<Principal[]> => {
+  const { caller, granted, q, limit } = client;
+  const { trigramTerm } = parseSearchQuery(q);
+  const escaped = escapeLike(q);
+  const trigramMatch =
+    trigramTerm === null
+      ? Prisma.empty
+      : Prisma.sql`OR ${trigramTerm} OPERATOR(chat.<%) p.display_name`;
+
+  return prisma.$queryRaw<Principal[]>`
+    SELECT p.id, p.kind, p.tereo_user_id AS "tereoUserId", p.is_bot AS "isBot",
+           p.display_name AS "displayName", p.avatar_url AS "avatarUrl",
+           p.created_at AS "createdAt", p.updated_at AS "updatedAt"
+    FROM "chat"."principals" p
+    WHERE (p.display_name ILIKE '%' || ${escaped}::text || '%' ESCAPE '\\' ${trigramMatch})
+      AND EXISTS (
+        SELECT 1 FROM "chat"."session_participants" sp
+        JOIN "chat"."sessions" s ON s.id = sp.session_id
+        WHERE sp.user_id = p.id AND ${readableSessionSql(caller, granted, "s")})
+    ORDER BY (p.display_name ILIKE ${escaped}::text || '%' ESCAPE '\\') DESC,
+             chat.word_similarity(${q}::text, p.display_name) DESC,
+             p.display_name, p.id
+    LIMIT ${limit}`;
 };
