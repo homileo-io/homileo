@@ -103,4 +103,30 @@ describe("db.sessions.addParticipants", () => {
       participant: { principalId: a.id, role: "owner", lastReadSeq: 0 },
     });
   });
+
+  // The transaction's now() is fixed at its start, so after the sleep the app's clock is ahead.
+  it("takes joined_at from the database clock, the one events use, on insert and re-join", async () => {
+    const actor = await fixtures.principal();
+    const a = await fixtures.principal();
+    const b = await fixtures.principal();
+    const session = await fixtures.session({ org, createdBy: actor });
+    await fixtures.participant(session, b, "member", { left: true });
+
+    const rows = await withChanges(async (tx, record) => {
+      await tx.$executeRaw`SELECT pg_sleep(0.1)`;
+      return db.sessions.addParticipants(
+        tx,
+        record,
+        session,
+        [a.id, b.id],
+        "member",
+        actor.id
+      );
+    });
+
+    const [event] = await added(session.id);
+    expect(rows).toHaveLength(2);
+    for (const row of rows)
+      expect(row.joinedAt.getTime()).toBe(event.createdAt.getTime());
+  });
 });
