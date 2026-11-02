@@ -709,8 +709,8 @@ paths:
         participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
         every one). The space itself must be readable, else `404`.
 
-        With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
-        reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+        With `externalRef` and no `spaceId`, every session of the organization carrying that
+        reference that the caller can read, in any space or none, paged like any other list.
 
         Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
         first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
@@ -949,8 +949,9 @@ paths:
         Archives the session. In a space it needs the right to moderate the space; in a group without
         a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
         An admin of the session's organization reaches it without being a participant, though it
-        still cannot read a space-less session. Archiving an archived session is
-        `409 already_archived`. Records `session.archived`.
+        still cannot read a space-less session: such an admin gets `204` with no body instead of the
+        session's view. Archiving an archived session is `409 already_archived`. Records
+        `session.archived`.
 
         **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: archiveSession
@@ -968,6 +969,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
+        '204':
+          description: Archived by an admin who cannot read the session (a DM or a space-less group)
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':
@@ -1029,7 +1032,8 @@ paths:
         invalid_request` with an issue at `principalId`); in a group without a space only its
         `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
         re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
-        already a current participant. Records `session.participant_added`. An archived session, or
+        already a current participant, to any caller who can read the session and before the join or
+        add rules are checked. Records `session.participant_added`. An archived session, or
         one in an archived space, takes neither (`409 resource_archived`).
 
         **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
@@ -3296,7 +3300,7 @@ components:
             - 'null'
           minLength: 1
           maxLength: 255
-          description: Unique per organization and kind, else `409 external_ref_taken`
+          description: Unique per organization and kind, else `409 external_ref_taken`, even when the space holding it is one the caller cannot read (a deliberate oracle)
         metadata:
           $ref: '#/components/schemas/Metadata-2'
       examples:

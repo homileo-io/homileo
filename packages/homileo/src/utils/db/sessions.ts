@@ -1,6 +1,9 @@
 import type { ChangeEvent, ChangeInput } from "../changes.js";
 import { participantView } from "../../views/session.js";
+import type { Caller } from "../../middleware/auth.js";
 import type { prisma, Prisma } from "./prisma.js";
+import { readableSpaceWhere } from "./spaces.js";
+import { kindsGrantingRead } from "../kinds.js";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ParticipantRole,
@@ -64,13 +67,17 @@ export const addParticipants = async (
 /**
  * Locks the session's space row `FOR SHARE`, which comes before the session row in the lock
  * order: the space stays as it is while a session-level change runs, and such changes in
- * different sessions of the space run together.
+ * different sessions of the space run together. A session of another organization locks nothing.
  */
-export const lockSpaceOf = async (tx: Tx, sessionId: string): Promise<void> => {
+export const lockSpaceOf = async (
+  tx: Tx,
+  organizationId: string,
+  sessionId: string
+): Promise<void> => {
   await tx.$queryRaw`
     SELECT sp.id FROM "chat"."spaces" sp
     JOIN "chat"."sessions" s ON s.space_id = sp.id
-    WHERE s.id = ${sessionId}::uuid
+    WHERE s.id = ${sessionId}::uuid AND s.organization_id = ${organizationId}::uuid
     FOR SHARE OF sp`;
 };
 
@@ -164,13 +171,17 @@ export interface SessionPageStart {
   id: string;
 }
 
+export type ListSessionsScope =
+  /** The sessions of a space the caller can read; `everything` skips the participation test. */
+  | { spaceId: string; everything: boolean }
+  /** The sessions the caller participates in. */
+  | { participating: true }
+  /** Every session of the organization the caller can read (`readableSessionWhere`). */
+  | { readable: true };
+
 export interface ListSessionsInput {
-  organizationId: string;
-  principalId: string;
-  /** Only the sessions of this space. */
-  spaceId?: string;
-  /** Skips the participation test: every session of the space, or, without `spaceId`, of the organization. */
-  everything?: boolean;
+  caller: Caller;
+  scope: ListSessionsScope;
   type?: SessionType;
   externalRef?: string;
   includeArchived: boolean;
@@ -199,25 +210,61 @@ const participates = (principalId: string): Prisma.SessionWhereInput => ({
   participants: { some: { userId: principalId, leftAt: null } },
 });
 
-export const list = (
+/**
+ * `canReadSession` as a condition, for a query the caller's organization already limits. The
+ * `access: members` branch is `readsEverySessionOf`: a kind grant of the space, or admin.
+ */
+export const readableSessionWhere = async (
+  caller: Caller
+): Promise<Prisma.SessionWhereInput> => {
+  const mine = participates(caller.principalId);
+  const granted = caller.isAdmin
+    ? []
+    : await kindsGrantingRead(caller.permissions);
+  const membersBranch: Prisma.SessionWhereInput[] = caller.isAdmin
+    ? [{ access: "members" }]
+    : [
+        { access: "members", ...mine },
+        ...(granted.length > 0
+          ? [{ access: "members" as const, space: { kind: { in: granted } } }]
+          : []),
+      ];
+  return {
+    OR: [
+      { spaceId: null, ...mine },
+      {
+        spaceId: { not: null },
+        space: await readableSpaceWhere(caller),
+        OR: [{ access: "space" }, ...membersBranch],
+      },
+    ],
+  };
+};
+
+const scopeWhere = async (
+  input: ListSessionsInput
+): Promise<Prisma.SessionWhereInput> => {
+  const { scope, caller } = input;
+  if ("spaceId" in scope) {
+    return {
+      spaceId: scope.spaceId,
+      ...(scope.everything
+        ? {}
+        : { OR: [{ access: "space" }, participates(caller.principalId)] }),
+    };
+  }
+  if ("participating" in scope) return participates(caller.principalId);
+  return readableSessionWhere(caller);
+};
+
+export const list = async (
   client: Client,
   input: ListSessionsInput
 ): Promise<Session[]> => {
-  const scope: Prisma.SessionWhereInput = input.spaceId
-    ? {
-        spaceId: input.spaceId,
-        ...(input.everything
-          ? {}
-          : {
-              OR: [{ access: "space" }, participates(input.principalId)],
-            }),
-      }
-    : input.everything
-      ? {}
-      : participates(input.principalId);
+  const scope = await scopeWhere(input);
   return client.session.findMany({
     where: {
-      organizationId: input.organizationId,
+      organizationId: input.caller.organizationId,
       ...(input.type && { type: input.type }),
       ...(input.externalRef !== undefined && {
         externalRef: input.externalRef,

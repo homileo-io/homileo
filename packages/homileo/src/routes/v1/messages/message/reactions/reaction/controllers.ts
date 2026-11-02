@@ -1,17 +1,16 @@
+import { postRefusalError } from "../../../../../../utils/postRefusals.js";
 import { validateParams } from "../../../../../../utils/validateReq.js";
 import type { MessageContext } from "../../../../../../utils/access.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
 import type { Prisma } from "../../../../../../utils/db/prisma.js";
-import { lockedMessage, refuseIfArchived } from "../../utils.js";
+import { reactRefusal } from "../../../../../../policy/index.js";
 import { callerOf } from "../../../../../../middleware/auth.js";
-import { canReact } from "../../../../../../policy/index.js";
 import { db } from "../../../../../../utils/db/index.js";
 import { ReactionParamsSchema } from "./schemas.js";
 import type { Request, Response } from "express";
+import { lockedMessage } from "../../utils.js";
 import {
   ArchivedError,
-  ForbiddenError,
-  NotAParticipantError,
   NotFoundError,
   ReactionLimitError,
 } from "../../../../../../utils/errors.js";
@@ -26,12 +25,8 @@ const reactableMessage = async (
   if (context.message.deletedAt !== null) {
     throw new ArchivedError("The message was deleted");
   }
-  refuseIfArchived(context.facts);
-  if (!canReact(caller, context.facts)) {
-    if (context.facts.participantRole === null)
-      throw new NotAParticipantError();
-    throw new ForbiddenError("You may not react to this message");
-  }
+  const refusal = reactRefusal(caller, context.facts);
+  if (refusal) throw postRefusalError[refusal]();
   return context;
 };
 

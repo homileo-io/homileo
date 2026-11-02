@@ -90,6 +90,13 @@ describe("provisioningDocumentSchema", () => {
     ).toBe(true);
   });
 
+  it("lower-cases a bot id, as Postgres returns a uuid", () => {
+    const parsed = provisioningDocumentSchema.parse(
+      kind({ bots: [BOT.toUpperCase()] })
+    );
+    expect(parsed.spaceKinds?.[0].bots).toEqual([BOT]);
+  });
+
   it.each(INVALID)("refuses %s", (_label, doc, path) => {
     const result = provisioningDocumentSchema.safeParse(doc);
     expect(result.success).toBe(false);

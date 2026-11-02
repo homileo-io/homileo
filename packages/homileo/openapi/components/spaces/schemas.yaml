@@ -129,7 +129,9 @@ CreateSpaceRequest:
       type: [string, 'null']
       minLength: 1
       maxLength: 255
-      description: Unique per organization and kind, else `409 external_ref_taken`
+      description: >-
+        Unique per organization and kind, else `409 external_ref_taken`, even when the space
+        holding it is one the caller cannot read (a deliberate oracle)
     metadata: { $ref: '#/Metadata' }
   examples:
     - kind: support:case

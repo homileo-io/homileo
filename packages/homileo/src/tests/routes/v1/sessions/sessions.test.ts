@@ -245,6 +245,29 @@ describe("POST /v1/sessions with a kind", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("adds a bot whose id the kind spells in upper case", async () => {
+    const org = newOrg();
+    const botUser = uuidv7();
+    const kind = await provisionKind({ bots: [botUser.toUpperCase()] });
+    const me = await signIn(org);
+    const space = await fixtures.space({ org, kind });
+    await fixtures.member(space, { id: me.principalId });
+
+    const res = await fetchJson("POST", `${app.url}/v1/sessions`, me.token, {
+      spaceId: space.id,
+    });
+
+    expect(res.status).toBe(201);
+    const bot = await prisma.principal.findUniqueOrThrow({
+      where: { tereoUserId: botUser },
+    });
+    expect(
+      await prisma.sessionParticipant.count({
+        where: { sessionId: res.body.session.id, userId: bot.id },
+      })
+    ).toBe(1);
+  });
+
   it("does not add a bot that is already a member twice", async () => {
     const org = newOrg();
     const botUser = uuidv7();
@@ -543,6 +566,67 @@ describe("GET /v1/sessions", () => {
     expect(res.body.data.map((s: { id: string }) => s.id)).toEqual([
       visible.id,
     ]);
+  });
+
+  it("finds a readable externalRef match behind more than a thousand newer unreadable ones, and pages them", async () => {
+    const org = newOrg();
+    const me = await signIn(org);
+    const other = await signIn(org);
+    const ref = `ref-${uuidv7()}`;
+    const publicSpace = await fixtures.space({ org, visibility: "public" });
+    const older = await fixtures.session({
+      org,
+      space: publicSpace,
+      access: "space",
+    });
+    const mine = await fixtures.session({ org, access: "members" });
+    await fixtures.participant(mine, { id: me.principalId });
+    for (const s of [older, mine]) {
+      await prisma.session.update({
+        where: { id: s.id },
+        data: { externalRef: ref },
+      });
+    }
+    await prisma.session.update({
+      where: { id: mine.id },
+      data: { lastMessageAt: new Date() },
+    });
+    const buried = Array.from({ length: 1001 }, () => ({
+      id: uuidv7(),
+      organizationId: org,
+      type: "group" as const,
+      access: "members" as const,
+      externalRef: ref,
+      createdBy: other.principalId,
+      lastMessageAt: new Date(Date.now() + 60_000),
+    }));
+    await prisma.session.createMany({ data: buried });
+
+    try {
+      const first = await fetchJson(
+        "GET",
+        `${URL}?externalRef=${ref}&limit=1`,
+        me.token
+      );
+      expect(first.body.data.map((s: { id: string }) => s.id)).toEqual([
+        mine.id,
+      ]);
+      expect(first.body.nextCursor).not.toBeNull();
+
+      const second = await fetchJson(
+        "GET",
+        `${URL}?externalRef=${ref}&limit=1&cursor=${encodeURIComponent(first.body.nextCursor)}`,
+        me.token
+      );
+      expect(second.body.data.map((s: { id: string }) => s.id)).toEqual([
+        older.id,
+      ]);
+      expect(second.body.nextCursor).toBeNull();
+    } finally {
+      await prisma.session.deleteMany({
+        where: { id: { in: buried.map((b) => b.id) } },
+      });
+    }
   });
 
   it("filters a space's list by externalRef", async () => {

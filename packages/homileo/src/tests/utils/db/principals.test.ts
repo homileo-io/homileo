@@ -34,6 +34,66 @@ describe("db.principals.findOrCreateUser", () => {
 
     expect(found).toEqual(created);
   });
+
+  it.each([true, false])(
+    "re-derives is_bot from the token when the stored row says %s",
+    async (stored) => {
+      const tereoUserId = uuidv7();
+      await prisma.principal.create({
+        data: { kind: "user", tereoUserId, isBot: stored },
+      });
+
+      const found = await db.principals.findOrCreateUser({
+        tereoUserId,
+        isBot: !stored,
+        displayName: null,
+      });
+
+      expect(found.isBot).toBe(!stored);
+      expect(
+        (await prisma.principal.findUniqueOrThrow({ where: { tereoUserId } }))
+          .isBot
+      ).toBe(!stored);
+    }
+  );
+});
+
+describe("db.principals.findOrCreateMany", () => {
+  it("returns the principal of an upper-case id", async () => {
+    const tereoUserId = uuidv7();
+
+    const [bot] = await db.principals.ensureBotPrincipals([
+      tereoUserId.toUpperCase(),
+    ]);
+
+    expect(bot.tereoUserId).toBe(tereoUserId);
+    expect(bot.isBot).toBe(true);
+  });
+});
+
+describe("avatar URL length", () => {
+  afterEach(() => setProfileLookup(null));
+
+  it("stores null for an avatar URL over 2048 characters and still refreshes the name", async () => {
+    const principal = await prisma.principal.create({
+      data: {
+        kind: "user",
+        tereoUserId: uuidv7(),
+        displayName: "Old",
+        avatarUrl: "https://example.test/old.png",
+      },
+    });
+    const photo = `https://example.test/${"a".repeat(2100)}.png`;
+    setProfileLookup(async (id) => ({ id, name: "New", photo }) as never);
+
+    await db.principals.refreshProfile(principal);
+
+    const after = await prisma.principal.findUniqueOrThrow({
+      where: { id: principal.id },
+    });
+    expect(after.displayName).toBe("New");
+    expect(after.avatarUrl).toBeNull();
+  });
 });
 
 describe("display name length", () => {

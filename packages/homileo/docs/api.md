@@ -170,7 +170,9 @@ transaction, as the actor of that change, so a request never stays pending for a
 a member's request only closes it; denying it is `409 already_member`.
 
 `description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
-kind; `externalRef` is unique per kind within the organization.
+kind; `externalRef` is unique per kind within the organization. `409 external_ref_taken` is
+answered even when the space holding the reference is one the caller cannot read: a deliberate,
+documented oracle (see [access.md](access.md)).
 
 ### Sessions
 
@@ -181,9 +183,9 @@ kind; `externalRef` is unique per kind within the organization.
 | `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
-| `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
+| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin who cannot read it | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
-| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
+| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant`; a current participant is `200` to any reader, before the policy | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
 | `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived) or `canRemoveParticipant` | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
 | `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` (also when a leave commits first) | |
@@ -225,7 +227,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
-| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
+| `PUT /messages/:messageId/reactions/:emoji` | `reactRefusal` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
 | `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
@@ -260,7 +262,8 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 
 - **Body limits.** JSON bodies are parsed per area in `routes/v1/index.ts`: 256 KiB on `/sessions`
   and `/messages`, 64 KiB on `/principals`, `/spaces` and `/threads`. A larger body is `413`.
-- **Listing sessions by `externalRef` without `spaceId`** fetches up to 1,000 matches in the
-  organization, keeps those the caller can read, returns the first `limit` and `nextCursor: null`.
+- **Listing sessions by `externalRef` without `spaceId`** pages through every session of the
+  organization the caller can read that carries the reference, wherever it is; the read rule is
+  applied in SQL, so other users' sessions never crowd out the caller's.
 - **Lock order** in every mutation: the space row, then the session row, then other rows (see
   [access.md](access.md)).
