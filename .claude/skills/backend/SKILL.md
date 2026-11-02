@@ -152,8 +152,9 @@ adding or moving a route.
 - `npx prisma migrate dev --create-only --name <name>`, review, then `npx prisma migrate deploy`.
 - Append raw SQL only for what Prisma can't express: range partitioning (`chat.events`),
   partial/opclass/trigram/GIN indexes, CHECK constraints.
-- On the partitioned `events` table Prisma emits a PK-reset statement Postgres rejects — delete
-  only that statement.
+- Delete these statements Prisma emits, and only these: on the partitioned `events` table, a
+  PK-reset statement Postgres rejects; `ALTER COLUMN "search_vector" DROP DEFAULT` on
+  `chat.messages` (a generated column); and a `DROP INDEX` of any raw-SQL index.
 
 ## The Write Path: `recordChange`
 

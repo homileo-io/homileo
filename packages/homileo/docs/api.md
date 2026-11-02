@@ -289,7 +289,10 @@ organization. Details, as built:
   this syntax: its `q` is plain text, matched as a substring or by trigram similarity, with no
   stemming.
 - **Ranking.** `ts_rank_cd(…, 32)` plus trigram word similarity, rounded to 2 decimals, then newer
-  first, then id.
+  first, then id. On messages the similarity is the body's or, when closer, an attachment
+  filename's, so a file named exactly the query ranks high. Every match is ranked before a page is
+  cut, and `SEARCH_MAX_DEPTH` bounds how deep a walk goes: a deep page of a very common term costs
+  more than the first.
 - **Metadata filters.** `metadata[key]=value`, at most 5; keys follow the metadata key pattern
   (`__proto__` and other invalid keys are `400`). A value matches a stored string, a number when it
   is a canonical JSON number (`1234` matches 1234; `01234` and `1.50` do not), or a boolean for
@@ -307,7 +310,10 @@ organization. Details, as built:
 - **Principals.** Only principals with a participation row, current or past, in a session the
   caller can read (principals belong to no organization, so this keeps a caller from listing
   everyone). A name matches by substring, where `%`, `_` and `\` are literal, or by trigram
-  similarity; names that start with the query rank first. `limit` is 1 to 20, default 10.
+  similarity; names that start with the query rank first. `limit` is 1 to 20, default 10. A query
+  of 1 or 2 characters is too short for the trigram index, so it is a scan of the principals with
+  the participation check; at ordinary sizes that is fine, and matches are still limited to
+  principals in readable sessions.
 - **Paging.** The cursor is opaque (`[asOf, offset]`); `limit` is 1 to 50, default 20; a walk
   reaches at most `SEARCH_MAX_DEPTH` results, and a bad or past-depth cursor is `400
   invalid_request`. Paging is by offset: results that change between pages (a session getting a new

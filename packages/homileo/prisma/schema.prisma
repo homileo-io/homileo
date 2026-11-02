@@ -307,6 +307,8 @@ model Message {
   body            String?
   bodyText        String?                  @map("body_text")
   // GENERATED ALWAYS AS (to_tsvector('english', coalesce(body_text, ''))) STORED, in the search migration.
+  // Prisma cannot see that, so every later `migrate dev --create-only` emits `ALTER COLUMN
+  // "search_vector" DROP DEFAULT`, which Postgres rejects on a generated column: delete it.
   searchVector    Unsupported("tsvector")? @map("search_vector")
   payload         Json?
   metadata        Json                     @default("{}")
