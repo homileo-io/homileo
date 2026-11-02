@@ -13,6 +13,7 @@ import {
   ForbiddenError,
   NotAParticipantError,
   NotFoundError,
+  ReactionLimitError,
 } from "../../../../../../utils/errors.js";
 
 /** The message under the session lock, once reacting to it is allowed. */
@@ -43,6 +44,10 @@ export const addReaction = async (req: Request, res: Response) => {
 
   const { added, reactions } = await withChanges(async (tx, record) => {
     const { session } = await reactableMessage(tx, caller, messageId);
+    // Under the session lock, so concurrent adds cannot pass the limit together.
+    if (await db.reactions.emojiLimitReached(tx, messageId, emoji)) {
+      throw new ReactionLimitError(db.reactions.REACTION_EMOJI_MAX);
+    }
     const inserted = await db.reactions.insertReaction(
       tx,
       messageId,

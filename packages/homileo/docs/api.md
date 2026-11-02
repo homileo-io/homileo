@@ -183,7 +183,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
-| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived` | `reaction.added` (a repeat records nothing) |
+| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
 | `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
