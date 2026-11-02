@@ -3,6 +3,7 @@ import { invalidateKinds } from "../kinds.js";
 import { validateSet } from "./validate.js";
 import { prisma } from "../db/prisma.js";
 import { db } from "../db/index.js";
+import env from "../../env.js";
 import {
   ProvisioningError,
   type LoadedDocument,
@@ -14,6 +15,12 @@ export interface ProvisioningResult {
   applied: number;
   retired: string[];
 }
+
+// Runs once at start, and may wait out the requests in flight that use a kind
+// or type it retires, each bounded by DB_TRANSACTION_TIMEOUT_MS.
+const APPLY_TRANSACTION = {
+  timeout: Math.max(60_000, 2 * env.DB_TRANSACTION_TIMEOUT_MS),
+};
 
 // Postgres returns jsonb with its own key order, so values are compared by content.
 const canonical = (value: unknown): string =>
@@ -101,17 +108,21 @@ export const applyDocuments = async (
       }
     }
 
-    for (const row of existingKinds.values()) {
+    // In name order, so two replicas starting at once take the locks alike.
+    const byName = <R extends { name: string }>(rows: Iterable<R>) =>
+      [...rows].sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+      );
+
+    for (const row of byName(existingKinds.values())) {
       if (row.retired || declaredKinds.has(row.name)) continue;
-      // Space creation reads the kind FOR SHARE: holding the row FOR UPDATE
-      // makes the count and the retirement wait for any create in flight.
-      await db.provisioned.lockKind(tx, row.name);
-      const spaces = await db.provisioned.countUnarchivedSpaces(tx, row.name);
-      if (spaces > 0) {
+      // Waits for any space create in flight in the kind, and holds off new ones.
+      await db.provisioned.holdExclusive(tx, "kind", row.name);
+      if (await db.provisioned.hasUnarchivedSpaces(tx, row.name)) {
         problems.push({
           file: row.sourceFile,
           path: row.name,
-          message: `kind "${row.name}" was removed but still has ${spaces} unarchived space${spaces === 1 ? "" : "s"}; archive them first`,
+          message: `kind "${row.name}" was removed but still has unarchived spaces; archive them first`,
         });
         continue;
       }
@@ -119,10 +130,10 @@ export const applyDocuments = async (
       retired.push(row.name);
     }
 
-    for (const row of existingTypes.values()) {
+    for (const row of byName(existingTypes.values())) {
       if (row.retired || declaredTypes.has(row.name)) continue;
-      // Posting reads the type FOR SHARE, so this waits for any post in flight.
-      await db.provisioned.lockType(tx, row.name);
+      // Waits for any send or edit in flight with the type, and holds off new ones.
+      await db.provisioned.holdExclusive(tx, "message_type", row.name);
       if (await db.provisioned.messageUses(tx, row.name)) {
         problems.push({
           file: row.sourceFile,
@@ -138,7 +149,7 @@ export const applyDocuments = async (
     // Throwing rolls the whole transaction back.
     if (problems.length > 0) throw new ProvisioningError(problems);
     return { applied, retired };
-  });
+  }, APPLY_TRANSACTION);
   invalidateKinds();
   return result;
 };

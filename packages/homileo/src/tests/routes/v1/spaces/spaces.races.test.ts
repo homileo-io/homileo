@@ -50,7 +50,7 @@ describe("space creation against retiring a kind", () => {
     let created!: () => void;
     const inserted = new Promise<void>((r) => (created = r));
 
-    // Transaction A, the create's first steps: read the kind FOR SHARE, insert.
+    // Transaction A, the create's first steps: hold the kind, insert.
     const creating = prisma.$transaction(async (tx) => {
       expect(await activeKind(tx, kind)).not.toBeNull();
       await tx.space.create({

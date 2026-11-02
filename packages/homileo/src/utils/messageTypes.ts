@@ -3,6 +3,7 @@ import { createPayloadAjv } from "./provisioning/validate.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import { AppError, BadRequestError } from "./errors.js";
 import type { Prisma } from "./db/prisma.js";
+import { db } from "./db/index.js";
 
 type Tx = Prisma.TransactionClient;
 
@@ -14,8 +15,11 @@ interface Compiled {
 // Keyed by type; reused while the row's schema text is unchanged.
 const compiled = new Map<string, Compiled>();
 
+// Even without `allErrors`, combinators such as `anyOf` report one failure per branch.
+export const MAX_PAYLOAD_ISSUES = 20;
+
 const issuesOf = (errors: ErrorObject[] | null | undefined) =>
-  (errors ?? []).map((e) => ({
+  (errors ?? []).slice(0, MAX_PAYLOAD_ISSUES).map((e) => ({
     path: ["payload", ...e.instancePath.split("/").slice(1)].join("."),
     message: e.message ?? "is invalid",
   }));
@@ -27,18 +31,19 @@ const invalidPayload = (
 
 /**
  * An active type's compiled payload schema, or `null` for an unknown or retired
- * type. The row is read in `tx` with `FOR SHARE`: retiring the type (which takes
- * it `FOR UPDATE` first) waits for this transaction, or this waits for it.
+ * type. The row is read in `tx` under the type's shared advisory lock
+ * (`db/provisioned.ts`): retiring the type waits for this transaction, or this
+ * waits for the retirement and then finds the type retired.
  */
 const validatorFor = async (
   tx: Tx,
   type: string
 ): Promise<ValidateFunction | null> => {
+  await db.provisioned.holdShared(tx, "message_type", type);
   const rows = await tx.$queryRaw<Array<{ schema: string }>>`
     SELECT payload_schema::text AS schema
     FROM "chat"."provisioned_message_types"
-    WHERE name = ${type} AND retired_at IS NULL
-    FOR SHARE`;
+    WHERE name = ${type} AND retired_at IS NULL`;
   const schema = rows[0]?.schema;
   if (schema === undefined) {
     compiled.delete(type);
