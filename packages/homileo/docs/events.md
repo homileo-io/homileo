@@ -77,8 +77,8 @@ await withChanges(async (tx, record) => {
 
 `recordChange(tx, change)`:
 
-1. Parses `payload` with the type's schema; a rejected payload throws `ValidationError` and nothing
-   is written.
+1. Parses `payload` with the type's schema. The server built it, so a rejected payload throws a
+   plain `Error` (a 500) and nothing is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
    `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from
@@ -87,6 +87,14 @@ await withChanges(async (tx, record) => {
    `organizationId`, `entityType` and `entityId`; the SDK sets `source` from the service slug.
 
 It returns the event, with its `bigint` id, so the caller can publish it to sockets after commit.
+
+`recordChanges(tx, changes)` (`record.many` in `withChanges`) does the same for many changes in a
+fixed number of statements: every payload is parsed first, then one `INSERT … SELECT FROM unnest`
+writes the events (ids in the order given), the session access behind the private webhook names is
+read once, and the SDK's `emit` and `audit` rows go into the outbox in one more insert
+(`utils/db/outbox.ts` collects the rows the SDK builds). A change that records one event per
+session, such as removing a space member, uses it, so thousands of sessions fit in
+`DB_TRANSACTION_TIMEOUT_MS`. `recordChange` is the one-change case.
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so
 they increase in allocation order, which is not always commit order: an event can become visible
 after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,

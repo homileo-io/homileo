@@ -24,11 +24,41 @@ export interface InsertEventInput {
  */
 export type EventRow = ChangeEvent & { txId: bigint };
 
-/** Appends to the log inside the caller's transaction. */
-export const insert = (
+/**
+ * Appends `inputs` to the log in one statement inside the caller's
+ * transaction, returning each row's id and time in the order of `inputs`.
+ */
+export const insertMany = async (
+  tx: Prisma.TransactionClient,
+  inputs: InsertEventInput[]
+): Promise<Array<{ id: bigint; createdAt: Date }>> => {
+  if (inputs.length === 0) return [];
+  const column = <K extends keyof InsertEventInput>(key: K) =>
+    inputs.map((input) => input[key]);
+  const rows = await tx.$queryRaw<Array<{ id: bigint; created_at: Date }>>`
+    INSERT INTO "chat"."events"
+      (type, organization_id, space_id, session_id, actor_id, payload)
+    SELECT t.type, t.organization_id::uuid, t.space_id::uuid,
+           t.session_id::uuid, t.actor_id::uuid, t.payload::jsonb
+    FROM unnest(${column("type")}::text[], ${column("organizationId")}::text[],
+                ${column("spaceId")}::text[], ${column("sessionId")}::text[],
+                ${column("actorId")}::text[],
+                ${inputs.map((input) => JSON.stringify(input.payload))}::text[])
+      WITH ORDINALITY AS t(type, organization_id, space_id, session_id, actor_id, payload, n)
+    ORDER BY t.n
+    RETURNING id, created_at`;
+  // The identity is drawn as rows are inserted, in `n` order, so id order is
+  // input order; RETURNING's own order is not promised.
+  return rows
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((row) => ({ id: row.id, createdAt: row.created_at }));
+};
+
+export const insert = async (
   tx: Prisma.TransactionClient,
   input: InsertEventInput
-): Promise<Event> => tx.event.create({ data: input });
+): Promise<{ id: bigint; createdAt: Date }> =>
+  (await insertMany(tx, [input]))[0];
 
 // A lock not granted in time, and a deadlock: Postgres has rolled the
 // transaction back either way and the next run retries.

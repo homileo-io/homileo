@@ -177,6 +177,8 @@ model Space {
 
   @@unique([organizationId, kind, externalRef])
   @@unique([id, organizationId])
+  // The list's order, newest first.
+  @@index([organizationId, createdAt(sort: Desc), id(sort: Desc)])
   // Raw SQL in 20261102143311_spaces_kind_unarchived_idx:
   // spaces_kind_unarchived_idx (kind) WHERE archived_at IS NULL.
   @@map("spaces")
@@ -194,6 +196,8 @@ model SpaceMember {
 
   @@id([spaceId, userId])
   @@index([userId])
+  // The list's order, oldest first.
+  @@index([spaceId, joinedAt, userId])
   @@map("space_members")
   @@schema("chat")
 }
@@ -248,6 +252,9 @@ model Session {
   @@index([organizationId, spaceId])
   @@index([externalRef])
   @@index([metadata], type: Gin)
+  // Raw SQL in 20261102152509_list_order_indexes, as Prisma cannot say NULLS LAST:
+  // sessions_space_list_idx (space_id, last_message_at DESC NULLS LAST,
+  // created_at DESC, id DESC), a space's sessions in list order.
   @@map("sessions")
   @@schema("chat")
 }
@@ -266,6 +273,8 @@ model SessionParticipant {
 
   @@id([sessionId, userId])
   @@index([userId])
+  // Raw SQL in 20261102152509_list_order_indexes: session_participants_current_idx
+  // (session_id, joined_at, user_id) WHERE left_at IS NULL, the list's order.
   @@map("session_participants")
   @@schema("chat")
 }

@@ -1,9 +1,19 @@
-import { recordChange, type ChangeEvent, type ChangeInput } from "./changes.js";
 import { setInTransaction, warmKinds } from "./kinds.js";
 import { publishCommitted } from "./changeBus.js";
 import type { Prisma } from "./db/prisma.js";
 import { prisma } from "./db/prisma.js";
 import env from "../env.js";
+import {
+  recordChanges,
+  type ChangeEvent,
+  type ChangeInput,
+} from "./changes.js";
+
+export interface Recorder {
+  (change: ChangeInput): Promise<ChangeEvent>;
+  /** Many changes in a fixed number of statements (`recordChanges`). */
+  many(changes: ChangeInput[]): Promise<ChangeEvent[]>;
+}
 
 /**
  * Runs `fn` in one transaction. `record` writes a change in it; once the
@@ -15,10 +25,7 @@ import env from "../env.js";
  * locks, would wait on a second connection.
  */
 export const withChanges = async <T>(
-  fn: (
-    tx: Prisma.TransactionClient,
-    record: (change: ChangeInput) => Promise<ChangeEvent>
-  ) => Promise<T>
+  fn: (tx: Prisma.TransactionClient, record: Recorder) => Promise<T>
 ): Promise<T> => {
   await warmKinds();
   const events: ChangeEvent[] = [];
@@ -27,13 +34,18 @@ export const withChanges = async <T>(
     await tx.$executeRawUnsafe(
       `SET LOCAL lock_timeout = ${env.DB_LOCK_TIMEOUT_MS}`
     );
+    const many = async (changes: ChangeInput[]) => {
+      const recorded = await recordChanges(tx, changes);
+      events.push(...recorded);
+      return recorded;
+    };
+    const record: Recorder = Object.assign(
+      async (change: ChangeInput) => (await many([change]))[0],
+      { many }
+    );
     setInTransaction(1);
     try {
-      return await fn(tx, async (change) => {
-        const event = await recordChange(tx, change);
-        events.push(event);
-        return event;
-      });
+      return await fn(tx, record);
     } finally {
       setInTransaction(-1);
     }
