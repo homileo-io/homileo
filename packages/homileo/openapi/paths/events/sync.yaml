@@ -17,8 +17,13 @@
       - a current participant of the event's session (session events);
       - a member of the event's space (space events, and `session.created`, `session.updated` and
         `session.archived` of an `access: space` session in it);
-      - mentioned in a `message.created` or `message.edited`;
+      - mentioned in a `message.created`, `message.edited` or `message.deleted`, while still a
+        participant of the session, or a member of the space of an `access: space` session;
       - or the session or space is named in `sessionIds` / `spaceIds`.
+
+      `space.join_requested` and `space.join_decided` are returned to a member or `spaceIds`
+      subscriber only when they can moderate the space, as with
+      `GET /v1/spaces/{spaceId}/join-requests`.
 
       An event that names the caller is returned whatever the caller can read now: a member,
       join-request or participant event about them, and `read.updated`. An access revocation
