@@ -42,6 +42,16 @@ so a consumer never sees a `replyCount` for a reply it has not received.
 The channel says whose realtime channel receives the event. The webhook types are declared to tereo
 (`tereo-provisioning.json`), readable with `homileo.spaces.read`.
 
+A `session` channel event of a **private session** (`isPrivateSession`: no space, or
+`access: members`) leaves under its own name, `homileo.private_<area>.<verb>`
+(`homileo.private_message.created`, `homileo.private_session.updated`, …;
+`webhookEventName` and `privateWebhookEventTypes` in the SDK). Those types are readable only with
+`homileo.messages.read_private`, which nothing else implies, `homileo.chat.admin` included: tereo
+sends a webhook an event only when the user who created it holds the type's read permission, and
+it checks nothing per session. So a holder of `homileo.spaces.read` receives the events of every
+`access: space` session in the organization, even of spaces it is not a member of, and none of a
+DM's.
+
 ## Write path
 
 ```ts
@@ -65,7 +75,7 @@ await withChanges(async (tx, record) => {
    is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
-   `eventType: "homileo.<type>"`, the change's `organizationId`, `entityType`/`entityId` from
+   `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from
    `entity`, and `data: { ...payload, eventId: String(id) }` (the real id wins over a payload key).
 4. If `audit` is given, `outbox.audit(tx, …)` writes an audit row with the change's
    `organizationId`, `entityType` and `entityId`; the SDK sets `source` from the service slug.

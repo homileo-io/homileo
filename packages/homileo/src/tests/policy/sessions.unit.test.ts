@@ -19,6 +19,7 @@ import {
   canReact,
   canReadSession,
   canRemoveParticipant,
+  isPrivateSession,
   postRefusal,
 } from "../../policy/index.js";
 
@@ -678,5 +679,15 @@ describe("a participant removed from a space-access session who stays in the spa
         })
       )
     ).toBe(true);
+  });
+});
+
+describe("isPrivateSession", () => {
+  it.each([
+    ["a space session with access space", "space-id", "space", false],
+    ["a space session with access members", "space-id", "members", true],
+    ["a space-less session", null, "members", true],
+  ] as const)("%s", (_label, spaceId, access, expected) => {
+    expect(isPrivateSession({ spaceId, access })).toBe(expected);
   });
 });

@@ -1,5 +1,6 @@
-import { EVENT_TYPES, type EventType } from "@homileo-io/sdk";
+import { EVENT_TYPES, webhookEventName, type EventType } from "@homileo-io/sdk";
 import { issuesOf, ValidationError } from "./errors.js";
+import { isPrivateSession } from "../policy/index.js";
 import type { Prisma } from "./db/prisma.js";
 import { getTereo } from "./tereo.js";
 import { db } from "./db/index.js";
@@ -36,7 +37,8 @@ export interface ChangeEvent {
 
 /**
  * Records a change in the caller's transaction: the `events` row, a tereo
- * webhook outbox row when the type leaves as a webhook, and an audit outbox
+ * webhook outbox row when the type leaves as a webhook (under its private name
+ * for a private session, `webhookEventName`), and an audit outbox
  * row when `audit` is given. All commit or none do. The caller publishes the
  * returned event to sockets after commit.
  */
@@ -67,9 +69,14 @@ export const recordChange = async (
 
   const { outbox } = getTereo();
   if (definition.webhook) {
+    let privateSession = false;
+    if (definition.channel === "session" && sessionId !== null) {
+      const session = await db.sessions.accessOf(tx, sessionId);
+      privateSession = session === null || isPrivateSession(session);
+    }
     await outbox.emit(tx, {
       organizationId: change.organizationId,
-      eventType: `homileo.${change.type}`,
+      eventType: webhookEventName(change.type, { privateSession }),
       entityType: change.entity.type,
       entityId: change.entity.id,
       data: { ...(payload as object), eventId: String(row.id) },

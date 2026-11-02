@@ -1,5 +1,5 @@
+import { privateWebhookEventTypes, webhookEventTypes } from "@homileo-io/sdk";
 import type { ProvisioningDocument } from "@tereo-io/sdk";
-import { webhookEventTypes } from "@homileo-io/sdk";
 
 /**
  * Homileo's service slug in tereo. Its permissions and event types are named
@@ -9,6 +9,11 @@ export const SERVICE_SLUG = "homileo";
 
 /** The tereo bucket that holds message attachments. */
 export const ATTACHMENTS_BUCKET = "homileo-attachments";
+
+/** Receives the webhook events of private sessions (`isPrivateSession`). */
+export const READ_PRIVATE_PERMISSION = "homileo.messages.read_private";
+
+const privateTypes = new Set(privateWebhookEventTypes());
 
 /**
  * What Homileo declares to tereo as an app service. Core applies the
@@ -39,6 +44,15 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         orgAssignable: true,
       },
       {
+        // Off the read/write ladder and outside homileo.chat, so neither
+        // homileo.spaces.read nor homileo.chat.admin implies it.
+        name: READ_PRIVATE_PERMISSION,
+        displayName: "Receive private messages",
+        description:
+          "Receive webhook events of DMs, space-less groups and members-only sessions, message bodies included",
+        orgAssignable: true,
+      },
+      {
         name: "homileo.chat.admin",
         displayName: "Administer chat",
         description: "Administer every space and session of the organization",
@@ -63,7 +77,9 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
     eventTypes: webhookEventTypes().map((eventType) => ({
       eventType,
       description: eventType,
-      readPermission: "homileo.spaces.read",
+      readPermission: privateTypes.has(eventType)
+        ? READ_PRIVATE_PERMISSION
+        : "homileo.spaces.read",
     })),
   },
 });

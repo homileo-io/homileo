@@ -120,6 +120,62 @@ describe("recordChange", () => {
     expect(await outboxRows(organizationId)).toHaveLength(0);
   });
 
+  it.each([
+    [
+      "a space session with access space",
+      "space",
+      "space",
+      "homileo.reaction.added",
+    ],
+    [
+      "a space session with access members",
+      "space",
+      "members",
+      "homileo.private_reaction.added",
+    ],
+    [
+      "a space-less session",
+      "none",
+      "members",
+      "homileo.private_reaction.added",
+    ],
+  ] as const)(
+    "names the webhook of %s",
+    async (_label, where, access, eventType) => {
+      const actor = await fixtures.principal();
+      const organizationId = orgId();
+      const space =
+        where === "space"
+          ? await fixtures.space({ org: organizationId })
+          : undefined;
+      const session = await fixtures.session({
+        org: organizationId,
+        space,
+        access,
+      });
+
+      await prisma.$transaction((tx) =>
+        recordChange(tx, {
+          type: "reaction.added",
+          organizationId,
+          spaceId: space?.id ?? null,
+          sessionId: session.id,
+          actorId: actor.id,
+          entity: { type: "message", id: uuidv7() },
+          payload: {
+            sessionId: session.id,
+            messageId: uuidv7(),
+            principalId: actor.id,
+            emoji: "👍",
+          },
+        })
+      );
+
+      const rows = await outboxRows(organizationId);
+      expect(rows.map((r) => r.payload.eventType)).toEqual([eventType]);
+    }
+  );
+
   it("writes no outbox row for a non-webhook event", async () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();

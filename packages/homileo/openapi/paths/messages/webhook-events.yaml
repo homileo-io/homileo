@@ -130,3 +130,135 @@ homileo.reaction.removed:
     responses:
       '2XX':
         description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_message.created:
+  post:
+    tags: [Messages]
+    summary: Message created (private session)
+    description: Sent instead of `homileo.message.created` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookPrivateMessageCreated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_message.created }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_thread.updated:
+  post:
+    tags: [Messages]
+    summary: Thread updated (private session)
+    description: Sent instead of `homileo.thread.updated` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+    operationId: webhookPrivateThreadUpdated
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_thread.updated }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ThreadUpdatedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_message.edited:
+  post:
+    tags: [Messages]
+    summary: Message edited (private session)
+    description: Sent instead of `homileo.message.edited` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookPrivateMessageEdited
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_message.edited }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_message.deleted:
+  post:
+    tags: [Messages]
+    summary: Message deleted (private session)
+    description: Sent instead of `homileo.message.deleted` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookPrivateMessageDeleted
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_message.deleted }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/MessageEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_reaction.added:
+  post:
+    tags: [Messages]
+    summary: Reaction added (private session)
+    description: Sent instead of `homileo.reaction.added` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookPrivateReactionAdded
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_reaction.added }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_reaction.removed:
+  post:
+    tags: [Messages]
+    summary: Reaction removed (private session)
+    description: Sent instead of `homileo.reaction.removed` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+    operationId: webhookPrivateReactionRemoved
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_reaction.removed }
+                  entityType: { const: message }
+                  data: { $ref: '../../components/messages/schemas.yaml#/ReactionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.

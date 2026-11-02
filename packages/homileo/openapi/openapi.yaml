@@ -383,3 +383,25 @@ webhooks:
     $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.added'
   homileo.reaction.removed:
     $ref: './paths/messages/webhook-events.yaml#/homileo.reaction.removed'
+  homileo.private_session.created:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.private_session.created'
+  homileo.private_session.updated:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.private_session.updated'
+  homileo.private_session.archived:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.private_session.archived'
+  homileo.private_session.participant_added:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.private_session.participant_added'
+  homileo.private_session.participant_removed:
+    $ref: './paths/sessions/webhook-events.yaml#/homileo.private_session.participant_removed'
+  homileo.private_message.created:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_message.created'
+  homileo.private_thread.updated:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_thread.updated'
+  homileo.private_message.edited:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_message.edited'
+  homileo.private_message.deleted:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_message.deleted'
+  homileo.private_reaction.added:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_reaction.added'
+  homileo.private_reaction.removed:
+    $ref: './paths/messages/webhook-events.yaml#/homileo.private_reaction.removed'

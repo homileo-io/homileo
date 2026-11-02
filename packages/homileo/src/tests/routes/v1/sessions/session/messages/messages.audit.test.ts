@@ -34,7 +34,7 @@ const room = async () => {
 };
 
 describe("POST /v1/sessions/:sessionId/messages events", () => {
-  it("records message.created, a homileo.message.created webhook and no audit entry", async () => {
+  it("records message.created, a homileo.private_message.created webhook and no audit entry", async () => {
     const { me, session } = await room();
 
     const sent = await sendMessage(session.id, me.token, { body: "hi" });
@@ -56,7 +56,7 @@ describe("POST /v1/sessions/:sessionId/messages events", () => {
     const rows = await outbox(session.id);
     expect(rows.map((r) => r.destination)).toEqual(["webhook"]);
     expect(rows[0].payload).toMatchObject({
-      eventType: "homileo.message.created",
+      eventType: "homileo.private_message.created",
       organizationId: org,
       entityId: sent.body.message.id,
     });
@@ -95,8 +95,8 @@ describe("POST /v1/sessions/:sessionId/messages events", () => {
         AND destination = 'webhook'
       ORDER BY id`;
     expect(webhooks.map((w) => w.eventType)).toEqual([
-      "homileo.message.created",
-      "homileo.thread.updated",
+      "homileo.private_message.created",
+      "homileo.private_thread.updated",
     ]);
   });
 

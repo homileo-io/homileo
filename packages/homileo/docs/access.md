@@ -26,6 +26,16 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 | In a space, `access: members` | participants, holders of a kind grant, `homileo.chat.admin` |
 | No space | participants only (`homileo.chat.admin` cannot read) |
 
+## Webhooks
+
+tereo delivers Homileo's webhook events by permission alone: an endpoint gets an event when its
+creator holds the event type's read permission in the organization (and `webhooks.read`). It does
+not apply the table above. So the events of a private session (`isPrivateSession`: no space, or
+`access: members`) leave under separate types, `homileo.private_<area>.<verb>`, readable only with
+`homileo.messages.read_private`; every other webhook type is readable with `homileo.spaces.read`.
+`homileo.messages.read_private` is granted explicitly, to an integration that must see DMs: no other
+permission implies it, `homileo.chat.admin` included. See [events.md](events.md).
+
 ## Join and post
 
 - `joinSpaceOutcome`: `join` for an existing member, or `open`; `request` for `request`;

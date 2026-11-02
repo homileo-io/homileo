@@ -47,7 +47,7 @@ The plans are beside it in `docs/superpowers/plans/`.
   a whole set and applied in one transaction. Provisioned rows are read-only through the API
   (`409 managed_by_provisioning`); removed ones retire.
 - **Homileo's own tereo declaration** (permissions `homileo.chat.admin`, `homileo.spaces.read`,
-  `homileo.spaces.write`; bucket `homileo-attachments`; the webhook event types) is generated from
+  `homileo.spaces.write`, `homileo.messages.read_private` for private sessions' webhooks; bucket `homileo-attachments`; the webhook event types) is generated from
   `src/definitions/tereoDeclaration.ts` into `packages/homileo/tereo-provisioning.json`.
 
 ## Layout of `packages/homileo`
