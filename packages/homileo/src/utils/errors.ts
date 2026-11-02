@@ -39,8 +39,20 @@ export interface ValidationIssue {
   message: string;
 }
 
+/** The most issues an error lists; a 400's `error_description` says how many it left out. */
+export const MAX_ISSUES = 20;
+/** The most characters of an issue's path or message: a path holds the request's own keys. */
+export const MAX_ISSUE_CHARS = 256;
+
+export const truncate = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+/** The first `MAX_ISSUES` of the error's issues, each cut to `MAX_ISSUE_CHARS`. */
 export const issuesOf = (error: ZodError): ValidationIssue[] =>
-  error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+  error.issues.slice(0, MAX_ISSUES).map((i) => ({
+    path: truncate(i.path.join("."), MAX_ISSUE_CHARS),
+    message: truncate(i.message, MAX_ISSUE_CHARS),
+  }));
 
 export class ValidationError extends AppError {
   constructor(message: string, issues?: ValidationIssue[]) {

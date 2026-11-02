@@ -27,7 +27,10 @@ export const LAZY_LINES_PER_WORK = 10;
 
 const INLINE_MARKUP = new Set(["*", "_", "~", "[", "]"]);
 const BLOCK_START = new Set(["#", "=", "-", "`", "~", "*", "_", "<"]);
-const FENCE = /^(`{3,}|~{3,})(.*)$/;
+// `s`: lines may hold U+2028 and U+2029, which `.` does not match.
+const FENCE = /^(`{3,}|~{3,})(.*)$/s;
+// Only spaces and tabs are whitespace to micromark; `trim()` and `\s` take far more.
+const SPACES = /^[ \t]*$/;
 
 const isDigit = (code: number) => code >= 48 && code <= 57;
 const endsMarker = (s: string, i: number) =>
@@ -129,7 +132,7 @@ export const measureMarkup = (markdown: string): Markup => {
         close &&
         close[1]![0] === fence[0] &&
         close[1]!.length >= fence.length &&
-        close[2]!.trim() === ""
+        SPACES.test(close[2]!)
       ) {
         fence = null;
         afterBlank = true;
@@ -140,7 +143,8 @@ export const measureMarkup = (markdown: string): Markup => {
 
     markup.count += markers;
     markup.depth = Math.max(markup.depth, markers);
-    if (markers === 0 && text.trim() === "") {
+    // lineMarkers has already passed the line's leading spaces and tabs.
+    if (markers === 0 && text === "") {
       markup.work += open;
       paragraph = 0;
       afterBlank = true;
