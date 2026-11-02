@@ -36,7 +36,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `external_ref_taken`, `managed_by_provisioning` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning` |
 | 410 | `resync_required` |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
@@ -92,8 +92,9 @@ its `clientMessageId` under that lock, so of two concurrent sends with the same 
 the other answers `409 duplicate_client_message` without using a `seq`. `seq` comes from
 `UPDATE sessions SET last_seq = last_seq + 1 … RETURNING last_seq`, so it is gap-free.
 
-An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
-(`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
+An edit or delete takes the message's space row `FOR SHARE`, then its session row `FOR UPDATE`
+(`lockedMessage`: `db.sessions.lockSpaceOf`, then `readableMessage({ lock: true })`), and re-reads
+the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
 on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records

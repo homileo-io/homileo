@@ -170,7 +170,7 @@ then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
 needs both. A route that changes a session's participants or settings, archives it, or edits,
 deletes or reacts to a message starts from a session id and locks its space first
-(`db.sessions.lockSpaceOf(tx, sessionId, "share")`): `FOR SHARE`, since it needs the space to stay
+(`db.sessions.lockSpaceOf(tx, sessionId)`): `FOR SHARE`, since it needs the space to stay
 as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
 `FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
 only the caller's participant row; an attachment upload takes no lock. Removing a member locks the
