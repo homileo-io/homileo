@@ -91,6 +91,22 @@ export const accessOf = (
     select: { spaceId: true, access: true },
   });
 
+/** `accessOf` for many sessions at once, keyed by id; an unknown id is absent. */
+export const accessOfMany = async (
+  tx: Tx,
+  sessionIds: string[]
+): Promise<
+  Map<string, { spaceId: string | null; access: "space" | "members" }>
+> =>
+  new Map(
+    (
+      await tx.session.findMany({
+        where: { id: { in: sessionIds } },
+        select: { id: true, spaceId: true, access: true },
+      })
+    ).map(({ id, ...access }) => [id, access])
+  );
+
 /** The indexes in `ids` that name no principal. */
 export const unknownPrincipalIndexes = async (
   tx: Tx,

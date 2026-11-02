@@ -69,6 +69,10 @@ Kinds and types missing from the set are retired (`retired_at`), except:
 - a kind with unarchived spaces is a problem: archive the spaces first;
 - a message type some message uses is a problem. (Messages of a retired type render their `body`.)
 
+The transaction may take `max(60 s, 2 × DB_TRANSACTION_TIMEOUT_MS)`, and runs with `lock_timeout`
+one second below that: retiring a name waits for the requests using it to finish, and Prisma's own
+timeout cannot interrupt a wait already on the server.
+
 A problem rolls the whole transaction back. Retired kinds drop out of `loadKinds()`, which returns
 the active kinds and the built-in one by name. Provisioned rows are read-only through the API.
 

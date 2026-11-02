@@ -1,10 +1,10 @@
 // @module-tag int
 // @module-tag events
 import { readPayload, spacePayload } from "../support/eventPayloads.js";
+import { recordChange, recordChanges } from "../../utils/changes.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
 import { chatFixtures } from "../support/chatFixtures.js";
-import { recordChange } from "../../utils/changes.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { AppError } from "../../utils/errors.js";
 import { v7 as uuidv7 } from "uuid";
@@ -237,5 +237,92 @@ describe("recordChange", () => {
     );
 
     expect(new Set(events.map((e) => e.id)).size).toBe(20);
+  });
+  it("records a batch in the order given, each webhook under its own session's name", async () => {
+    const actor = await fixtures.principal();
+    const organizationId = orgId();
+    const space = await fixtures.space({ org: organizationId });
+    const open = await fixtures.session({ org: organizationId, space });
+    const closed = await fixtures.session({
+      org: organizationId,
+      space,
+      access: "members",
+    });
+    const removed = (sessionId: string) => ({
+      type: "session.participant_removed" as const,
+      organizationId,
+      spaceId: space.id,
+      sessionId,
+      actorId: actor.id,
+      entity: { type: "session", id: sessionId },
+      payload: { sessionId, principalId: actor.id },
+    });
+
+    const events = await prisma.$transaction((tx) =>
+      recordChanges(tx, [
+        removed(open.id),
+        {
+          type: "read.updated",
+          organizationId,
+          actorId: actor.id,
+          entity: { type: "Session", id: open.id },
+          payload: readPayload(),
+        },
+        {
+          ...removed(closed.id),
+          audit: { action: "DELETE", userId: uuidv7() },
+        },
+      ])
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "session.participant_removed",
+      "read.updated",
+      "session.participant_removed",
+    ]);
+    expect(events[0].id < events[1].id && events[1].id < events[2].id).toBe(
+      true
+    );
+    const stored = await prisma.event.findMany({
+      where: { organizationId },
+      orderBy: { id: "asc" },
+    });
+    expect(stored.map((e) => e.id)).toEqual(events.map((e) => e.id));
+    expect(stored.map((e) => e.sessionId)).toEqual([open.id, null, closed.id]);
+    const rows = await prisma.$queryRaw<
+      Array<{ destination: string; payload: Record<string, unknown> }>
+    >`
+      SELECT destination, payload FROM "core"."core_outbox"
+      WHERE payload->>'organizationId' = ${organizationId} ORDER BY id`;
+    expect(
+      rows.map((r) => [r.destination, r.payload.eventType ?? r.payload.action])
+    ).toEqual([
+      ["webhook", "homileo.session.participant_removed"],
+      ["webhook", "homileo.private_session.participant_removed"],
+      ["audit", "DELETE"],
+    ]);
+    expect(rows[1].payload).toMatchObject({
+      data: { eventId: String(events[2].id) },
+    });
+  });
+
+  it("writes nothing from a batch when one payload is invalid", async () => {
+    const actor = await fixtures.principal();
+    const organizationId = orgId();
+    const valid = {
+      type: "read.updated" as const,
+      organizationId,
+      actorId: actor.id,
+      entity: { type: "Session", id: uuidv7() },
+      payload: readPayload(),
+    };
+
+    await expect(
+      prisma.$transaction((tx) =>
+        recordChanges(tx, [valid, { ...valid, payload: "not an object" }])
+      )
+    ).rejects.toThrow(/read\.updated/);
+
+    expect(await prisma.event.count({ where: { organizationId } })).toBe(0);
   });
 });
