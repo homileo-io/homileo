@@ -11,7 +11,7 @@ export const HIGHLIGHT_STOP = "";
 const TRIGRAM_MIN_LENGTH = 3;
 
 const hasWebsearchSyntax = (q: string): boolean =>
-  q.includes('"') || /(^|\s)-/.test(q) || / OR /.test(q);
+  q.includes('"') || /(^|\s)-/.test(q) || / or /i.test(q);
 
 /**
  * The text for `websearch_to_tsquery`, and the term for the trigram arm: only a query of at least
@@ -86,7 +86,8 @@ const METADATA_QUERY_KEY = /^metadata\[([^\]]*)\]$/;
 export const liftMetadataQuery = (input: unknown): unknown => {
   if (typeof input !== "object" || input === null) return input;
   const rest: Record<string, unknown> = {};
-  const metadata: Record<string, unknown> = {};
+  // No prototype: `metadata[__proto__]` becomes an own key, for validation to refuse.
+  const metadata: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(input)) {
     const match = METADATA_QUERY_KEY.exec(key);
     if (match) metadata[match[1]] = value;
@@ -97,9 +98,17 @@ export const liftMetadataQuery = (input: unknown): unknown => {
 
 /** Exact metadata filters: at most 5 keys, each value 1–255 characters. */
 export const SearchMetadataQuerySchema = z
-  .record(z.string(), z.unknown())
+  // Not `z.record` first: it assigns onto a plain object and so drops a `__proto__` key unseen.
+  .custom<Record<string, unknown>>(
+    (m) => typeof m === "object" && m !== null && !Array.isArray(m),
+    { message: "Expected an object" }
+  )
   .refine((m) => Object.keys(m).length <= METADATA_FILTERS_MAX, {
     message: `At most ${METADATA_FILTERS_MAX} metadata filters`,
+    abort: true,
+  })
+  .refine((m) => Object.keys(m).every((k) => METADATA_KEY_PATTERN.test(k)), {
+    message: "Invalid metadata key",
     abort: true,
   })
   .pipe(

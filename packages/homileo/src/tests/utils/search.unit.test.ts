@@ -33,6 +33,7 @@ describe("parseSearchQuery", () => {
     ["refund -shipping", "an exclusion"],
     ["-shipping", "a leading exclusion"],
     ["refund OR return", "an OR"],
+    ["refund or return", "a lowercase or"],
     ["ab", "under 3 characters"],
     ["  ab  ", "under 3 characters once trimmed"],
   ])("leaves out the trigram arm for %j (%s)", (q) => {
@@ -124,6 +125,17 @@ describe("liftMetadataQuery", () => {
 
   it("leaves a query without them as it is", () => {
     expect(liftMetadataQuery({ q: "x" })).toEqual({ q: "x" });
+  });
+});
+
+describe("liftMetadataQuery with __proto__", () => {
+  it("keeps the key, for the schema to refuse", () => {
+    const lifted = liftMetadataQuery({ "metadata[__proto__]": "x" });
+    expect(
+      SearchMetadataQuerySchema.safeParse(
+        (lifted as { metadata: unknown }).metadata
+      ).success
+    ).toBe(false);
   });
 });
 

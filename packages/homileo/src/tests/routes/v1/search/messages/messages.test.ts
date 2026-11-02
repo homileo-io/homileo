@@ -122,6 +122,17 @@ describe("GET /v1/search/messages", () => {
     expect(res.body).toMatchObject({ error: "invalid_request" });
   });
 
+  it("answers 400 for the metadata key __proto__ instead of dropping the filter", async () => {
+    const r = await s.room();
+    const res = await s.search(r.sender.token, {
+      q: "screws",
+      "metadata[__proto__]": "x",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid_request" });
+  });
+
   it.each(["the", "-"])(
     "answers no results for %j, whose tsquery is empty",
     async (q) => {
