@@ -153,17 +153,30 @@ message's delete, raises it by one under the session lock. Each message view car
 with its `reactionSeq`, and each `reaction.added` and `reaction.removed` carries the message's
 whole summary after the change (`reactions`) with its `reactionSeq`, as the reaction routes answer
 it. **A client keeps, per message, the summary with the highest `reactionSeq` it has seen**, from
-a REST view, a reaction route's answer, a message event or a reaction event, and ignores one whose
-`reactionSeq` is not above the one it holds. The message's other fields come from its latest view
-as usual.
+a REST view, a reaction route's answer, a message event or a reaction event:
+
+- A message it holds no summary for yet takes the first one it sees, whatever its `reactionSeq`.
+- One whose `reactionSeq` is equal to the one it holds is ignored. Equal `reactionSeq`s mean the
+  same reactions (every change raises it), so which of the two it keeps makes no difference.
+- One whose `reactionSeq` is lower is ignored.
+
+The message's other fields come from its latest view as usual.
 
 The rule is needed because no order of delivery is promised to agree with the lock order the
 summaries were built in. `/sync` returns events in transaction-id order, and a transaction takes
 its id when it first locks the space, before it waits for the session lock: an edit may hold the
 lower id while a reaction gets the session lock first, so the edit's view, which already counts
-the reaction, comes before the reaction's event. Two reactions can cross the same way. Each
-summary is exact for its `reactionSeq`, so keeping the highest ends at the state REST shows,
-whatever order the events arrive in. Applying reaction events as deltas would not.
+the reaction, comes before the reaction's event. Two reactions can cross the same way. Every
+summary is exact for its `reactionSeq`: reaction events and route answers read the pair under
+the session lock, and a REST view, read without it, takes both from one statement (one
+snapshot), so a reaction committing between the message's row and its summary cannot pair a
+newer summary with an older `reactionSeq`. Keeping the highest therefore ends at the state REST
+shows, whatever order the events arrive in. Applying reaction events as deltas would not.
+
+**Size.** Each reaction event carries the whole summary: up to 50 emoji (`REACTION_EMOJI_MAX`),
+each naming up to its first 50 reactors, about 110 KB of JSON at most, on the socket, on
+`/sync` (per event, so a page of reaction events on busy messages is large) and in each webhook
+delivery. A message view's summary is bounded the same way.
 
 ## The audience rule
 
@@ -199,7 +212,12 @@ More precisely:
   joined by the event's time get it through the session room, which holds their sockets exactly
   while they can read the session (`/sync` likewise returns a participant's event only then);
   only the other mention readers' sockets, those who joined later included (their room join may
-  not have fanned out yet), are fetched, once per committed transaction, from every node. Someone removed since the
+  not have fanned out yet), are fetched, once per committed transaction, from every node. "By the
+  event's time" compares the participant's `joined_at` with the event's `created_at`, both the
+  database's `now()`, so one clock. `now()` is when each transaction started, not when it
+  committed: a join whose transaction started first but committed after the message's counts as
+  joined by then, yet its room join had not fanned out when the message did. That participant
+  gets the message from `/sync` (they are a participant when they catch up), not on the socket. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that

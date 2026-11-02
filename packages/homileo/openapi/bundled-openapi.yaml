@@ -4299,7 +4299,10 @@ components:
         The version of the message's reactions: every reaction added or removed, and the delete,
         raises it by one. Of two summaries of one message, from message views, reaction events or the
         reaction routes, the one with the higher `reactionSeq` is newer, whatever order they arrive
-        in; a client keeps the summary with the highest it has seen.
+        in; a client keeps the summary with the highest it has seen, takes the first it sees for a
+        message it holds none for, and ignores one with an equal `reactionSeq` (equal means the same
+        reactions). Each summary is exact for the `reactionSeq` beside it. A reaction event carries the
+        whole summary: up to 50 emoji of up to 50 reactors each, about 110 KB at most.
     Message:
       type: object
       description: |
