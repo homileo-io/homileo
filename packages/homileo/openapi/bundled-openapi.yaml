@@ -1889,8 +1889,16 @@ paths:
         `message.created`, `message.edited` and `message.deleted` carry the message's **current**
         view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
         at the event: every event of a deleted message carries its deleted view, and every event of
-        an edited one its latest revision. The cursor is not signed; because of this and the rule
-        above, a made-up cursor reveals nothing the REST routes do not.
+        an edited one its latest revision. The exception is `reactions`, which keeps the summary
+        stored with the event: the page's later `reaction.added` and `reaction.removed` events are
+        deltas from it, so applying the events in order ends at the REST count. The cursor is not
+        signed; because of this and the rule above, a made-up cursor reveals nothing the REST
+        routes do not.
+
+        One page scans at most 5000 rows of the caller's organization's log, matching or not; a
+        page cut there answers `hasMore: true` with a `next` past the rows it scanned, so a reader
+        with few relevant events in a busy log pages through it rather than one request scanning it
+        all.
 
         **Required permissions:** none; any signed-in caller in an organization.
       operationId: sync
@@ -2872,7 +2880,8 @@ components:
       required: false
       description: |
         How many events of the log to read. Events the caller may not receive are read and left out,
-        so a page can hold fewer, even none, while `hasMore` is true.
+        so a page can hold fewer, even none, while `hasMore` is true. A page also stops after
+        scanning 5000 rows of the log.
       schema:
         type: integer
         minimum: 1

@@ -58,7 +58,8 @@ const messageIdOf = (e: EventRow): string | null => {
 /**
  * Replaces each message event's stored view with the message's view now, as
  * REST builds it, so the log never replays text a delete or edit replaced.
- * An event whose message row is gone is dropped.
+ * The stored reaction summaries stay: the page's later `reaction.*` events are
+ * deltas from them. An event whose message row is gone is dropped.
  */
 const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
   const ids = unique(rows.flatMap((r) => messageIdOf(r) ?? []));
@@ -72,7 +73,13 @@ const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
     const id = messageIdOf(r);
     const view = id ? views.get(id) : undefined;
     if (!view) return [];
-    return [{ ...r, payload: { ...(r.payload as object), message: view } }];
+    const stored = (r.payload as { message?: { reactions?: unknown } }).message
+      ?.reactions;
+    const message = {
+      ...view,
+      reactions: Array.isArray(stored) ? stored : view.reactions,
+    };
+    return [{ ...r, payload: { ...(r.payload as object), message } }];
   });
 };
 
@@ -151,7 +158,9 @@ export const sync = async (req: Request, res: Response) => {
       unique([...participantOf, ...query.sessionIds]),
       unique([...memberOf, ...query.spaceIds])
     ),
-    query.limit
+    query.limit,
+    // The organization leads the index readFrom scans in, and the prefilter requires it.
+    { scope: Prisma.sql`organization_id = ${caller.organizationId}::uuid` }
   );
   const { rows } = page;
   const { until } = query;
