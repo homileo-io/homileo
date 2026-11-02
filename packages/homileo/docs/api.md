@@ -81,11 +81,13 @@ A mutation loads what it checks inside its transaction with `{ tx, lock: true }`
 session (or space) row `FOR UPDATE`, so the checks and the write see the same rows. Creating a space
 reads its kind with `activeKind` (`FOR SHARE`); provisioning takes the kind's row `FOR UPDATE`
 before it counts the unarchived spaces of a kind it retires, so a space is never created in a kind
-as it retires.
+as it retires. Message types work the same way: a send or an edit with a payload reads the type's
+row `FOR SHARE` (`validatePayload`), and provisioning takes it `FOR UPDATE` before it looks for a
+message of a type it retires, so no message is stored with a type as it retires, on any replica.
 
 Kinds are cached in the process for 60 seconds and dropped when provisioning applies
-(`invalidateKinds`). So are message types' compiled payload schemas (`utils/messageTypes.ts`); a
-type not in the cache is read from the database when a message uses it.
+(`invalidateKinds`). Message types are read on every use; only their compiled payload schemas are
+kept (`utils/messageTypes.ts`), reused while the row's schema is unchanged.
 
 A send takes the session row `FOR UPDATE` first (`readableSession({ lock: true })`) and looks up
 its `clientMessageId` under that lock, so of two concurrent sends with the same id one inserts and

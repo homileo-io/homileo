@@ -3,14 +3,11 @@
 // @module-tag messages
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { provision } from "../../utils/provisioning/index.js";
+import { validatePayload } from "../../utils/messageTypes.js";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { prisma } from "../../utils/db/prisma.js";
 import { tmpdir } from "os";
 import { join } from "path";
-import {
-  invalidateMessageTypes,
-  validatePayload,
-} from "../../utils/messageTypes.js";
 
 const TYPE = "types-test:card";
 let dir: string;
@@ -34,7 +31,7 @@ const wipe = async () => {
 
 const codeOf = async (payload: unknown) => {
   try {
-    await validatePayload(TYPE, payload);
+    await prisma.$transaction((tx) => validatePayload(TYPE, payload, tx));
     return null;
   } catch (err) {
     return (err as { code?: string }).code;
@@ -73,12 +70,22 @@ describe("validatePayload", () => {
     expect(await codeOf({})).toBe("message_type_not_found");
   });
 
-  it("does not keep a schema whose load began before an invalidation", async () => {
+  it("refuses a type another replica retired, though this one validated it", async () => {
     await provisionWith({ type: "object" });
-    invalidateMessageTypes();
+    expect(await codeOf({})).toBeNull();
 
-    const loading = codeOf({ amount: "three" });
-    invalidateMessageTypes();
+    await prisma.provisionedMessageType.update({
+      where: { name: TYPE },
+      data: { retiredAt: new Date() },
+    });
+
+    expect(await codeOf({})).toBe("message_type_not_found");
+  });
+
+  it("validates against a schema another replica changed", async () => {
+    await provisionWith({ type: "object" });
+    expect(await codeOf({ amount: "three" })).toBeNull();
+
     await prisma.provisionedMessageType.update({
       where: { name: TYPE },
       data: {
@@ -88,14 +95,17 @@ describe("validatePayload", () => {
         },
       },
     });
-    await loading;
 
     expect(await codeOf({ amount: "three" })).toBe("invalid_payload");
   });
 
   it("refuses a payload on the built-in text type", async () => {
-    await expect(validatePayload("text", undefined)).resolves.toBeUndefined();
-    await expect(validatePayload("text", { a: 1 })).rejects.toMatchObject({
+    await expect(
+      validatePayload("text", undefined, prisma)
+    ).resolves.toBeUndefined();
+    await expect(
+      validatePayload("text", { a: 1 }, prisma)
+    ).rejects.toMatchObject({
       code: "invalid_payload",
     });
   });

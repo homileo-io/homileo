@@ -121,6 +121,8 @@ export const applyDocuments = async (
 
     for (const row of existingTypes.values()) {
       if (row.retired || declaredTypes.has(row.name)) continue;
+      // Posting reads the type FOR SHARE, so this waits for any post in flight.
+      await db.provisioned.lockType(tx, row.name);
       if (await db.provisioned.messageUses(tx, row.name)) {
         problems.push({
           file: row.sourceFile,
