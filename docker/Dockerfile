@@ -23,7 +23,7 @@ COPY packages/homileo/prisma.config.ts ./packages/homileo/
 COPY packages/homileo/prisma ./packages/homileo/prisma/
 
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --workspace=homileo-sdk --workspace=homileo
+    npm ci --workspace=packages/homileo-sdk --workspace=packages/homileo
 
 RUN cd packages/homileo && npx prisma generate
 
@@ -53,7 +53,7 @@ COPY packages/homileo/prisma.config.ts ./packages/homileo/
 COPY packages/homileo/prisma ./packages/homileo/prisma/
 
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --workspace=homileo-sdk --workspace=homileo --omit=dev
+    npm ci --workspace=packages/homileo-sdk --workspace=packages/homileo --omit=dev
 
 RUN cd packages/homileo && npx prisma generate
 
