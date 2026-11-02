@@ -216,16 +216,32 @@ export const sessionIdOf = async (
     })
   )?.sessionId ?? null;
 
-/** The distinct bodies of the message's revisions that hold a `<@` mention. */
-export const mentioningRevisionBodies = async (
+/** Of `userIds`, those any revision of the message mentioned. */
+export const everMentioned = async (
   client: Client,
-  messageId: string
-): Promise<string[]> =>
-  (
-    await client.$queryRaw<Array<{ body: string }>>`
-      SELECT DISTINCT body FROM "chat"."message_revisions"
-      WHERE message_id = ${messageId}::uuid AND body LIKE '%<@%'`
-  ).map((r) => r.body);
+  messageId: string,
+  userIds: string[]
+): Promise<Set<string>> => {
+  if (userIds.length === 0) return new Set();
+  const rows = await client.messageEverMention.findMany({
+    where: { messageId, userId: { in: userIds } },
+    select: { userId: true },
+  });
+  return new Set(rows.map((r) => r.userId));
+};
+
+/** Adds the principals a revision mentions to everyone the message ever mentioned. */
+export const recordEverMentioned = async (
+  tx: Tx,
+  messageId: string,
+  userIds: string[]
+): Promise<void> => {
+  if (userIds.length === 0) return;
+  await tx.messageEverMention.createMany({
+    data: userIds.map((userId) => ({ messageId, userId })),
+    skipDuplicates: true,
+  });
+};
 
 /** A stored `<@id>` mention with what `isMentionReader` needs to judge its principal now. */
 export interface StoredMention {

@@ -1,5 +1,6 @@
 import { BUILTIN_MESSAGE_TYPE } from "../definitions/builtins.js";
 import { createPayloadAjv } from "./provisioning/validate.js";
+import { MAX_ISSUE_CHARS, truncate } from "./validateReq.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import { AppError, BadRequestError } from "./errors.js";
 import type { Prisma } from "./db/prisma.js";
@@ -20,8 +21,11 @@ export const MAX_PAYLOAD_ISSUES = 20;
 
 const issuesOf = (errors: ErrorObject[] | null | undefined) =>
   (errors ?? []).slice(0, MAX_PAYLOAD_ISSUES).map((e) => ({
-    path: ["payload", ...e.instancePath.split("/").slice(1)].join("."),
-    message: e.message ?? "is invalid",
+    path: truncate(
+      ["payload", ...e.instancePath.split("/").slice(1)].join("."),
+      MAX_ISSUE_CHARS
+    ),
+    message: truncate(e.message ?? "is invalid", MAX_ISSUE_CHARS),
   }));
 
 const invalidPayload = (

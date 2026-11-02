@@ -517,7 +517,8 @@ describe("mentions", () => {
         .sort()
     );
     expect(await notificationsTo(people[100].tereoUserId!)).toEqual([]);
-    expect(await notificationsTo(people[99].tereoUserId!)).toHaveLength(1);
+    expect(await notificationsTo(people[99].tereoUserId!)).toEqual([]);
+    expect(await notificationsTo(people[0].tereoUserId!)).toHaveLength(1);
     const row = await prisma.message.findUniqueOrThrow({
       where: { id: sent.body.message.id },
     });

@@ -141,6 +141,7 @@ model Principal {
   messagesDeleted       Message[]            @relation("MessageDeletedBy")
   revisionsEdited       MessageRevision[]
   mentions              MessageMention[]
+  everMentionedIn       MessageEverMention[]
   reactions             Reaction[]
   threadFollows         ThreadFollower[]
 
@@ -294,16 +295,17 @@ model Message {
   deletedAt       DateTime? @map("deleted_at") @db.Timestamp(3)
   deletedBy       String?   @map("deleted_by") @db.Uuid
 
-  session     Session           @relation(fields: [sessionId], references: [id])
-  sender      Principal         @relation("MessageSender", fields: [senderId], references: [id])
-  deleter     Principal?        @relation("MessageDeletedBy", fields: [deletedBy], references: [id], onDelete: Restrict)
-  threadRoot  Message?          @relation("Thread", fields: [threadRootId], references: [id], onDelete: Restrict)
-  replies     Message[]         @relation("Thread")
-  revisions   MessageRevision[]
-  mentions    MessageMention[]
-  reactions   Reaction[]
-  attachments Attachment[]
-  followers   ThreadFollower[]
+  session       Session              @relation(fields: [sessionId], references: [id])
+  sender        Principal            @relation("MessageSender", fields: [senderId], references: [id])
+  deleter       Principal?           @relation("MessageDeletedBy", fields: [deletedBy], references: [id], onDelete: Restrict)
+  threadRoot    Message?             @relation("Thread", fields: [threadRootId], references: [id], onDelete: Restrict)
+  replies       Message[]            @relation("Thread")
+  revisions     MessageRevision[]
+  mentions      MessageMention[]
+  everMentioned MessageEverMention[]
+  reactions     Reaction[]
+  attachments   Attachment[]
+  followers     ThreadFollower[]
 
   @@unique([sessionId, seq])
   @@unique([sessionId, senderId, clientMessageId])
@@ -327,6 +329,20 @@ model MessageRevision {
 
   @@id([messageId, revision])
   @@map("message_revisions")
+  @@schema("chat")
+}
+
+// Everyone any revision of the message mentioned, so an edit emails only the
+// readers it mentions for the first time, without reading the revisions.
+model MessageEverMention {
+  messageId String @map("message_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  message Message   @relation(fields: [messageId], references: [id])
+  user    Principal @relation(fields: [userId], references: [id])
+
+  @@id([messageId, userId])
+  @@map("message_ever_mentions")
   @@schema("chat")
 }
 

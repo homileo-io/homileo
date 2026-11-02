@@ -12,6 +12,10 @@ import { fetchJson } from "../../../../../support/http.js";
 import { MessageSchema } from "@homileo-io/sdk";
 import env from "../../../../../../env.js";
 import { v7 as uuidv7 } from "uuid";
+import {
+  closeRedisConnection,
+  initializeRedis,
+} from "../../../../../../utils/redis.js";
 
 const fixtures = chatFixtures();
 const orgs: string[] = [];
@@ -20,6 +24,7 @@ let url: string;
 let close: () => Promise<unknown>;
 
 beforeAll(async () => {
+  await initializeRedis();
   ({ url, close } = await startV1App());
   setFilesClient(files.client);
 });
@@ -27,6 +32,7 @@ afterEach(() => files.reset());
 afterAll(async () => {
   setFilesClient(null);
   await close();
+  await closeRedisConnection();
   await fixtures.cleanup();
   await purgeOrganizations(orgs);
 });
@@ -137,6 +143,32 @@ describe("POST /v1/sessions/:sessionId/attachments", () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error).toBe("resource_archived");
+  });
+
+  it("refuses a placeholder past ATTACHMENT_MAX_PENDING, and counts one again once sent", async () => {
+    const { me, session } = await room();
+    const ids: string[] = [];
+    for (let i = 0; i < env.ATTACHMENT_MAX_PENDING; i++) {
+      ids.push(await uploaded(session.id, me.token));
+    }
+
+    const refused = await upload(session.id, me.token, {
+      filename: "one-too-many.txt",
+      contentType: "text/plain",
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe("too_many_pending_attachments");
+
+    const sent = await send(session.id, me.token, {
+      clientMessageId: uuidv7(),
+      attachments: [{ objectId: ids[0] }],
+    });
+    expect(sent.status).toBe(201);
+    const again = await upload(session.id, me.token, {
+      filename: "room-again.txt",
+      contentType: "text/plain",
+    });
+    expect(again.status).toBe(201);
   });
 
   it("rejects a bad filename", async () => {

@@ -219,6 +219,7 @@ describe("PATCH /v1/messages/:messageId", () => {
       },
     });
     await prisma.messageMention.deleteMany({ where: { messageId: id } });
+    await prisma.messageEverMention.deleteMany({ where: { messageId: id } });
     await prisma.principal.deleteMany({
       where: { id: { in: principals.map((p) => p.id) } },
     });

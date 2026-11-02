@@ -109,6 +109,11 @@ const EnvFields = z
     PRINCIPAL_PROFILE_TTL_SECONDS: int(1, 86_400, 3600),
     // The largest file a message may attach; tereo's own upload limit is not checked.
     ATTACHMENT_MAX_BYTES: int(1, Number.MAX_SAFE_INTEGER, 100 * 1024 * 1024),
+    // Attachment placeholders a principal may hold that no message has claimed yet.
+    ATTACHMENT_MAX_PENDING: int(1, 10_000, 50),
+    // After a sender's mention emails a reader, how long further mentions from
+    // that sender to that reader send no email. 0 turns the cooldown off.
+    MENTION_EMAIL_COOLDOWN_SECONDS: int(0, 86_400, 60),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && val.TEREO_TEST_MODE) {

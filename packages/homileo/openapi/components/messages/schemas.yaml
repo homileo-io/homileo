@@ -19,7 +19,12 @@ CreateAttachmentRequest:
       maxLength: 255
       pattern: '^[^/\x00-\x1f\x7f]+$'
       description: Kept as the attachment's default filename; no slash or control characters
-    contentType: { type: string, minLength: 1, maxLength: 255 }
+    contentType:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}(?:[ \t]*;[ \t]*[A-Za-z0-9!#$&^_.+-]+=(?:[A-Za-z0-9!#$&^_.+-]+|"[^"\\\r\n]*"))*$'
+      description: A media type, as `image/png` or `text/plain; charset=utf-8`
 
 CreateAttachmentResponse:
   type: object

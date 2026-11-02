@@ -1,14 +1,20 @@
 import { ATTACHMENTS_BUCKET } from "../definitions/tereoDeclaration.js";
 import { prisma } from "../utils/db/prisma.js";
 import { logger } from "../utils/logger.js";
+import env from "../env.js";
 import {
   filesClient,
   isTereoNotFound,
   PLACEHOLDER_TTL_MS,
+  UPLOAD_URL_SECONDS,
 } from "../utils/attachments.js";
 
-/** Attachments younger than this are left to the send that is still keeping them. */
-export const KEEP_GRACE_MS = 5 * 60 * 1000;
+/**
+ * Attachments younger than this are left to the send that is still keeping
+ * them. It outlasts the placeholder's write URL, issued before the send, so
+ * the size checked here is the final one.
+ */
+export const KEEP_GRACE_MS = UPLOAD_URL_SECONDS * 1000 + 60 * 1000;
 const BATCH = 100;
 const PARALLEL = 10;
 
@@ -22,7 +28,11 @@ const idAt = (at: Date): string => {
 const timeOf = (id: string): Date =>
   new Date(parseInt(id.replace(/-/g, "").slice(0, 12), 16));
 
-/** Clears the object's expiry if it still has one; `false` when tereo could not be reached. */
+/**
+ * Clears the object's expiry if it still has one, and removes an object the
+ * write URL refilled past `ATTACHMENT_MAX_BYTES` after the send; `false` when
+ * tereo could not be reached.
+ */
 const keep = async (a: {
   id: string;
   tereoObjectId: string;
@@ -32,6 +42,14 @@ const keep = async (a: {
     const object = await files.getObject(ATTACHMENTS_BUCKET, a.tereoObjectId);
     if (!object) {
       logger.warn({ attachmentId: a.id }, "Attachment object is gone");
+      return true;
+    }
+    if (BigInt(object.sizeBytes) > BigInt(env.ATTACHMENT_MAX_BYTES)) {
+      await files.deleteObject(ATTACHMENTS_BUCKET, a.tereoObjectId);
+      logger.warn(
+        { attachmentId: a.id, sizeBytes: object.sizeBytes },
+        "Removed an attachment larger than ATTACHMENT_MAX_BYTES"
+      );
       return true;
     }
     if (object.deleteAfter !== null) {
@@ -52,10 +70,11 @@ const keep = async (a: {
 };
 
 /**
- * Clears the tereo expiry of every attachment stored from `from` up to
- * `KEEP_GRACE_MS` ago that still has one: a send whose keep failed, or that
- * stopped between commit and keep. Returns where the next run starts: the
- * first attachment that could not be kept, or the end of this range.
+ * Keeps (see `keep`) every attachment stored from `from` up to
+ * `KEEP_GRACE_MS` ago: a send whose keep failed, or that stopped between
+ * commit and keep, and any object refilled after its send. Returns where the
+ * next run starts: the first attachment that could not be kept, or the end
+ * of this range.
  */
 export const processAttachmentKeeps = async (
   from: Date,

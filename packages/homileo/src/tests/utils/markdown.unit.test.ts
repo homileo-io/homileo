@@ -68,12 +68,24 @@ describe("measureMarkup", () => {
       0,
       1,
     ],
-    ["nested quote and list markers", "> > - 1. x\n> y", 5, 4, 10],
+    ["nested quote and list markers", "> > - 1. x\n> y", 5, 4, 11],
     ["a marker needs a space after it", "+x 1.z", 0, 0, 1],
-    ["heading, fence and thematic-break lines", "# a\n```\n---\n=", 4, 0, 4],
+    ["a fence after a heading opens code", "# a\n```\n---\n=", 2, 0, 4],
     ["\\r ends a line", ">x\r>y\r\n>z", 3, 1, 8],
+    ["\\r\\n is one line ending", "a\r\nb\r\nc", 0, 0, 3],
     ["blank lines keep containers open", "- - a\n\n\n", 2, 2, 9],
-    ["indent counts as nesting", "- a\n\t- b\n    - c", 3, 1, 2 + 4 + 4],
+    ["indent counts as nesting", "- a\n\t- b\n    - c", 3, 1, 11],
+    ["indent between markers counts", "> - a\n>\n>   b", 4, 2, 11],
+    ["a lazy line counts its paragraph", "> a\nb\nc\nd", 1, 1, 11],
+    [
+      "a line after a blank one closes what it does not continue",
+      "> a\n\nb\nc",
+      1,
+      1,
+      6,
+    ],
+    ["indent alone opens nothing", "a\n" + " ".repeat(200) + "x\nb", 0, 0, 3],
+    ["fenced code counts no markup", "```\n> > > *x*\n```\nz", 2, 0, 4],
   ])("%s", (_name, markdown, count, depth, work) => {
     expect(measureMarkup(markdown)).toEqual({ count, depth, work });
   });
@@ -128,6 +140,50 @@ describe("parseBody", () => {
     expect(measureMarkup(markdown).work).toBeLessThanOrEqual(PARSE_MAX_WORK);
     expect(parseBody(markdown)).not.toBeNull();
   });
+
+  it.each([
+    ["a quote followed by lazy lines", "> a\n" + "b\n".repeat(4990)],
+    [
+      "nine quotes followed by lazy lines",
+      "> ".repeat(9) + "a\n" + "b\n".repeat(4980),
+    ],
+    [
+      "quote lines between short lazy runs",
+      ("> a\n" + "b\n".repeat(30)).repeat(150),
+    ],
+    ["a list item followed by lazy lines", "- a\n" + "b\n".repeat(4990)],
+    [
+      "lazy lines under-indented for their item",
+      "10. a\n" + "  b\n".repeat(2400),
+    ],
+    [
+      "list markers that cannot interrupt a paragraph",
+      "> a\n" + "c\n".repeat(1000) + "2. b\n".repeat(490),
+    ],
+  ])("reads %s as plain text", (_name, markdown) => {
+    expect(markdown.length).toBeLessThanOrEqual(PARSE_MAX_LENGTH);
+    expect(measureMarkup(markdown).work).toBeGreaterThan(PARSE_MAX_WORK);
+    expect(parseBody(markdown)).toBeNull();
+  });
+
+  it.each([
+    [
+      "a code block with a deeply indented line",
+      "```\n" + " ".repeat(200) + "x\n```\n" + "some text\n".repeat(900),
+    ],
+    [
+      "CRLF line endings",
+      "> ".repeat(10) + "a\r\n\r\n" + "text\r\n\r\n".repeat(1200),
+    ],
+    [
+      "a quote, a blank line and a long reply",
+      "> quoted\n> more\n\n" + "reply line\n".repeat(900),
+    ],
+    ["code full of markup", "```\n" + "> - *a* [b] _c_\n".repeat(500) + "```"],
+  ])("parses an ordinary message: %s", (_name, markdown) => {
+    expect(markdown.length).toBeLessThanOrEqual(PARSE_MAX_LENGTH);
+    expect(parseBody(markdown)).not.toBeNull();
+  });
 });
 
 describe("plainText of a body read as plain text", () => {
@@ -176,6 +232,21 @@ describe("pathological bodies", () => {
 
   const atLimit = (head: string) => filled(head, PARSE_MAX_LENGTH);
   const half = PARSE_MAX_MARKUP / 2;
+  const withinLimits = (markdown: string): boolean => {
+    const { count, depth, work } = measureMarkup(markdown);
+    return (
+      markdown.length <= PARSE_MAX_LENGTH &&
+      count <= PARSE_MAX_MARKUP &&
+      depth <= PARSE_MAX_DEPTH &&
+      work <= PARSE_MAX_WORK
+    );
+  };
+  // `head` and as many `line`s as are still parsed: one more is read as plain text.
+  const mostLines = (head: string, line: string): string => {
+    let n = 0;
+    while (withinLimits(head + line.repeat(n + 1))) n++;
+    return head + line.repeat(n);
+  };
 
   it.each([
     ["'- ' nesting", atLimit("- ".repeat(PARSE_MAX_DEPTH) + "x")],
@@ -205,6 +276,14 @@ describe("pathological bodies", () => {
       "- ".repeat(PARSE_MAX_DEPTH) +
         "a" +
         "\n".repeat(Math.floor(PARSE_MAX_WORK / (PARSE_MAX_DEPTH + 1)) - 1),
+    ],
+    ["the most lazy lines after a quote", mostLines("> a\n", "b\n")],
+    ["the most indented lazy lines", mostLines("> a\n", "    b&amp;\n")],
+    ["the most lazy lines after a list item", mostLines("- a\n", "b\n")],
+    ["the most quote and lazy lines", mostLines("", "> a\nb\n")],
+    [
+      "the most lazy lines before non-interrupting markers",
+      mostLines("> a\n" + "2. b\n".repeat(490), "c\n"),
     ],
   ])("parses %s at the parse limits in under 100 ms", (_name, markdown) => {
     expect(parseBody(markdown)).not.toBeNull();
