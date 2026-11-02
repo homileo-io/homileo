@@ -15,8 +15,16 @@ const named = async (id: string, displayName: string) => {
   return id;
 };
 
+/** A public session in an organization of its own, with no signed-in participant. */
+const quietRoom = async () => {
+  const org = s.organization();
+  const space = await s.fixtures.space({ org, visibility: "public" });
+  const session = await s.fixtures.session({ space, access: "space" });
+  return { org, space, session };
+};
+
 const setup = async () => {
-  const room = await s.room();
+  const room = await quietRoom();
   const caller = await signIn(room.org, ["homileo.spaces.read"]);
   const join = async (displayName: string, o: { left?: boolean } = {}) => {
     const who = await s.fixtures.principal();
@@ -87,8 +95,10 @@ describe("GET /v1/search/principals", () => {
   it("does not return a principal from another organization", async () => {
     const t = await setup();
     await t.join("Ada Lovelace");
-    const other = await s.room();
-    await named(other.sender.principalId, "Ada Elsewhere");
+    const other = await quietRoom();
+    const elsewhere = await s.fixtures.principal();
+    await named(elsewhere.id, "Ada Elsewhere");
+    await s.fixtures.participant(other.session, elsewhere);
 
     expect(await t.names("ada")).toEqual(["Ada Lovelace"]);
   });
@@ -109,6 +119,14 @@ describe("GET /v1/search/principals", () => {
 
     expect(await t.names("a_b")).toEqual(["a_b"]);
     expect(await t.names("%")).toEqual(["100% Pure"]);
+  });
+
+  it("matches a backslash literally", async () => {
+    const t = await setup();
+    await t.join("a\\b");
+    await t.join("axb");
+
+    expect(await t.names("a\\b")).toEqual(["a\\b"]);
   });
 
   it("limits to 10 by default and to 20 at most", async () => {

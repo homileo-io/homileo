@@ -256,9 +256,9 @@ const escapeLike = (s: string): string => s.replace(/[\\%_]/g, "\\$&");
  * show other organizations' people.
  */
 export const principals = async (
-  client: PrincipalSearch
+  opts: PrincipalSearch
 ): Promise<Principal[]> => {
-  const { caller, granted, q, limit } = client;
+  const { caller, granted, q, limit } = opts;
   const { trigramTerm } = parseSearchQuery(q);
   const escaped = escapeLike(q);
   const trigramMatch =
