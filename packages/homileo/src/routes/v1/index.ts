@@ -8,6 +8,7 @@ import syncRouter from "./sync/index.js";
 import meRouter from "./me/index.js";
 import {
   authenticate,
+  hideRefusalsUnlessReader,
   requireChatReadUnlessSelf,
 } from "../../middleware/auth.js";
 
@@ -26,5 +27,6 @@ v1Router.use("/messages", express.json({ limit: "256kb" }), messagesRouter);
 v1Router.use("/threads", json64k, threadsRouter);
 // GET only: no body to parse.
 v1Router.use("/sync", syncRouter);
+v1Router.use(hideRefusalsUnlessReader);
 
 export default v1Router;

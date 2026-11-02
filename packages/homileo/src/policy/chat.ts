@@ -30,3 +30,9 @@ export const canRemoveWithToken = (c: OrgCaller, targetId: string): boolean =>
  */
 export const canActOnOwnWithToken = (c: OrgCaller, targetId: string): boolean =>
   targetId === c.principalId || canReadChat(c);
+
+/**
+ * Whether a refusal may say why. A caller let into an own-only route without `canReadChat` gets
+ * the same plain 404 for every refusal, so what it was refused cannot show what exists.
+ */
+export const seesRefusalReasons = (c: OrgCaller): boolean => canReadChat(c);

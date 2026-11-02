@@ -188,7 +188,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added` (and `space.join_decided` for the caller's pending request), or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
 | `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` (and `space.join_decided` for a pending request) or `space.member_role_changed` |
-| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
+| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space); only `404` to a token without `homileo.spaces.read` | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
 | `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409 conflict` (already decided), `409 already_member` (deny, for a member), `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
 
@@ -214,9 +214,9 @@ documented oracle (see [access.md](access.md)).
 | `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin or space moderator who cannot read it | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
 | `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant`; a current participant is `200` to any reader, before the policy | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
-| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived or no longer readable) or `canRemoveParticipant` (a space moderator need not read the session) | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
+| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived or no longer readable) or `canRemoveParticipant` (a space moderator need not read the session) | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space); only `404` to a token without `homileo.spaces.read` | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
-| `PUT /sessions/:sessionId/notify` | participant, even one who can no longer read the session | `403 not_a_participant` (also when a leave commits first) | |
+| `PUT /sessions/:sessionId/notify` | participant, even one who can no longer read the session | `403 not_a_participant` (also when a leave commits first); only `404` to a token without `homileo.spaces.read` | |
 | `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `409 too_many_pending_attachments`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
@@ -272,8 +272,8 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   or they are the sender or a bot. A sender's mention emails a reader at most once per
   `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis key per sender and reader), and a send or edit emails at
   most 25 readers: the first it mentions, in body order, that are out of cooldown. When Redis is not
-  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies; a rolled-back
-  send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
+  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies, and the
+  skipped command is not run later on its own connection; a rolled-back send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
   for the root's sender if none exists; an existing row (an unfollow) is left alone.
   `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
   no email.

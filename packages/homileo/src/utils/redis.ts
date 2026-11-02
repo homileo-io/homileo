@@ -19,12 +19,40 @@ redis.on("error", (err) => {
   logger.error({ err }, "Redis client error");
 });
 
+/** How long a mention email cooldown command may take before it fails. */
+export const COOLDOWN_COMMAND_TIMEOUT_MS = 200;
+
+/**
+ * The mention email cooldown's own client. A command on it fails when it is
+ * slower than `COOLDOWN_COMMAND_TIMEOUT_MS` or the connection is not ready,
+ * and one cut off by a dropped connection fails rather than being sent again
+ * on reconnect: the cooldown is skipped, so a late run must not set its keys.
+ */
+export const cooldownRedis = new Redis(env.REDIS_URL, {
+  lazyConnect: true,
+  commandTimeout: COOLDOWN_COMMAND_TIMEOUT_MS,
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 0,
+  autoResendUnfulfilledCommands: false,
+  retryStrategy: redisRetryStrategy,
+});
+
+cooldownRedis.on("error", (err) => {
+  logger.error({ err }, "Redis cooldown client error");
+});
+
+const connectClient = async (client: Redis): Promise<void> => {
+  if (client.status === "wait" || client.status === "end") {
+    await client.connect();
+  }
+};
+
 export const initializeRedis = async (): Promise<void> => {
-  if (redis.status === "ready") {
+  if (redis.status === "ready" && cooldownRedis.status === "ready") {
     logger.warn("Redis client already initialized");
     return;
   }
-  if (redis.status === "wait" || redis.status === "end") await redis.connect();
+  await Promise.all([connectClient(redis), connectClient(cooldownRedis)]);
   await redis.ping();
   logger.info("Redis client initialized and verified");
 };
@@ -54,5 +82,6 @@ export const closeRedisClient = async (client: Redis): Promise<void> => {
   }
 };
 
-export const closeRedisConnection = (): Promise<void> =>
-  closeRedisClient(redis);
+export const closeRedisConnection = async (): Promise<void> => {
+  await Promise.all([closeRedisClient(redis), closeRedisClient(cooldownRedis)]);
+};
