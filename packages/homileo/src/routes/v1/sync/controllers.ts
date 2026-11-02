@@ -112,13 +112,19 @@ export const sync = async (req: Request, res: Response) => {
   );
   const { rows } = page;
   const { until } = query;
+  // No position this database issued lies past the first unassigned transaction id.
+  for (const [path, cursor] of [
+    ["since", after],
+    ["until", until],
+  ] as const) {
+    if (cursor && cursor.txId > page.tail) {
+      throw new ValidationError("Invalid cursor", [
+        { path, message: "Not issued by this database" },
+      ]);
+    }
+  }
   // Every transaction below the horizon has ended, so the read passed `until`
   // once the horizon is at or above it.
-  if (until && until.txId > page.tail) {
-    throw new ValidationError("Invalid cursor", [
-      { path: "until", message: "Not issued by this database" },
-    ]);
-  }
   const waiting = until !== undefined && page.horizon < until.txId;
   const hasMore = page.hasMore || waiting;
   // While more remains, the cursor keeps the time it was issued (as readFrom does).
