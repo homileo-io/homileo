@@ -164,6 +164,11 @@ kind; `externalRef` is unique per kind within the organization.
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
 
+`GET /sessions` pages on `lastMessageAt`, which moves: a session not yet returned that gets a
+message during a page walk moves above the cursor and is skipped by the later pages. A client
+building its full list takes a `/sync` cursor (or opens its socket) before page 1 and adds the
+sessions named by events that arrive during the walk.
+
 A DM is created with `type: "direct"` and a deterministic `direct_key`, so two concurrent requests
 for the same pair produce one session. The key stays taken for good, so a repeat returns the pair's
 one DM: it answers `409 resource_archived` once the DM is archived (the pair cannot start another),
