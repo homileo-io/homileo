@@ -32,6 +32,18 @@ export const insertReaction = async (
   return rows === 1;
 };
 
+/** Raises the message's `reaction_seq`; call under the session lock, once per change. */
+export const bumpReactionSeq = async (
+  tx: Tx,
+  messageId: string
+): Promise<number> => {
+  const [row] = await tx.$queryRaw<Array<{ reaction_seq: bigint }>>`
+    UPDATE "chat"."messages" SET reaction_seq = reaction_seq + 1
+    WHERE id = ${messageId}::uuid
+    RETURNING reaction_seq`;
+  return Number(row.reaction_seq);
+};
+
 /** Removes the caller's reaction; `false` when there was none. */
 export const deleteReaction = async (
   tx: Tx,

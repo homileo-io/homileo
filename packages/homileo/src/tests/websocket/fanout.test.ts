@@ -3,9 +3,9 @@
 // @module-tag events
 import { deleteMessage, sendMessage } from "../support/messageApi.js";
 import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
+import { drainSync, syncHead, syncTail } from "../support/sync.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
-import { drainSync, syncHead } from "../support/sync.js";
 import { startV1App } from "../support/v1App.js";
 import {
   collect,
@@ -183,11 +183,39 @@ describe("startFanout", () => {
         id: sent.id,
         body: null,
       });
-      const { events } = await drainSync(mentioned.token, since, {}, app.url);
+      const { events } = await drainSync(
+        mentioned.token,
+        since,
+        { until: await syncTail() },
+        app.url
+      );
       expect(events.map((e) => e.type)).toEqual([
         "message.created",
         "message.deleted",
       ]);
+    });
+
+    it("asks no other node for the sockets of mentioned participants: their session room reaches them", async () => {
+      const session = await fixtures.session({ org, type: "group" });
+      await fixtures.participant(session, owner.principal, "owner");
+      const mentioned = await api.actor(org);
+      await fixtures.participant(session, mentioned.principal);
+      const arriving = nextEvent<JsonResponse["body"]>(
+        await connect(mentioned),
+        "message.created"
+      );
+      const adapter = local.io.of("/").adapter;
+      const fetches = vi.spyOn(adapter, "fetchSockets");
+
+      const sent = await send(
+        session.id,
+        owner,
+        `hi <@${mentioned.principal.id}>`
+      );
+
+      expect((await arriving).payload.message.id).toBe(sent.id);
+      expect(fetches.mock.calls.filter(([o]) => !o.flags?.local)).toEqual([]);
+      fetches.mockRestore();
     });
 
     it("does not send a mention to a principal who cannot read the session", async () => {

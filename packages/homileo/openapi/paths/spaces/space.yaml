@@ -5,7 +5,7 @@
     description: |
       One space and the caller's role in it. An archived space can still be read.
 
-      **Required permissions:** none; the caller must be able to read the space (a member, any
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be able to read the space (a member, any
       reader of a `public` space, the holder of a grant of its kind, or a `homileo.chat.admin`).
       A space the caller cannot read is a 404.
     operationId: getSpace
@@ -20,6 +20,7 @@
               $ref: '../../components/spaces/schemas.yaml#/GetSpaceResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
@@ -37,7 +38,7 @@
 
       **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
       `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
-      `409 resource_archived`.
+      `409 resource_archived` (checked before the moderation check).
     operationId: updateSpace
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'

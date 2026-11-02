@@ -46,6 +46,16 @@ describe("metadataSchema", () => {
     expect(metadataSchema.safeParse(value).success).toBe(false);
   });
 
+  it("answers thousands of bad keys with one issue", () => {
+    const bad = Object.fromEntries(
+      Array.from({ length: 25_000 }, (_, i) => [`${i}bad`, i])
+    );
+    const result = metadataSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+    expect(result.error!.issues).toHaveLength(1);
+    expect(result.error!.issues[0]!.message).toBe("At most 50 keys");
+  });
+
   it("accepts a value nested JSON_MAX_DEPTH levels deep", () => {
     expect(
       metadataSchema.safeParse({ deep: nested(JSON_MAX_DEPTH) }).success

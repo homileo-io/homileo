@@ -6,7 +6,7 @@
       The caller's principal, created on the first request of a signed-in tereo user, with the
       organization and permissions of the token.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: getMe
     responses:
       '200':
@@ -17,5 +17,6 @@
               $ref: '../../components/platform/schemas.yaml#/MeResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

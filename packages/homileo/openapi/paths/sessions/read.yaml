@@ -7,7 +7,7 @@
       `lastSeq`. Records `read.updated` only when the position moved. A caller who can read the
       session but is not a participant gets `403 not_a_participant`.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: putSessionRead
     parameters:
       - name: sessionId

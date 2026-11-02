@@ -1,8 +1,9 @@
+import { InvalidAuditEntryError, HttpError } from "@tereo-io/sdk";
 import { Response, Request, NextFunction } from "express";
-import { InvalidAuditEntryError } from "@tereo-io/sdk";
 import { logger } from "./logger.js";
 import { ZodError } from "zod";
 import {
+  errorChain,
   isForeignKeyConstraintError,
   isUniqueConstraintError,
   pgErrorCodes,
@@ -38,8 +39,20 @@ export interface ValidationIssue {
   message: string;
 }
 
+/** The most issues an error lists; a 400's `error_description` says how many it left out. */
+export const MAX_ISSUES = 20;
+/** The most characters of an issue's path or message: a path holds the request's own keys. */
+export const MAX_ISSUE_CHARS = 256;
+
+export const truncate = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+/** The first `MAX_ISSUES` of the error's issues, each cut to `MAX_ISSUE_CHARS`. */
 export const issuesOf = (error: ZodError): ValidationIssue[] =>
-  error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+  error.issues.slice(0, MAX_ISSUES).map((i) => ({
+    path: truncate(i.path.join("."), MAX_ISSUE_CHARS),
+    message: truncate(i.message, MAX_ISSUE_CHARS),
+  }));
 
 export class ValidationError extends AppError {
   constructor(message: string, issues?: ValidationIssue[]) {
@@ -188,55 +201,56 @@ export class ServiceUnavailableError extends AppError {
 
 const BUSY_RETRY_AFTER_SECONDS = 1;
 
-// pg-pool's error for a connection it could not hand out in time carries no code.
-const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
+// pg-pool's errors carry no code: the first for a connection it could not hand
+// out in time, the second for a new one whose connect ran past the timeout.
+const CONNECT_TIMEOUT_MESSAGES = [
+  "timeout exceeded when trying to connect",
+  "Connection terminated due to connection timeout",
+];
 
-const isPoolTimeout = (err: unknown): boolean => {
-  const seen = new Set<unknown>();
-  for (let e = err; e instanceof Error && !seen.has(e); e = e.cause) {
-    seen.add(e);
-    if (e.message === POOL_TIMEOUT_MESSAGE) return true;
-  }
-  return false;
+// P2028: a transaction that could not start, or expired. 55P03: a lock wait
+// past `lock_timeout`. 53300 (P2037 through Prisma): too many connections.
+// 57P03: the server is starting up or shutting down.
+const BUSY_CODES = ["P2028", "55P03", "53300", "P2037", "57P03"];
+
+/**
+ * The database was too busy, not wrong. Each case rolled back or never reached
+ * the database, so the request can be retried.
+ */
+export const isDatabaseBusy = (err: unknown): boolean =>
+  pgErrorCodes(err).some((code) => BUSY_CODES.includes(code)) ||
+  errorChain(err).some(
+    (e) =>
+      typeof e.message === "string" &&
+      CONNECT_TIMEOUT_MESSAGES.includes(e.message)
+  );
+
+// Prisma's P2034 from its own queries; 40P01 (deadlock) and 40001
+// (serialization failure) through the adapter, wrapped in P2010 for raw SQL.
+const CONFLICT_CODES = ["P2034", "40P01", "40001"];
+
+// The only codes a library's HTTP-shaped error answers with, each under its
+// own status: tereo's auth middleware throws these.
+const LIBRARY_ERROR_STATUS: Record<string, number> = {
+  unauthorized: 401,
+  forbidden: 403,
+  not_found: 404,
 };
 
 /**
- * The database was too busy, not wrong: a transaction that could not start or
- * expired (P2028), a lock wait past `lock_timeout` (55P03), or no pool
- * connection in time. Each rolled back, so the request can be retried.
+ * The SDK auth middleware's 401, 403 or 404 (`HttpError`), meant for the client. A tereo
+ * `RequestError` never is: it is a failed call to tereo, and its code and message are the SDK's.
  */
-export const isDatabaseBusy = (err: unknown): boolean => {
-  const codes = pgErrorCodes(err);
-  return (
-    codes.includes("P2028") || codes.includes("55P03") || isPoolTimeout(err)
-  );
-};
-
-/**
- * An AppError, or anything shaped like one — a library error carrying an HTTP
- * status. Prisma errors have a string `code` but no `statusCode`, so they fall
- * through to their own branch below.
- */
-const isAppErrorLike = (
-  err: unknown
-): err is Error & { statusCode: number; code: string } => {
-  if (err instanceof AppError) return true;
-  const { statusCode, code } = (err ?? {}) as {
-    statusCode?: unknown;
-    code?: unknown;
-  };
-  return (
-    Number.isInteger(statusCode) &&
-    (statusCode as number) >= 400 &&
-    (statusCode as number) <= 599 &&
-    typeof code === "string"
-  );
-};
+const isClientFacingLibraryError = (err: unknown): err is HttpError =>
+  err instanceof HttpError &&
+  Object.hasOwn(LIBRARY_ERROR_STATUS, err.code) &&
+  LIBRARY_ERROR_STATUS[err.code] === err.statusCode;
 
 /**
  * A body-parser (`express.json` / `express.urlencoded`) rejection: an
  * http-errors 4xx with a string `type` such as `entity.parse.failed` or
- * `entity.too.large`, but no `code`.
+ * `entity.too.large`, but no `code`. All but a body too large answer 400, an
+ * unsupported charset or encoding (body-parser's 415) included.
  */
 const bodyParserError = (
   err: unknown
@@ -269,7 +283,7 @@ const bodyParserError = (
     };
   }
   return {
-    status: status as number,
+    status: 400,
     code: "invalid_request",
     message:
       expose === true && err instanceof Error
@@ -312,7 +326,7 @@ const errorResponse = (err: Error): ErrorResponse => {
     };
   }
 
-  if (isAppErrorLike(err)) {
+  if (isClientFacingLibraryError(err)) {
     return { status: err.statusCode, code: err.code, message: err.message };
   }
 
@@ -334,10 +348,8 @@ const errorResponse = (err: Error): ErrorResponse => {
     };
   }
 
-  // A write conflict or deadlock (P2034): retryable, so 409 lets clients
-  // back off and retry.
-  const prismaCode = (err as { code?: unknown }).code;
-  if (prismaCode === "P2034") {
+  // Retryable, so 409 lets clients back off and retry.
+  if (pgErrorCodes(err).some((code) => CONFLICT_CODES.includes(code))) {
     return {
       status: 409,
       code: "version_conflict",
@@ -348,7 +360,7 @@ const errorResponse = (err: Error): ErrorResponse => {
 
   // An update or delete whose row was not there (P2025) that no caller
   // mapped: the row is gone, typically deleted since the request read it.
-  if (prismaCode === "P2025") {
+  if ((err as { code?: unknown }).code === "P2025") {
     return { status: 404, code: "not_found", message: "Not found" };
   }
 

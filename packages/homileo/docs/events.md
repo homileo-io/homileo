@@ -1,8 +1,16 @@
 # Events
 
-Every change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
+A change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
 the change by `recordChange` (`src/utils/changes.ts`). Realtime pushes, `GET /v1/sync` and webhooks
 all carry these events, with the same ids.
+
+A few changes record no event, as no client needs to follow them:
+
+- a session's notification setting (`PUT /v1/sessions/:id/notify`);
+- following or unfollowing a thread (`PUT /v1/threads/:id/follow`);
+- the owner promotion when the last owner of a space-less group leaves or is removed (the
+  `session.participant_removed` is recorded; the promoted participant's new role is not);
+- the sender's read position moving on send (no `read.updated`).
 
 ## Registry
 
@@ -31,7 +39,7 @@ Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionS
 | `session.participant_added` | `{ sessionId, participant }` |
 | `session.participant_removed` | `{ sessionId, principalId }` |
 | `message.created`, `message.edited`, `message.deleted` | `{ message }` |
-| `reaction.added`, `reaction.removed` | `{ sessionId, messageId, principalId, emoji }` |
+| `reaction.added`, `reaction.removed` | `{ sessionId, messageId, principalId, emoji, reactions, reactionSeq }`: the message's whole summary after the change, and its version |
 | `thread.updated` | `{ sessionId, rootId, replyCount, lastReplyAt }` |
 | `read.updated` | `{ principalId, sessionId, threadRootId, lastReadSeq }` |
 | `space.access_revoked` | `{ principalId, spaceId }` |
@@ -41,6 +49,11 @@ The stored `{ message }` is the view at commit, and sockets and webhooks deliver
 `/sync` instead returns each message event with the message's current view, as REST shows it now
 (a deleted message's deleted view, an edited one's latest revision): see
 [realtime.md](realtime.md#get-v1sync).
+
+Reaction state converges by `reactionSeq`, not by applying reaction events as deltas: a client
+keeps the summary with the highest `reactionSeq`, from any message view or reaction event (see
+[realtime.md](realtime.md#reactions)). A webhook consumer does the same, since deliveries are not
+ordered either.
 
 `message.created` and `message.deleted` of a reply are recorded before the reply's `thread.updated`,
 so a consumer never sees a `replyCount` for a reply it has not received.
@@ -77,8 +90,9 @@ await withChanges(async (tx, record) => {
 
 `recordChange(tx, change)`:
 
-1. Parses `payload` with the type's schema; a rejected payload throws `ValidationError` and nothing
-   is written.
+1. Parses `payload` with the type's schema. The payload is built by Homileo, not taken from the
+   request, so a rejected one is a bug: it throws a plain `Error`, the request answers
+   `500 server_error`, and nothing is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
    `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from
@@ -87,6 +101,14 @@ await withChanges(async (tx, record) => {
    `organizationId`, `entityType` and `entityId`; the SDK sets `source` from the service slug.
 
 It returns the event, with its `bigint` id, so the caller can publish it to sockets after commit.
+
+`recordChanges(tx, changes)` (`record.many` in `withChanges`) does the same for many changes in a
+fixed number of statements: every payload is parsed first, then one `INSERT … SELECT FROM unnest`
+writes the events (ids in the order given), the session access behind the private webhook names is
+read once, and the SDK's `emit` and `audit` rows go into the outbox in one more insert
+(`utils/outboxCollector.ts` collects the rows the SDK builds; `utils/outboxCollector.unit.test.ts` runs the real SDK writers against it). A change that records one event per
+session, such as removing a space member, uses it, so thousands of sessions fit in
+`DB_TRANSACTION_TIMEOUT_MS`. `recordChange` is the one-change case.
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so
 they increase in allocation order, which is not always commit order: an event can become visible
 after one with a higher id. A `/sync` cursor that is only "the highest id seen" would then skip it,

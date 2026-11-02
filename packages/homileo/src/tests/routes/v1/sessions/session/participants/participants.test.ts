@@ -2,6 +2,8 @@
 // @module-tag sessions
 import { purgeOrganizations, signIn } from "../../../../../support/signedIn.js";
 import { chatFixtures } from "../../../../../support/chatFixtures.js";
+import { byId, walkPages } from "../../../../../support/pages.js";
+import { prisma } from "../../../../../../utils/db/prisma.js";
 import { fetchJson } from "../../../../../support/http.js";
 import { afterAll, describe, expect, it } from "vitest";
 import env from "../../../../../../env.js";
@@ -64,6 +66,49 @@ describe("GET /v1/sessions/:sessionId/participants", () => {
     );
     expect(new Set(ids).size).toBe(3);
   });
+
+  it.each([1, 2, 4])(
+    "walks every current participant once, in order, with ties in joined_at, %i a page",
+    async (limit) => {
+      const me = await signIn(org);
+      const s = await fixtures.session({ org });
+      const times = [-3, -2, -2, -2, -1, -1, -1].map(
+        (t) => new Date(Date.UTC(2026, 0, 1) + t * 1000)
+      );
+      const everyone = [{ id: me.principalId }];
+      for (let i = 1; i < times.length; i++) {
+        everyone.push(await fixtures.principal());
+      }
+      await prisma.sessionParticipant.createMany({
+        data: everyone.map((p, i) => ({
+          sessionId: s.id,
+          userId: p.id,
+          joinedAt: times[i],
+          leftAt: i === 2 ? new Date() : null,
+        })),
+      });
+      const rows = await prisma.sessionParticipant.findMany({
+        where: { sessionId: s.id, leftAt: null },
+      });
+      const expected = rows
+        .sort(
+          (a, b) =>
+            a.joinedAt.getTime() - b.joinedAt.getTime() ||
+            byId(a.userId, b.userId)
+        )
+        .map((r) => r.userId);
+
+      const { ids, pages } = await walkPages(
+        me.token,
+        (cursor) =>
+          url(s.id, `?limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`),
+        (p) => String(p.principalId)
+      );
+
+      expect(ids).toEqual(expected);
+      expect(pages).toBe(Math.ceil(expected.length / limit));
+    }
+  );
 
   it("answers 400 to a malformed cursor and 404 to someone who cannot read the session", async () => {
     const me = await signIn(org);

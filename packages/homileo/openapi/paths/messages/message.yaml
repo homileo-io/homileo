@@ -6,7 +6,7 @@
       A message the caller can read. A deleted message is returned with `body`, `payload`,
       `metadata` (as `{}`), `attachments` and `reactions` cleared and `deletedAt` set.
 
-      **Required permissions:** none; the caller must be able to read the message's session.
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be able to read the message's session.
       Anything else is `404`.
     operationId: getMessage
     parameters:
@@ -20,6 +20,7 @@
               $ref: '../../components/messages/schemas.yaml#/MessageResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
@@ -76,8 +77,10 @@
       `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
       reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
-      The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
-      already deleted message is `409 resource_archived`; any other refusal is `403`.
+      The sender (while a participant) may delete. In a space, so may whoever can moderate it, even
+      in an `access: members` session they cannot read; such a caller gets `204` with no body
+      instead of the message's view. An already deleted message is `409 resource_archived`; any
+      other refusal is `403`.
 
       Records `message.deleted` (and `thread.updated` for a reply), emitting
       `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
@@ -94,6 +97,7 @@
           application/json:
             schema:
               $ref: '../../components/messages/schemas.yaml#/MessageResponse'
+      '204': { $ref: '../../components/responses.yaml#/NoContentResponse' }
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }

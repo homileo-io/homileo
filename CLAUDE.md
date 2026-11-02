@@ -38,7 +38,9 @@ The plans are beside it in `docs/superpowers/plans/`.
   transaction it inserts into `chat.events` and writes tereo's outbox rows (webhook and, when asked,
   audit). Realtime, `GET /v1/sync` and webhooks carry the same events with the same ids.
 - **Access checks only through `src/policy/`.** Routes, controllers, sockets and search call the
-  policy; none of them inlines a visibility, role or grant check.
+  policy; none of them inlines a visibility, role or grant check. The readable-space and
+  readable-session SQL conditions (`readableSpaceWhere`, `readableSessionWhere`, in `policy/sql.ts`)
+  are the policy's SQL form, and change with it.
 - **Contract types live in `@homileo-io/sdk`**: the event registry (`EVENT_TYPES`, one Zod schema
   per event) and the provisioning document schema. The service imports them; it does not define
   its own copies.
@@ -59,8 +61,8 @@ One ordinary package, shared by every area:
 | `src/index.ts` / `app.ts` / `worker.ts` | Entry point, Express app, background work. `ROLE` = `all` / `api` / `worker` |
 | `src/env.ts` | The one env schema. `src/preload.ts` must be the first import of every entry point |
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
-| `src/middleware/auth.ts` | `authenticate`, `callerOf` |
-| `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`. The "readable sessions" SQL condition arrives in plan 4; until then lists filter through `readableSessions` (`utils/access.ts`) |
+| `src/middleware/auth.ts` | `authenticate`, `callerOf`, `principalOf`, `callerFromToken` (sockets), and the token gates `requireChatReadUnlessSelf`, `requireChatWrite`, `requireChatWriteUnlessSelf` |
+| `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`, `chat.ts` (the token-level rules `canReadChat`, `canWriteChat`, `canRemoveWithToken`, `canActOnOwnWithToken`, which the gates in `middleware/auth.ts` apply), and `sql.ts` (`readableSpaceWhere`, `readableSessionWhere`: the same rules as a Prisma `where`, for lists) |
 | `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`, `sync/`) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
 | `src/websocket/` | socket.io on `/ws` (Redis adapter): `auth.ts` handshake, `rooms.ts` joins and re-checks, `subscriptions.ts`, `fanout.ts` (pushes `changeBus` batches), `ephemeral.ts` (typing, presence), `limits.ts` |
@@ -90,7 +92,14 @@ One ordinary package, shared by every area:
   may not see is a 404.
 - **Auth**: `authenticate` (tereo's `requireAuth`, then the principal) refuses a token without `org_id`, and sits once on the `/v1`
   router: the organization is the token's `org_id` only, and a token without one (person or service
-  account) gets 400 `organization_required`. Permissions are
+  account) gets 400 `organization_required`. The token gates follow, all in `middleware/auth.ts`
+  and deciding through `policy/chat.ts`, all 403 `forbidden` before validation or any lookup:
+  `requireChatReadUnlessSelf` (`canReadChat`, once on `/v1` after `authenticate`; the socket
+  handshake asks `canReadChat` too) needs `homileo.spaces.read` for everything but leaving and
+  muting oneself (`canActOnOwnWithToken`); `requireChatWrite` (`canWriteChat`, per route) needs
+  `homileo.spaces.write` for changes to shared chat state, and `requireChatWriteUnlessSelf`
+  (`canRemoveWithToken`) is the same for removals, except of oneself. `homileo.chat.admin` passes
+  both, and still reads no DM. Permissions are
   tereo's dotted, hierarchical form (`utils/permissions.ts`): `write` includes `read`, `admin`
   includes all. There is no test-mode shortcut in the service: tests use `@tereo-io/sdk` test
   tokens (`test-token-<uuid>|org=<uuid>|perms=a,b`; a service account is

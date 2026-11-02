@@ -64,6 +64,8 @@ describe("reaction events", () => {
       messageId: id,
       principalId: me.principalId,
       emoji: "👍",
+      reactions: [{ emoji: "👍", count: 1, principalIds: [me.principalId] }],
+      reactionSeq: 1,
     });
     const rows = await outbox(org, id);
     expect(rows.map((r) => r.payload.eventType)).toEqual([
@@ -88,7 +90,12 @@ describe("reaction events", () => {
     ]);
     expect(
       EVENT_TYPES["reaction.removed"].payload.parse(events[1].payload)
-    ).toMatchObject({ messageId: id, emoji: ":ok:" });
+    ).toMatchObject({
+      messageId: id,
+      emoji: ":ok:",
+      reactions: [],
+      reactionSeq: 2,
+    });
   });
 
   it("records nothing for a refused reaction", async () => {

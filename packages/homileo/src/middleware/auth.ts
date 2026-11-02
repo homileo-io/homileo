@@ -1,19 +1,28 @@
-import { canRemoveWithToken, canWriteChat } from "../policy/chat.js";
+import type { ErrorRequestHandler, RequestHandler, Request } from "express";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
-import type { RequestHandler, Request } from "express";
 import type { AuthContext } from "@tereo-io/sdk";
+import { IdSchema } from "../utils/idSchema.js";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
 import {
   CHAT_ADMIN_PERMISSION,
+  SPACES_READ_PERMISSION,
   SPACES_WRITE_PERMISSION,
 } from "../definitions/tereoDeclaration.js";
 import {
   AppError,
   ForbiddenError,
+  NotFoundError,
   UnauthorizedError,
 } from "../utils/errors.js";
+import {
+  canActOnOwnWithToken,
+  canRemoveWithToken,
+  canWriteChat,
+  canReadChat,
+  seesRefusalReasons,
+} from "../policy/chat.js";
 
 export interface Caller {
   principalId: string;
@@ -127,6 +136,93 @@ export const principalOf = (req: Request): Principal => {
   return req.principal;
 };
 
+const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * The `/v1` routes that act only on one principal's own membership or participation, and where
+ * that principal is: a path segment, or the caller itself. Case-insensitive with an optional
+ * trailing slash, as Express routes; any other spelling of the path stays read-gated.
+ */
+const OWN_ONLY_ROUTES: readonly {
+  method: string;
+  path: RegExp;
+  target: "caller" | number;
+}[] = [
+  {
+    method: "DELETE",
+    path: new RegExp(`^/spaces/${GUID}/members/(${GUID})/?$`, "i"),
+    target: 1,
+  },
+  {
+    method: "DELETE",
+    path: new RegExp(`^/sessions/${GUID}/participants/(${GUID})/?$`, "i"),
+    target: 1,
+  },
+  {
+    method: "PUT",
+    path: new RegExp(`^/sessions/${GUID}/notify/?$`, "i"),
+    target: "caller",
+  },
+];
+
+/** The principal an own-only route acts on, or null when the request is not one. */
+const ownOnlyTarget = (req: Request, caller: Caller): string | null => {
+  for (const route of OWN_ONLY_ROUTES) {
+    if (req.method !== route.method) continue;
+    const match = route.path.exec(req.path);
+    if (!match) continue;
+    return route.target === "caller"
+      ? caller.principalId
+      : match[route.target]!.toLowerCase();
+  }
+  return null;
+};
+
+/**
+ * Refuses (403) a caller whose token may not use chat (`canReadChat`), except on a route that
+ * leaves or mutes the caller's own membership (`canActOnOwnWithToken`). Mounted once on `/v1`,
+ * where `req.path` is relative to it; needs `authenticate` before it.
+ */
+export const requireChatReadUnlessSelf: RequestHandler = (req, _res, next) => {
+  try {
+    const caller = callerOf(req);
+    const target = ownOnlyTarget(req, caller);
+    const allowed =
+      target === null
+        ? canReadChat(caller)
+        : canActOnOwnWithToken(caller, target);
+    if (!allowed) {
+      throw new ForbiddenError(
+        `Requires the ${SPACES_READ_PERMISSION} permission`
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Error middleware for `/v1`, after its routes: a request let through `requireChatReadUnlessSelf`
+ * only because it acts on the caller's own membership gets one plain 404 for any refusal
+ * (`seesRefusalReasons`), whether the space, session, member or participant was missing.
+ */
+export const hideRefusalsUnlessReader: ErrorRequestHandler = (
+  err,
+  req,
+  _res,
+  next
+) => {
+  const caller = req.caller;
+  const hide =
+    caller !== undefined &&
+    err instanceof AppError &&
+    err.statusCode < 500 &&
+    !seesRefusalReasons(caller) &&
+    ownOnlyTarget(req, caller) === caller.principalId;
+  next(hide ? new NotFoundError() : err);
+};
+
 /** Refuses (403) a caller whose token may only read chat (`canWriteChat`); needs `authenticate` before it. */
 export const requireChatWrite: RequestHandler = (req, _res, next) => {
   try {
@@ -144,7 +240,10 @@ export const requireChatWrite: RequestHandler = (req, _res, next) => {
 /** `requireChatWrite` for a removal route: a read-only caller may still remove itself (`:principalId`). */
 export const requireChatWriteUnlessSelf: RequestHandler = (req, _res, next) => {
   try {
-    if (!canRemoveWithToken(callerOf(req), String(req.params.principalId))) {
+    // As the route's params schema will read it, so an upper-case own id is still the caller.
+    const target = IdSchema.safeParse(req.params.principalId);
+    const targetId = target.success ? target.data : "";
+    if (!canRemoveWithToken(callerOf(req), targetId)) {
       throw new ForbiddenError(
         `Requires the ${SPACES_WRITE_PERMISSION} permission`
       );

@@ -2,6 +2,7 @@
 // @module-tag sessions
 // @module-tag messages
 import { purgeOrganizations, signIn } from "../../../../../support/signedIn.js";
+import { MENTION_EMAILS_MAX } from "../../../../../../utils/notifyMentions.js";
 import { chatFixtures } from "../../../../../support/chatFixtures.js";
 import { prisma } from "../../../../../../utils/db/prisma.js";
 import { afterAll, describe, expect, it } from "vitest";
@@ -516,8 +517,12 @@ describe("mentions", () => {
         .map((p) => p.id)
         .sort()
     );
-    expect(await notificationsTo(people[100].tereoUserId!)).toEqual([]);
-    expect(await notificationsTo(people[99].tereoUserId!)).toHaveLength(1);
+    const emailed = await Promise.all(
+      people.map(async (p) => (await notificationsTo(p.tereoUserId!)).length)
+    );
+    expect(emailed).toEqual(
+      people.map((_, i) => (i < MENTION_EMAILS_MAX ? 1 : 0))
+    );
     const row = await prisma.message.findUniqueOrThrow({
       where: { id: sent.body.message.id },
     });

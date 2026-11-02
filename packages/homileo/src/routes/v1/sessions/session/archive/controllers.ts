@@ -24,7 +24,7 @@ export const archiveSession = async (req: Request, res: Response) => {
     const { facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
-      adminManage: true,
+      manage: true,
     });
     if (!canArchiveSession(caller, facts)) {
       throw new ForbiddenError("You may not archive this session");
@@ -49,7 +49,7 @@ export const archiveSession = async (req: Request, res: Response) => {
     return { session: row, readable: canReadSession(caller, facts) };
   });
 
-  // An admin archiving a session it cannot read (a DM, a space-less group) gets no view of it.
+  // An admin or moderator archiving a session it cannot read gets no view of it.
   if (!readable) {
     res.status(204).end();
     return;

@@ -47,7 +47,10 @@ describe("reading a members-only session in a public space", () => {
     const s = await fixtures.session({ org, space, access: "members" });
     const outsider = await signIn(org);
     const participant = await signIn(org);
-    const holder = await signIn(org, ["sessions-perm.read"]);
+    const holder = await signIn(org, [
+      "sessions-perm.read",
+      "homileo.spaces.read",
+    ]);
     const admin = await signIn(org, ["homileo.chat.admin"]);
     await fixtures.participant(s, { id: participant.principalId });
 

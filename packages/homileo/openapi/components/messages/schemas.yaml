@@ -19,7 +19,12 @@ CreateAttachmentRequest:
       maxLength: 255
       pattern: '^[^/\x00-\x1f\x7f]+$'
       description: Kept as the attachment's default filename; no slash or control characters
-    contentType: { type: string, minLength: 1, maxLength: 255 }
+    contentType:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}(?:[ \t]*;[ \t]*[A-Za-z0-9!#$&^_.+-]+=(?:[A-Za-z0-9!#$&^_.+-]+|"[^"\\\r\n]*"))*$'
+      description: A media type, as `image/png` or `text/plain; charset=utf-8`
 
 CreateAttachmentResponse:
   type: object
@@ -55,7 +60,7 @@ Message:
     A message in a session. A reply has `threadRootId`; a deleted message has an empty `body`,
     `deletedAt` set, and no attachments or reactions.
   required:
-    [id, sessionId, seq, senderId, clientMessageId, type, body, payload, metadata, threadRootId, replyCount, lastReplyAt, revision, createdAt, editedAt, deletedAt, deletedBy, attachments, reactions]
+    [id, sessionId, seq, senderId, clientMessageId, type, body, payload, metadata, threadRootId, replyCount, lastReplyAt, revision, createdAt, editedAt, deletedAt, deletedBy, attachments, reactions, reactionSeq]
   properties:
     id: { type: string, format: uuid }
     sessionId: { type: string, format: uuid }
@@ -90,6 +95,19 @@ Message:
     reactions:
       type: array
       items: { $ref: '#/ReactionSummary' }
+    reactionSeq: { $ref: '#/ReactionSeq' }
+
+ReactionSeq:
+  type: integer
+  minimum: 0
+  description: |
+    The version of the message's reactions: every reaction added or removed, and the delete,
+    raises it by one. Of two summaries of one message, from message views, reaction events or the
+    reaction routes, the one with the higher `reactionSeq` is newer, whatever order they arrive
+    in; a client keeps the summary with the highest it has seen, takes the first it sees for a
+    message it holds none for, and ignores one with an equal `reactionSeq` (equal means the same
+    reactions). Each summary is exact for the `reactionSeq` beside it. A reaction event carries the
+    whole summary: up to 50 emoji of up to 50 reactors each, about 110 KB at most.
 
 SendMessageRequest:
   type: object
@@ -275,20 +293,26 @@ ListMessageRevisionsResponse:
 
 ReactionsResponse:
   type: object
-  required: [reactions]
+  required: [reactions, reactionSeq]
   properties:
     reactions:
       type: array
       description: The message's reactions after the change
       items: { $ref: '#/ReactionSummary' }
+    reactionSeq: { $ref: '#/ReactionSeq' }
 
 ReactionEventData:
   type: object
   description: The data of `reaction.added` and `reaction.removed`
-  required: [sessionId, messageId, principalId, emoji, eventId]
+  required: [sessionId, messageId, principalId, emoji, reactions, reactionSeq, eventId]
   properties:
     sessionId: { type: string, format: uuid }
     messageId: { type: string, format: uuid }
     principalId: { type: string, format: uuid }
     emoji: { type: string }
+    reactions:
+      type: array
+      description: The message's whole summary after this change, as the reaction routes answer it
+      items: { $ref: '#/ReactionSummary' }
+    reactionSeq: { $ref: '#/ReactionSeq' }
     eventId: { type: string }

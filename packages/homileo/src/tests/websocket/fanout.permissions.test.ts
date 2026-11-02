@@ -1,7 +1,6 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag access
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sessionRoom, spaceOfRoom, spaceRoom } from "../../realtime/rooms.js";
 import { editMessage, sendMessage } from "../support/messageApi.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
@@ -21,6 +20,15 @@ import {
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const api = spaceApiFixtures();
 const { fixtures } = api;
@@ -135,7 +143,7 @@ describe("startFanout losing access", () => {
     const session = await fixtures.session({ space, access: "members" });
     await fixtures.member(space, owner.principal, "owner");
     await fixtures.participant(session, owner.principal, "owner");
-    const granted = await api.actor(org, [permission]);
+    const granted = await api.actor(org, [permission, "homileo.spaces.read"]);
     const plain = await api.actor(org);
     await fixtures.participant(session, granted.principal);
     await fixtures.participant(session, plain.principal);
@@ -248,6 +256,29 @@ describe("startFanout losing access", () => {
     const silent = noEvent(socket, "message.created", 500);
     await send(session.id, owner, "after the removal");
     await silent;
+  });
+
+  it("joins a new participant's socket on another node by its id, not through its personal room, and its removal leaves", async () => {
+    const session = await fixtures.session({ org, type: "group" });
+    await fixtures.participant(session, owner.principal, "owner");
+    const alice = await api.actor(org);
+    const socket = await connect(alice, other);
+    const rooms = () => serverSocket(socket, other).rooms;
+    const adapter = local.io.of("/").adapter;
+    const joins = vi.spyOn(adapter, "addSockets");
+    const url = `${app.url}/v1/sessions/${session.id}/participants/${alice.principal.id}`;
+
+    const put = await fetchJson("PUT", url, owner.token);
+    expect(put.status, JSON.stringify(put.body)).toBe(201);
+    await eventually(() => rooms().has(sessionRoom(session.id)));
+
+    expect(joins.mock.calls.map(([opts]) => [...opts.rooms])).toEqual([
+      [socket.id],
+    ]);
+    joins.mockRestore();
+    const removed = await fetchJson("DELETE", url, owner.token);
+    expect(removed.status, JSON.stringify(removed.body)).toBe(204);
+    await eventually(() => !rooms().has(sessionRoom(session.id)));
   });
 });
 

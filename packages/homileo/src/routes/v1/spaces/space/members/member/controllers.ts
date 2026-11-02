@@ -1,6 +1,7 @@
 import { approvePendingJoinRequest } from "../../../../../../utils/joinRequests.js";
 import type { SpaceFacts, SpaceRole } from "../../../../../../policy/index.js";
 import { callerOf, type Caller } from "../../../../../../middleware/auth.js";
+import type { ChangeInput } from "../../../../../../utils/changes.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
 import { MemberParamsSchema, PutMemberSchema } from "./schemas.js";
 import type { Prisma } from "../../../../../../utils/db/prisma.js";
@@ -178,27 +179,27 @@ export const removeMember = async (req: Request, res: Response) => {
       spaceId,
       actorId: caller.principalId,
     };
-    await record({
-      ...base,
-      type: "space.member_removed",
-      entity: { type: "space", id: spaceId },
-      payload: { spaceId, principalId },
-      audit: { action: "DELETE", userId: caller.tereoUserId },
-    });
-    for (const sessionId of sessionIds) {
-      await record({
+    // One batch, so thousands of sessions fit in the transaction's time limit.
+    const changes: ChangeInput[] = [
+      {
+        ...base,
+        type: "space.member_removed",
+        entity: { type: "space", id: spaceId },
+        payload: { spaceId, principalId },
+        audit: { action: "DELETE", userId: caller.tereoUserId },
+      },
+      ...sessionIds.map((sessionId): ChangeInput => ({
         ...base,
         type: "session.participant_removed",
         sessionId,
         entity: { type: "session", id: sessionId },
         payload: { sessionId, principalId },
-      });
-    }
+      })),
+    ];
 
     const judged = judgedAs(caller, principalId);
-    const readsSpace = stillReadsSpace(judged, facts);
-    if (!readsSpace) {
-      await record({
+    if (!stillReadsSpace(judged, facts)) {
+      changes.push({
         ...base,
         type: "space.access_revoked",
         entity: { type: "space", id: spaceId },
@@ -215,7 +216,7 @@ export const removeMember = async (req: Request, res: Response) => {
         sessionFactsFor(session, { ...facts, role: null }, null)
       );
       if (readable) continue;
-      await record({
+      changes.push({
         ...base,
         type: "session.access_revoked",
         sessionId: session.id,
@@ -223,6 +224,7 @@ export const removeMember = async (req: Request, res: Response) => {
         payload: { principalId, sessionId: session.id },
       });
     }
+    await record.many(changes);
   });
 
   res.status(204).end();

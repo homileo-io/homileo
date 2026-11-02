@@ -13,10 +13,13 @@ import type {
   Space,
 } from "../../prisma/generated/client/index.js";
 import {
+  actsOnOwnParticipation,
   canModerateSpace,
   canReadSession,
   canReadSpace,
   isMentionReader,
+  managesWithoutReading,
+  moderatesWithoutReading,
 } from "../policy/index.js";
 
 type Tx = Prisma.TransactionClient;
@@ -50,11 +53,18 @@ export interface LoadOptions {
 
 export interface SessionLoadOptions extends LoadOptions {
   /**
-   * Lets a `homileo.chat.admin` of the session's organization load it without reading it: an
-   * admin archives any session and removes participants of space-less ones it cannot read.
-   * Only for those routes; the policy still decides the action.
+   * Loads the session without the read check for whoever `managesWithoutReading` allows: an
+   * admin of its organization, or a moderator of its space. Only for archiving and removing
+   * participants; the policy still decides the action.
    */
-  adminManage?: boolean;
+  manage?: boolean;
+  /** As `manage`, for a moderator of the session's space only (`moderatesWithoutReading`): deleting a message. */
+  moderate?: boolean;
+  /**
+   * Loads the session without the read check for its current participant
+   * (`actsOnOwnParticipation`). Only for leaving and muting.
+   */
+  ownParticipation?: boolean;
 }
 
 // One message for every refusal, so a caller learns nothing from which it was.
@@ -165,11 +175,21 @@ export const readableSpace = async (
   return { space, facts };
 };
 
+const loadable = (
+  c: Caller,
+  facts: SessionFacts,
+  opts: SessionLoadOptions
+): boolean =>
+  canReadSession(c, facts) ||
+  (!!opts.manage && managesWithoutReading(c, facts)) ||
+  (!!opts.moderate && moderatesWithoutReading(c, facts)) ||
+  (!!opts.ownParticipation && actsOnOwnParticipation(c, facts));
+
 const sessionContext = async (
   c: Caller,
   session: SessionRow,
   client: Tx | typeof prisma,
-  adminManage = false
+  opts: SessionLoadOptions = {}
 ): Promise<SessionContext | null> => {
   if (session.organizationId !== c.organizationId) return null;
   const space = session.spaceId
@@ -190,7 +210,7 @@ const sessionContext = async (
   // A participant who left is, to the policy, no participant.
   const participant = row && row.leftAt === null ? row : null;
   const facts = sessionFactsFor(session, spaceFacts, participant);
-  if (!canReadSession(c, facts) && !(adminManage && c.isAdmin)) return null;
+  if (!loadable(c, facts, opts)) return null;
   return { session, space, facts, participant };
 };
 
@@ -215,7 +235,7 @@ export const readableSession = async (
   if (opts.lock) await lockSession(client as Tx, c, sessionId);
   const session = await client.session.findUnique({ where: { id: sessionId } });
   const context = session
-    ? await sessionContext(c, session, client, opts.adminManage)
+    ? await sessionContext(c, session, client, opts)
     : null;
   if (!context) throw sessionNotFound();
   return context;
@@ -224,7 +244,7 @@ export const readableSession = async (
 export const readableMessage = async (
   c: Caller,
   messageId: string,
-  opts: LoadOptions = {}
+  opts: LoadOptions & Pick<SessionLoadOptions, "moderate"> = {}
 ): Promise<MessageContext> => {
   const client = clientOf(opts);
   let message = await client.message.findUnique({ where: { id: messageId } });
@@ -238,7 +258,9 @@ export const readableMessage = async (
   const session = await client.session.findUnique({
     where: { id: message.sessionId },
   });
-  const context = session ? await sessionContext(c, session, client) : null;
+  const context = session
+    ? await sessionContext(c, session, client, { moderate: opts.moderate })
+    : null;
   if (!context) throw messageNotFound();
   return { ...context, message };
 };
@@ -262,7 +284,7 @@ export const currentMentionReaders = (
   for (const m of mentions) {
     const ss = {
       access: m.access,
-      space: m.spaceId ? { id: m.spaceId } : null,
+      space: m.visibility ? { visibility: m.visibility } : null,
     };
     if (!isMentionReader(ss, m)) continue;
     byMessage.set(m.messageId, [

@@ -317,7 +317,10 @@ describe("/v1/spaces/:spaceId/members/:principalId", () => {
         createdBy: owner.principal,
       });
       await fixtures.member(space, owner.principal, "owner");
-      const reader = await api.actor(org, ["spaces-test.read"]);
+      const reader = await api.actor(org, [
+        "spaces-test.read",
+        "homileo.spaces.read",
+      ]);
       await fixtures.member(space, reader.principal, "member");
 
       await del(reader.token, space.id, reader.principal.id);

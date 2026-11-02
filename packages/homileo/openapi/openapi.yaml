@@ -21,17 +21,28 @@ info:
 
     ## Permissions and access
 
-    Every route that changes shared chat state needs `homileo.spaces.write` or
-    `homileo.chat.admin` in the token: creating, changing and archiving spaces and sessions,
-    joining, membership and participant changes (removing someone else included), join request
-    decisions, sending, editing and deleting messages, reactions and attachment uploads. Without
-    it the answer is `403 forbidden`, before the body is validated or any resource is looked up.
-    Reads, leaving a space or session, and the calls that touch only the caller's own state (read
-    markers, notify settings, thread follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
-    see or do is decided by the access rules in `docs/access.md`. A space, session or message that
-    does not exist, is in another organization, or that the caller cannot read, is **`404`**:
-    apart from the write-permission refusal, `403` means the caller can read the resource but may
-    not do the action.
+    Every `/v1` route, and the realtime socket, needs `homileo.spaces.read` in the token, which
+    `homileo.spaces.write` and `homileo.chat.admin` include. Without it the answer is
+    `403 forbidden` ("Requires the homileo.spaces.read permission"), before the body is validated
+    or any resource is looked up. That covers the reads, leaving a space or session, and the
+    calls that touch only the caller's own state (read markers, notify settings, thread follows).
+    Leaving (`DELETE` of the caller's own member or participant row) and
+    `PUT /v1/sessions/{sessionId}/notify` are the exceptions: a token without it may still call
+    them, so a principal whose read was revoked can mute and leave. Homileo cannot see a
+    mentioned principal's permissions, so it still emails such a principal its mentions until it
+    mutes or leaves, or its memberships are removed.
+
+    Every route that changes shared chat state also needs `homileo.spaces.write` or
+    `homileo.chat.admin`: creating, changing and archiving spaces and sessions, joining,
+    membership and participant changes (removing someone else included), join request
+    decisions, sending, editing and deleting messages, reactions, attachment uploads, and
+    `POST /v1/principals/resolve` (which creates principals). Without it the answer is
+    `403 forbidden` ("Requires the homileo.spaces.write permission"), again before validation or
+    any lookup. `homileo.chat.admin` passes both gates but still reads no DM or space-less
+    session. Beyond that, what the caller may see or do is decided by the access rules in
+    `docs/access.md`. A space, session or message that does not exist, is in another
+    organization, or that the caller cannot read, is **`404`**: apart from the two permission
+    refusals, `403` means the caller can read the resource but may not do the action.
 
     ## Pagination
 
@@ -316,6 +327,8 @@ components:
       $ref: './components/messages/schemas.yaml#/AttachmentResponse'
     ReactionSummary:
       $ref: './components/messages/schemas.yaml#/ReactionSummary'
+    ReactionSeq:
+      $ref: './components/messages/schemas.yaml#/ReactionSeq'
     Message:
       $ref: './components/messages/schemas.yaml#/Message'
     SendMessageRequest:

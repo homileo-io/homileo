@@ -2,8 +2,7 @@ import type { ChangeEvent, ChangeInput } from "../changes.js";
 import { participantView } from "../../views/session.js";
 import type { Caller } from "../../middleware/auth.js";
 import type { prisma, Prisma } from "./prisma.js";
-import { readableSpaceWhere } from "./spaces.js";
-import { kindsGrantingRead } from "../kinds.js";
+import { grantedKindsOf } from "./spaces.js";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ParticipantRole,
@@ -11,10 +10,38 @@ import type {
   SessionParticipant,
   SessionType,
 } from "../../../prisma/generated/client/index.js";
+import {
+  participatesWhere,
+  readableSessionWhere,
+  spaceSessionsWhere,
+} from "../../policy/sql.js";
 
 type Tx = Prisma.TransactionClient;
 type Client = Tx | typeof prisma;
 type Record = (change: ChangeInput) => Promise<ChangeEvent>;
+
+/**
+ * Inserts or re-joins one participant. `joined_at` is the database's `now()`, the clock
+ * `chat.events.created_at` comes from, because fan-out compares the two; Prisma would fill
+ * `@default(now())` from the app's clock.
+ */
+const joinParticipant = async (
+  tx: Tx,
+  sessionId: string,
+  userId: string,
+  role: ParticipantRole
+): Promise<SessionParticipant> => {
+  const [row] = await tx.$queryRaw<SessionParticipant[]>`
+    INSERT INTO "chat"."session_participants" (session_id, user_id, role, joined_at)
+    VALUES (${sessionId}::uuid, ${userId}::uuid,
+      ${role}::"chat"."participant_role", now())
+    ON CONFLICT (session_id, user_id) DO UPDATE
+      SET left_at = NULL, joined_at = now(), role = EXCLUDED.role
+    RETURNING session_id::text AS "sessionId", user_id::text AS "userId",
+      role::text AS role, last_read_seq AS "lastReadSeq", notify::text AS notify,
+      joined_at AS "joinedAt", left_at AS "leftAt"`;
+  return row;
+};
 
 /**
  * Makes each principal a participant of `session` and records `session.participant_added`
@@ -42,14 +69,7 @@ export const addParticipants = async (
   for (const userId of ids) {
     const current = existing.get(userId);
     if (current && current.leftAt === null) continue;
-    const row = current
-      ? await tx.sessionParticipant.update({
-          where: { sessionId_userId: { sessionId: session.id, userId } },
-          data: { leftAt: null, joinedAt: new Date(), role },
-        })
-      : await tx.sessionParticipant.create({
-          data: { sessionId: session.id, userId, role },
-        });
+    const row = await joinParticipant(tx, session.id, userId, role);
     added.push(row);
     await record({
       type: "session.participant_added",
@@ -90,6 +110,22 @@ export const accessOf = (
     where: { id: sessionId },
     select: { spaceId: true, access: true },
   });
+
+/** `accessOf` for many sessions at once, keyed by id; an unknown id is absent. */
+export const accessOfMany = async (
+  tx: Tx,
+  sessionIds: string[]
+): Promise<
+  Map<string, { spaceId: string | null; access: "space" | "members" }>
+> =>
+  new Map(
+    (
+      await tx.session.findMany({
+        where: { id: { in: sessionIds } },
+        select: { id: true, spaceId: true, access: true },
+      })
+    ).map(({ id, ...access }) => [id, access])
+  );
 
 /** The indexes in `ids` that name no principal. */
 export const unknownPrincipalIndexes = async (
@@ -189,54 +225,25 @@ export interface ListSessionsInput {
   take: number;
 }
 
+/**
+ * The rest of a non-null `last_message_at` run after `a`, or the rest of the null run. Each is
+ * one range of the list index (`last_message_at <= a`, or `IS NULL` and `created_at <= a`), so a
+ * deep page seeks; the OR alone is only a filter.
+ */
 const afterCondition = (a: SessionPageStart): Prisma.SessionWhereInput => {
-  const tie: Prisma.SessionWhereInput[] = [
-    { createdAt: { lt: a.createdAt } },
-    { createdAt: a.createdAt, id: { lt: a.id } },
-  ];
-  if (a.lastMessageAt === null) {
-    return { lastMessageAt: null, OR: tie };
-  }
-  return {
+  const tie: Prisma.SessionWhereInput = {
+    createdAt: { lte: a.createdAt },
     OR: [
-      { lastMessageAt: { lt: a.lastMessageAt } },
-      { lastMessageAt: null },
-      { lastMessageAt: a.lastMessageAt, OR: tie },
+      { createdAt: { lt: a.createdAt } },
+      { createdAt: a.createdAt, id: { lt: a.id } },
     ],
   };
-};
-
-const participates = (principalId: string): Prisma.SessionWhereInput => ({
-  participants: { some: { userId: principalId, leftAt: null } },
-});
-
-/**
- * `canReadSession` as a condition, for a query the caller's organization already limits. The
- * `access: members` branch is `readsEverySessionOf`: a kind grant of the space, or admin.
- */
-export const readableSessionWhere = async (
-  caller: Caller
-): Promise<Prisma.SessionWhereInput> => {
-  const mine = participates(caller.principalId);
-  const granted = caller.isAdmin
-    ? []
-    : await kindsGrantingRead(caller.permissions);
-  const membersBranch: Prisma.SessionWhereInput[] = caller.isAdmin
-    ? [{ access: "members" }]
-    : [
-        { access: "members", ...mine },
-        ...(granted.length > 0
-          ? [{ access: "members" as const, space: { kind: { in: granted } } }]
-          : []),
-      ];
+  if (a.lastMessageAt === null) return { lastMessageAt: null, ...tie };
   return {
+    lastMessageAt: { lte: a.lastMessageAt },
     OR: [
-      { spaceId: null, ...mine },
-      {
-        spaceId: { not: null },
-        space: await readableSpaceWhere(caller),
-        OR: [{ access: "space" }, ...membersBranch],
-      },
+      { lastMessageAt: { lt: a.lastMessageAt } },
+      { lastMessageAt: a.lastMessageAt, AND: [tie] },
     ],
   };
 };
@@ -246,39 +253,49 @@ const scopeWhere = async (
 ): Promise<Prisma.SessionWhereInput> => {
   const { scope, caller } = input;
   if ("spaceId" in scope) {
-    return {
-      spaceId: scope.spaceId,
-      ...(scope.everything
-        ? {}
-        : { OR: [{ access: "space" }, participates(caller.principalId)] }),
-    };
+    return spaceSessionsWhere(caller, scope.spaceId, scope.everything);
   }
-  if ("participating" in scope) return participates(caller.principalId);
-  return readableSessionWhere(caller);
+  if ("participating" in scope) return participatesWhere(caller.principalId);
+  return readableSessionWhere(caller, await grantedKindsOf(caller));
 };
+
+const ORDER: Prisma.SessionOrderByWithRelationInput[] = [
+  { lastMessageAt: { sort: "desc", nulls: "last" } },
+  { createdAt: "desc" },
+  { id: "desc" },
+];
 
 export const list = async (
   client: Client,
   input: ListSessionsInput
 ): Promise<Session[]> => {
   const scope = await scopeWhere(input);
-  return client.session.findMany({
-    where: {
-      organizationId: input.caller.organizationId,
-      ...(input.type && { type: input.type }),
-      ...(input.externalRef !== undefined && {
-        externalRef: input.externalRef,
-      }),
-      ...(!input.includeArchived && { archivedAt: null }),
-      AND: [scope, ...(input.after ? [afterCondition(input.after)] : [])],
-    },
-    orderBy: [
-      { lastMessageAt: { sort: "desc", nulls: "last" } },
-      { createdAt: "desc" },
-      { id: "desc" },
-    ],
-    take: input.take,
-  });
+  const base: Prisma.SessionWhereInput = {
+    organizationId: input.caller.organizationId,
+    ...(input.type && { type: input.type }),
+    ...(input.externalRef !== undefined && {
+      externalRef: input.externalRef,
+    }),
+    ...(!input.includeArchived && { archivedAt: null }),
+  };
+  const page = (after: Prisma.SessionWhereInput[], take: number) =>
+    client.session.findMany({
+      where: { ...base, AND: [scope, ...after] },
+      orderBy: ORDER,
+      take,
+    });
+  const after = input.after;
+  if (!after || after.lastMessageAt === null) {
+    return page(after ? [afterCondition(after)] : [], input.take);
+  }
+  // Past a dated row, the dated rest and then the undated rows: one index range each.
+  const dated = await page([afterCondition(after)], input.take);
+  if (dated.length >= input.take) return dated;
+  const undated = await page(
+    [{ lastMessageAt: null }],
+    input.take - dated.length
+  );
+  return [...dated, ...undated];
 };
 
 /** The principal's current participant rows among `sessionIds`, by session id. */

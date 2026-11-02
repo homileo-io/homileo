@@ -8,7 +8,7 @@
       reply_to_reply`. A deleted root is still viewable, with its content cleared. Deleted replies
       stay in the list, cleared.
 
-      **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be able to read the session (`404` otherwise).
     operationId: getThread
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
@@ -27,6 +27,7 @@
               $ref: '../../components/messages/schemas.yaml#/ThreadResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

@@ -1,12 +1,17 @@
+import { assertNoTransaction, getTereo, guardTereoCalls } from "./tereo.js";
 import { getOriginalStatus, type FileServiceObject } from "@tereo-io/sdk";
 import { ATTACHMENTS_BUCKET } from "../definitions/tereoDeclaration.js";
-import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import { isUniqueConstraintError } from "./prismaErrors.js";
 import type { CoreClient } from "@tereo-io/sdk";
 import type { Prisma } from "./db/prisma.js";
-import { getTereo } from "./tereo.js";
 import { logger } from "./logger.js";
+import { redis } from "./redis.js";
 import env from "../env.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ServiceUnavailableError,
+} from "./errors.js";
 
 export type FilesClient = Pick<
   CoreClient["files"],
@@ -24,7 +29,8 @@ export const setFilesClient = (client: FilesClient | null): void => {
   override = client;
 };
 
-export const filesClient = (): FilesClient => override ?? getTereo().files;
+export const filesClient = (): FilesClient =>
+  override ? guardTereoCalls("files", override) : getTereo().files;
 
 /** True when tereo answered 404 (`RequestError.statusCode` is the app-facing status; core's is `httpStatus`). */
 export const isTereoNotFound = (err: unknown): boolean =>
@@ -43,6 +49,71 @@ export const PLACEHOLDER_TTL_MS = 24 * 60 * 60 * 1000;
 
 export const keyPrefix = (sessionId: string, senderId: string): string =>
   `sessions/${sessionId}/${senderId}/`;
+
+const pendingKey = (principalId: string) =>
+  `${env.SERVICE_NAME}:attachments:pending:${principalId}`;
+
+// Drops the expired placeholders, then adds this one unless the principal holds the most.
+const RESERVE = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then return 0 end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+redis.call('PEXPIREAT', KEYS[1], ARGV[3])
+return 1`;
+
+/**
+ * Counts a new placeholder (by object key) against the principal's
+ * `ATTACHMENT_MAX_PENDING` until a message claims it or it expires. Throws
+ * `409 too_many_pending_attachments` at the cap, `503` without Redis.
+ */
+export const reservePlaceholder = async (
+  principalId: string,
+  objectKey: string,
+  now: number = Date.now()
+): Promise<void> => {
+  // Not ready, a command would wait in the offline queue for as long as Redis is down.
+  if (redis.status !== "ready") {
+    throw new ServiceUnavailableError(
+      "Attachments are temporarily unavailable"
+    );
+  }
+  let reserved: unknown;
+  try {
+    reserved = await redis.eval(
+      RESERVE,
+      1,
+      pendingKey(principalId),
+      now,
+      env.ATTACHMENT_MAX_PENDING,
+      now + PLACEHOLDER_TTL_MS,
+      objectKey
+    );
+  } catch (err) {
+    logger.error({ err }, "Could not count a pending attachment");
+    throw new ServiceUnavailableError(
+      "Attachments are temporarily unavailable"
+    );
+  }
+  if (reserved !== 1) {
+    throw new ConflictError(
+      `At most ${env.ATTACHMENT_MAX_PENDING} attachments may wait to be sent; send or let some expire first`,
+      "too_many_pending_attachments"
+    );
+  }
+};
+
+/** Stops counting placeholders a message claimed, or that were never made; a failure leaves them to expire. */
+export const releasePlaceholders = async (
+  principalId: string,
+  objectKeys: string[]
+): Promise<void> => {
+  if (objectKeys.length === 0 || redis.status !== "ready") return;
+  try {
+    await redis.zrem(pendingKey(principalId), ...objectKeys);
+  } catch (err) {
+    logger.warn({ err }, "Could not release pending attachments");
+  }
+};
 
 export interface AttachmentRef {
   objectId: string;
@@ -150,6 +221,8 @@ export const attachMessageFiles = async (
 export const keepAttachments = async (
   attachments: AttachmentRef[]
 ): Promise<void> => {
+  // Outside the try below, which would swallow it.
+  assertNoTransaction("keepAttachments");
   await Promise.all(
     attachments.map(async ({ objectId }) => {
       try {

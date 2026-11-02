@@ -10,7 +10,7 @@
 
       **Errors:** `404` when the principal has no request, `409 conflict` when their latest
       request is already decided, `409 already_member` when the principal is already a member
-      (approve the request to close it), `409 resource_archived` for an archived space.
+      (approve the request to close it), `409 resource_archived` for an archived space, checked before the moderation check and the request lookup.
     operationId: denyJoinRequest
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'

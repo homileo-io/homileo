@@ -83,3 +83,21 @@ export const explainList = async (
   );
   return rows[0]["QUERY PLAN"];
 };
+
+/** Those of `messageIds` with a here or session mention in a session `userId` is a current participant of. */
+export const broadcastIdsFor = async (
+  client: Client,
+  messageIds: string[],
+  userId: string
+): Promise<Set<string>> => {
+  if (messageIds.length === 0) return new Set();
+  const rows = await client.$queryRaw<Array<{ id: string }>>`
+    SELECT DISTINCT mm.message_id::text AS id
+    FROM "chat"."message_mentions" mm
+    JOIN "chat"."session_participants" sp
+      ON sp.session_id = mm.session_id AND sp.user_id = ${userId}::uuid
+      AND sp.left_at IS NULL
+    WHERE mm.kind IN ('here', 'session')
+      AND mm.message_id = ANY(${messageIds}::uuid[])`;
+  return new Set(rows.map((r) => r.id));
+};

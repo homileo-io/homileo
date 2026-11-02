@@ -31,7 +31,8 @@ SyncLimitParam:
   required: false
   description: |
     How many events of the log to read. Events the caller may not receive are read and left out,
-    so a page can hold fewer, even none, while `hasMore` is true.
+    so a page can hold fewer, even none, while `hasMore` is true. A page also stops after
+    scanning 5000 rows of the log.
   schema:
     type: integer
     minimum: 1

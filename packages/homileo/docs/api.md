@@ -9,15 +9,21 @@ them where a route is concerned.
 - Every `/v1` route needs a tereo access token with an organization (`org_id`): `401` without a
   token, `400 organization_required` with one that has no organization. No header names an
   organization. `routes/routes.permissions.test.ts` checks both for every route.
-- Every route that changes shared chat state needs `homileo.spaces.write` or `homileo.chat.admin`
-  in the token, and answers `403 forbidden` ("Requires the homileo.spaces.write permission")
-  without it, before validation or any lookup: creating, changing and archiving spaces and
-  sessions, joining, adding and removing someone else (members and participants), join request
-  decisions, sending, editing and deleting messages, reactions and attachment placeholders. Reads,
-  leaving (a `DELETE` of the caller's own member or participant row) and the calls that touch
-  only the caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`,
-  `POST /principals/resolve`) need no permission. The rest is
-  decided by `src/policy/` (see [access.md](access.md#write-permission)).
+- Every `/v1` route needs `homileo.spaces.read` (which `homileo.spaces.write` and
+  `homileo.chat.admin` include) and answers `403 forbidden` ("Requires the homileo.spaces.read
+  permission") without it, before validation or any lookup. That is all that reads, leaving (a
+  `DELETE` of the caller's own member or participant row) and the calls that touch only the
+  caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`) need. Leaving
+  and `PUT /sessions/:id/notify` are open even to a token without it, so a principal whose read was
+  revoked can still mute and leave; it is still emailed its mentions until it does, or until its
+  memberships are removed (see [access.md](access.md#read-permission)).
+- Every route that changes shared chat state also needs `homileo.spaces.write` or
+  `homileo.chat.admin`, and answers `403 forbidden` ("Requires the homileo.spaces.write
+  permission") without it, before validation or any lookup: creating, changing and archiving
+  spaces and sessions, joining, adding and removing someone else (members and participants), join
+  request decisions, sending, editing and deleting messages, reactions, attachment placeholders
+  and `POST /principals/resolve`. The rest is decided by `src/policy/` (see
+  [access.md](access.md#read-permission)).
 - An id that does not parse as a UUID is `400 invalid_request`.
 - JSON bodies are limited to 256 KiB on `/v1/sessions` and `/v1/messages`, 64 KiB elsewhere.
 
@@ -26,7 +32,8 @@ them where a route is concerned.
 A space, session or message that does not exist, is in another organization, or that the caller
 cannot read answers `404 not_found` with the same message in each case, so a caller cannot tell
 them apart. `403` is only for a caller who can read the resource but may not do the action, and
-for a token without the write permission, which is refused before any lookup (so it reveals nothing).
+for a token without the read or write permission, which is refused before any lookup (so it
+reveals nothing).
 `utils/access.ts` (`readableSpace`, `readableSession`, `readableMessage`) is where this is applied;
 a route does not decide it itself.
 
@@ -36,7 +43,9 @@ treated as the built-in kind, and a warning is logged. A retired kind stays read
 ## Errors
 
 The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. Validation is
-`400 invalid_request` with `issues: [{ path, message }]`. Codes:
+`400 invalid_request` with `issues: [{ path, message }]`: at most 20 issues, each path and message
+cut to 256 characters, and `error_description` lists those and how many more there were
+(`utils/validateReq.ts`). `400 invalid_payload` lists at most 20, cut the same way. Codes:
 
 | Status | Code |
 |---|---|
@@ -44,13 +53,20 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write or deadlock; re-read and retry) |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `too_many_pending_attachments` (the caller holds `ATTACHMENT_MAX_PENDING` placeholders no message has claimed), `version_conflict` (a concurrent write conflict, deadlock or serialization failure; re-read and retry) |
 | 410 | `resync_required` |
 | 413 | `payload_too_large` (the body is over the route's size limit) |
 | 500 | `server_error` |
-| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time; retry after `Retry-After` when given) |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time, no connection was free or could be opened in time, Postgres refused a connection as too many, or it is starting up; retry after `Retry-After` when given) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
+
+A body that cannot be read (malformed JSON, an unsupported charset or content encoding) is
+`400 invalid_request`; only a body over the limit has a status of its own. Each code answers with
+the one status it is listed under. An error from a library is passed on only as `401
+unauthorized`, `403 forbidden` or `404 not_found` (tereo's auth middleware); anything else,
+a failed call to tereo included, is `500 server_error` and carries none of the library's code or
+message.
 
 ## Pagination
 
@@ -69,13 +85,16 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
-| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the most block quotes and list items any line so far could have opened, from its markers and two columns of indent per level, since blank and lazy lines keep them open); past any of these it is read as plain text |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the block quotes and list items that may be open after it: a blank line keeps them all, a line after a blank one keeps only those its markers and indent can continue (two columns per list level), and any other line may continue them lazily; a line that may be lazy also counts its paragraph's lines so far over 10, since micromark walks back over the paragraph on each one; the lines inside a fenced code block at the top level count 1 each and no markup; `\r\n` is one line ending); past any of these it is read as plain text |
 | message `payload` | 64 KiB serialized, nested at most 32 arrays and objects deep |
 | `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON nested at most 32 arrays and objects deep |
 | `clientMessageId` | 1 to 128 characters |
 | `emoji` | 1 to 64 characters |
 | attachments per message | 10 |
-| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`); tereo's own upload limit is not checked |
+| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`) and again by the keep run once the write URL has expired and an hour after the send (see decision 11); tereo's own upload limit is not checked |
+| pending attachments | `ATTACHMENT_MAX_PENDING` (50 by default) placeholders per principal that no message has claimed and that have not expired (`409 too_many_pending_attachments`) |
+| attachment `contentType` | a media type, `type/subtype` with optional `; name=value` parameters, at most 255 characters |
+| mention emails | 25 per send or edit, to the first readers mentioned who are out of cooldown; and one per sender and reader per `MENTION_EMAIL_COOLDOWN_SECONDS` (60 by default) |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
 
 ## JSON shapes
@@ -119,7 +138,9 @@ An edit or delete takes the message's space row `FOR SHARE`, then its session ro
 the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
 on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
-a mention and adding it back sends nothing); a `metadata`-only
+a mention and adding it back sends nothing). Every principal a revision mentions, reader or not, is
+added to `message_ever_mentions` when the revision is written, so an edit looks them up there and
+never reads or parses the earlier revisions; its cost does not grow with their number; a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, empties `metadata` (to `{}`), keeps revisions, reactions and attachments
 (views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
@@ -132,9 +153,7 @@ A message body is parsed once, before the transaction, for its mentions and its 
 (`utils/markdown.ts`, `utils/mentions.ts`). A send first checks, without a lock, that the caller
 reads the session and may post in it, and an edit that the caller may edit the message, so a
 caller refused either way costs no parse and no tereo call; the transaction checks both again under
-its locks. An edit also parses the earlier revisions that hold a mention before the transaction,
-for the same Markdown-aware mentions the send stored (only a revision stored meanwhile is parsed
-under the lock). Only a body within all four parse limits (see
+its locks. Only a body within all four parse limits (see
 [Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
 while past them micromark can take minutes or overflow the stack. Any other body is accepted and
 read as plain text: mentions count everywhere outside fenced code blocks and single-line code
@@ -153,7 +172,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 |---|---|---|---|
 | `GET /me` | none | | |
 | `GET /me/unread` | readable sessions only: `sessions` for those the caller participates in, `threads` for followed threads in any session the caller can read now, participant or not | | |
-| `GET /me/mentions` | readable sessions only; `<!here>`/`<!session>` only where the caller participates | | |
+| `GET /me/mentions` | readable sessions only; a `<@id>` only while the caller is still a mention reader of the session (`currentMentionReaders`, as `/sync`); `<!here>`/`<!session>` only where the caller participates | | |
 | `GET /principals/:principalId` | none | | |
 | `POST /principals/resolve` | none; 1 to 100 unique tereo user ids | | |
 
@@ -169,7 +188,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added` (and `space.join_decided` for the caller's pending request), or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
 | `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` (and `space.join_decided` for a pending request) or `space.member_role_changed` |
-| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
+| `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space); only `404` to a token without `homileo.spaces.read` | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
 | `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409 conflict` (already decided), `409 already_member` (deny, for a member), `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
 
@@ -192,13 +211,13 @@ documented oracle (see [access.md](access.md)).
 | `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
-| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin who cannot read it | `403`, `409 already_archived` | `session.archived` |
+| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin or space moderator who cannot read it | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
 | `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant`; a current participant is `200` to any reader, before the policy | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
-| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived) or `canRemoveParticipant` | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
+| `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived or no longer readable) or `canRemoveParticipant` (a space moderator need not read the session) | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space); only `404` to a token without `homileo.spaces.read` | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
-| `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` (also when a leave commits first) | |
-| `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
+| `PUT /sessions/:sessionId/notify` | participant, even one who can no longer read the session | `403 not_a_participant` (also when a leave commits first); only `404` to a token without `homileo.spaces.read` | |
+| `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `409 too_many_pending_attachments`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
 
@@ -233,7 +252,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 |---|---|---|---|
 | `GET /messages/:messageId` | `canReadSession` | | |
 | `PATCH /messages/:messageId` | `canEditMessage` | `403`, `403 edit_window_closed`, `409 resource_archived` (deleted message, archived session or space), `400 invalid_payload` | `message.edited` |
-| `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
+| `DELETE /messages/:messageId` | `canDeleteMessage`; `200` with the message, or `204` with no body for a space moderator who cannot read the session | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
 | `PUT /messages/:messageId/reactions/:emoji` | `reactRefusal` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
@@ -247,9 +266,14 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 - **9. Read position on send.** Sending a top-level message moves the sender's `last_read_seq` to it;
   a reply moves the sender's thread `last_read_seq`. Your own messages are never unread. This
   records no `read.updated`.
-- **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session (see
-  [access.md](access.md)) and emailed through `core.outbox.notify` unless their `notify` is `none`
-  or they are the sender or a bot. A reply makes its sender a follower and creates a following row
+- **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session
+  through their membership or participation (see [access.md](access.md)), so a grant moderator who
+  is not a space member is never mentioned; this is deliberate. They are emailed through `core.outbox.notify` unless their `notify` is `none`
+  or they are the sender or a bot. A sender's mention emails a reader at most once per
+  `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis key per sender and reader), and a send or edit emails at
+  most 25 readers: the first it mentions, in body order, that are out of cooldown. When Redis is not
+  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies, and the
+  skipped command is not run later on its own connection; a rolled-back send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
   for the root's sender if none exists; an existing row (an unfollow) is left alone.
   `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
   no email.
@@ -261,8 +285,18 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   fails or never runs, a repeat of the send with the same `clientMessageId` (`409
   duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
   every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
-  Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
-  returns a presigned read URL. A tereo failure on these routes, other than a 404, is
+  Unreferenced placeholders expire by themselves. A principal may hold `ATTACHMENT_MAX_PENDING`
+  placeholders that no message has claimed (counted in Redis until a send claims one or it
+  expires); past that the request is `409 too_many_pending_attachments`, and without Redis `503`.
+  The write URL stays valid for 15 minutes, so the bytes can change after the send: the keep run
+  looks at an attachment once that URL has expired (16 minutes after it was stored), and again an
+  hour after it was stored for an upload that began before the URL expired and finished later, and
+  each time deletes the tereo object if it is now larger than `ATTACHMENT_MAX_BYTES`. An upload
+  still running an hour after the send is not checked again. The message keeps
+  listing the attachment as sent; its read URL answers `404`. `GET /v1/messages/:messageId/attachments/:attachmentId`
+  returns a presigned read URL. tereo's storage serves the object with the content type the
+  placeholder was made with (the uploader's claim: nothing checks it against the bytes), so a client
+  should not render an attachment inline as HTML or script from that URL. A tereo failure on these routes, other than a 404, is
   `503 temporarily_unavailable`.
 - **12. Unknown resources.** An id that does not parse as a UUID is `400 invalid_request`; a
   well-formed id the caller cannot read is `404`. Ids from a request are lower-cased at parse time.

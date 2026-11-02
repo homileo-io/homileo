@@ -6,16 +6,20 @@ import type { Prisma } from "../../../../utils/db/prisma.js";
 import { ArchivedError } from "../../../../utils/errors.js";
 import { db } from "../../../../utils/db/index.js";
 
-/** The message under the session lock, space first, so a concurrent change to either is seen. */
+/**
+ * The message under the session lock, space first, so a concurrent change to either is seen.
+ * `moderate` loads it for a moderator of the space who cannot read the session, to delete it.
+ */
 export const lockedMessage = async (
   tx: Prisma.TransactionClient,
   caller: ReturnType<typeof callerOf>,
-  messageId: string
+  messageId: string,
+  opts: { moderate?: boolean } = {}
 ): Promise<MessageContext> => {
   const sessionId = await db.messages.sessionIdOf(tx, messageId);
   if (sessionId)
     await db.sessions.lockSpaceOf(tx, caller.organizationId, sessionId);
-  return readableMessage(caller, messageId, { tx, lock: true });
+  return readableMessage(caller, messageId, { tx, lock: true, ...opts });
 };
 
 /** What the policy needs to know about a message. */

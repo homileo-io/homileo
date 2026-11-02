@@ -141,6 +141,7 @@ model Principal {
   messagesDeleted       Message[]            @relation("MessageDeletedBy")
   revisionsEdited       MessageRevision[]
   mentions              MessageMention[]
+  everMentionedIn       MessageEverMention[]
   reactions             Reaction[]
   threadFollows         ThreadFollower[]
 
@@ -177,6 +178,8 @@ model Space {
 
   @@unique([organizationId, kind, externalRef])
   @@unique([id, organizationId])
+  // The list's order, newest first.
+  @@index([organizationId, createdAt(sort: Desc), id(sort: Desc)])
   // Raw SQL in 20261102143311_spaces_kind_unarchived_idx:
   // spaces_kind_unarchived_idx (kind) WHERE archived_at IS NULL.
   @@map("spaces")
@@ -194,6 +197,8 @@ model SpaceMember {
 
   @@id([spaceId, userId])
   @@index([userId])
+  // The list's order, oldest first.
+  @@index([spaceId, joinedAt, userId])
   @@map("space_members")
   @@schema("chat")
 }
@@ -248,6 +253,9 @@ model Session {
   @@index([organizationId, spaceId])
   @@index([externalRef])
   @@index([metadata], type: Gin)
+  // Raw SQL in 20261102152509_list_order_indexes, as Prisma cannot say NULLS LAST:
+  // sessions_space_list_idx (space_id, last_message_at DESC NULLS LAST,
+  // created_at DESC, id DESC), a space's sessions in list order.
   @@map("sessions")
   @@schema("chat")
 }
@@ -258,6 +266,7 @@ model SessionParticipant {
   role        ParticipantRole @default(member)
   lastReadSeq BigInt          @default(0) @map("last_read_seq")
   notify      NotifyLevel     @default(all)
+  // Written with the database's now() (db.sessions.addParticipants), the clock of chat.events.created_at.
   joinedAt    DateTime        @default(now()) @map("joined_at") @db.Timestamp(3)
   leftAt      DateTime?       @map("left_at") @db.Timestamp(3)
 
@@ -266,6 +275,8 @@ model SessionParticipant {
 
   @@id([sessionId, userId])
   @@index([userId])
+  // Raw SQL in 20261102152509_list_order_indexes: session_participants_current_idx
+  // (session_id, joined_at, user_id) WHERE left_at IS NULL, the list's order.
   @@map("session_participants")
   @@schema("chat")
 }
@@ -289,21 +300,24 @@ model Message {
   replyCount      Int       @default(0) @map("reply_count")
   lastReplyAt     DateTime? @map("last_reply_at") @db.Timestamp(3)
   revision        Int       @default(1)
+  // Bumped under the session lock by every change to the message's reactions, delete included.
+  reactionSeq     BigInt    @default(0) @map("reaction_seq")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(3)
   editedAt        DateTime? @map("edited_at") @db.Timestamp(3)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamp(3)
   deletedBy       String?   @map("deleted_by") @db.Uuid
 
-  session     Session           @relation(fields: [sessionId], references: [id])
-  sender      Principal         @relation("MessageSender", fields: [senderId], references: [id])
-  deleter     Principal?        @relation("MessageDeletedBy", fields: [deletedBy], references: [id], onDelete: Restrict)
-  threadRoot  Message?          @relation("Thread", fields: [threadRootId], references: [id], onDelete: Restrict)
-  replies     Message[]         @relation("Thread")
-  revisions   MessageRevision[]
-  mentions    MessageMention[]
-  reactions   Reaction[]
-  attachments Attachment[]
-  followers   ThreadFollower[]
+  session       Session              @relation(fields: [sessionId], references: [id])
+  sender        Principal            @relation("MessageSender", fields: [senderId], references: [id])
+  deleter       Principal?           @relation("MessageDeletedBy", fields: [deletedBy], references: [id], onDelete: Restrict)
+  threadRoot    Message?             @relation("Thread", fields: [threadRootId], references: [id], onDelete: Restrict)
+  replies       Message[]            @relation("Thread")
+  revisions     MessageRevision[]
+  mentions      MessageMention[]
+  everMentioned MessageEverMention[]
+  reactions     Reaction[]
+  attachments   Attachment[]
+  followers     ThreadFollower[]
 
   @@unique([sessionId, seq])
   @@unique([sessionId, senderId, clientMessageId])
@@ -327,6 +341,20 @@ model MessageRevision {
 
   @@id([messageId, revision])
   @@map("message_revisions")
+  @@schema("chat")
+}
+
+// Everyone any revision of the message mentioned, so an edit emails only the
+// readers it mentions for the first time, without reading the revisions.
+model MessageEverMention {
+  messageId String @map("message_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  message Message   @relation(fields: [messageId], references: [id])
+  user    Principal @relation(fields: [userId], references: [id])
+
+  @@id([messageId, userId])
+  @@map("message_ever_mentions")
   @@schema("chat")
 }
 

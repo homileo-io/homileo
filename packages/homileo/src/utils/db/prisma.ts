@@ -1,6 +1,7 @@
 import { PrismaClient } from "../../../prisma/generated/client/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool, type PoolConfig } from "pg";
+import { logger } from "../logger.js";
 import env from "../../env.js";
 
 // Columns are `timestamp without time zone` holding UTC, and raw SQL compares
@@ -35,10 +36,42 @@ const prisma = new PrismaClient({
   },
 });
 
-export const disconnectDatabase = async (): Promise<void> => {
+/**
+ * Ends `p`, waiting at most `timeoutMs`: `end()` waits for every checked-out
+ * client to be released, so one stuck query would hold the shutdown with it.
+ * False when the wait ran out, the clients still open.
+ */
+export const endPool = async (p: Pool, timeoutMs: number): Promise<boolean> => {
+  const ending = p.end().then(() => true);
+  // A rejection after the wait ran out has no one left to answer.
+  ending.catch(() => undefined);
+  let timer: NodeJS.Timeout | undefined;
+  const ended = await Promise.race([
+    ending,
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs));
+    }),
+  ]);
+  clearTimeout(timer);
+  return ended;
+};
+
+const POOL_END_TIMEOUT_MS = 3000;
+
+export const disconnectDatabase = async (
+  timeoutMs: number = POOL_END_TIMEOUT_MS
+): Promise<void> => {
   await prisma.$disconnect();
-  await pool.end();
-  await probePool.end();
+  const [ended, probeEnded] = await Promise.all([
+    endPool(pool, timeoutMs),
+    endPool(probePool, timeoutMs),
+  ]);
+  if (!ended || !probeEnded) {
+    logger.warn(
+      { checkedOut: pool.totalCount - pool.idleCount },
+      "Database connections still checked out at shutdown"
+    );
+  }
 };
 
 /** Throws unless Postgres answers a query on the probe's own connection. */

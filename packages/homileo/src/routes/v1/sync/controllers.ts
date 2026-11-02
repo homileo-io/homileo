@@ -58,7 +58,9 @@ const messageIdOf = (e: EventRow): string | null => {
 /**
  * Replaces each message event's stored view with the message's view now, as
  * REST builds it, so the log never replays text a delete or edit replaced.
- * An event whose message row is gone is dropped.
+ * The stored `reactions` and `reactionSeq` stay, as the exact pair read under
+ * the session lock, unless the message is deleted: its view's empty summary is
+ * final. An event whose message row is gone is dropped.
  */
 const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
   const ids = unique(rows.flatMap((r) => messageIdOf(r) ?? []));
@@ -72,7 +74,22 @@ const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
     const id = messageIdOf(r);
     const view = id ? views.get(id) : undefined;
     if (!view) return [];
-    return [{ ...r, payload: { ...(r.payload as object), message: view } }];
+    const stored = (
+      r.payload as {
+        message?: { reactions?: unknown; reactionSeq?: unknown };
+      }
+    ).message;
+    const message =
+      view.deletedAt === null &&
+      Array.isArray(stored?.reactions) &&
+      typeof stored.reactionSeq === "number"
+        ? {
+            ...view,
+            reactions: stored.reactions,
+            reactionSeq: stored.reactionSeq,
+          }
+        : view;
+    return [{ ...r, payload: { ...(r.payload as object), message } }];
   });
 };
 
@@ -151,11 +168,14 @@ export const sync = async (req: Request, res: Response) => {
       unique([...participantOf, ...query.sessionIds]),
       unique([...memberOf, ...query.spaceIds])
     ),
-    query.limit
+    query.limit,
+    // The organization leads the index readFrom scans in, and the prefilter requires it.
+    { scope: Prisma.sql`organization_id = ${caller.organizationId}::uuid` }
   );
   const { rows } = page;
   const { until } = query;
-  // No position this database issued lies past the first unassigned transaction id.
+  // Every position this database issues is at or below the tail (one past the
+  // highest completed transaction id), which only grows.
   for (const [path, cursor] of [
     ["since", after],
     ["until", until],

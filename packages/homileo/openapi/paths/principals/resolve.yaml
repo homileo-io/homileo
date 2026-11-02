@@ -9,7 +9,7 @@
       are listed in `missing`. `data` keeps the order of the request. Safe to repeat and to call
       concurrently.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without): it creates principals.
     operationId: resolvePrincipals
     requestBody:
       required: true
@@ -26,6 +26,7 @@
               $ref: '../../components/principals/schemas.yaml#/ResolvePrincipalsResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

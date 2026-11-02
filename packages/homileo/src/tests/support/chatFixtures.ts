@@ -170,6 +170,7 @@ export const chatFixtures = () => {
       where: { OR: [byMessage, { sessionId: { in: owned } }] },
     });
     await prisma.messageRevision.deleteMany({ where: byMessage });
+    await prisma.messageEverMention.deleteMany({ where: byMessage });
     await prisma.attachment.deleteMany({ where: byMessage });
     await prisma.threadFollower.deleteMany({
       where: { threadRootId: { in: messageIds } },

@@ -4,11 +4,20 @@
 // @module-tag security
 import { MESSAGE_BODY_MAX } from "../../../../../../routes/v1/sessions/session/messages/schemas.js";
 import { purgeOrganizations, signIn } from "../../../../../support/signedIn.js";
-import { messagesUrl, sendMessage } from "../../../../../support/messageApi.js";
 import { chatFixtures } from "../../../../../support/chatFixtures.js";
 import { prisma } from "../../../../../../utils/db/prisma.js";
+import { redis } from "../../../../../../utils/redis.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { v7 as uuidv7 } from "uuid";
+import {
+  MENTION_EMAILS_MAX,
+  mentionCooldownKey,
+} from "../../../../../../utils/notifyMentions.js";
+import {
+  messagesUrl,
+  notificationsTo,
+  sendMessage,
+} from "../../../../../support/messageApi.js";
 
 const fixtures = chatFixtures();
 const orgs: string[] = [];
@@ -78,4 +87,125 @@ describe("POST /v1/sessions/:sessionId/messages", () => {
       );
     }
   );
+
+  const room = async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const session = await fixtures.session({ org });
+    await fixtures.participant(session, { id: me.principalId }, "owner");
+    return { org, me, session };
+  };
+
+  it("emails at most MENTION_EMAILS_MAX of the readers it mentions", async () => {
+    const { me, session } = await room();
+    const readers = [];
+    for (let i = 0; i < MENTION_EMAILS_MAX + 5; i++) {
+      const p = await fixtures.principal();
+      await fixtures.participant(session, p);
+      readers.push(p);
+    }
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: readers.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(sent.status).toBe(201);
+    const emailed = await Promise.all(
+      readers.map(async (p) => (await notificationsTo(p.tereoUserId!)).length)
+    );
+    expect(emailed).toEqual(
+      readers.map((_, i) => (i < MENTION_EMAILS_MAX ? 1 : 0))
+    );
+    const mentions = await prisma.messageMention.count({
+      where: { messageId: sent.body.message.id },
+    });
+    expect(mentions).toBe(readers.length);
+  });
+
+  it("emails the first MENTION_EMAILS_MAX readers in mention order, not creation order", async () => {
+    const { me, session } = await room();
+    const readers = [];
+    for (let i = 0; i < MENTION_EMAILS_MAX + 5; i++) {
+      const p = await fixtures.principal();
+      await fixtures.participant(session, p);
+      readers.push(p);
+    }
+    const mentioned = [...readers].reverse();
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: mentioned.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(sent.status).toBe(201);
+    const emailed = await Promise.all(
+      mentioned.map(async (p) => (await notificationsTo(p.tereoUserId!)).length)
+    );
+    expect(emailed).toEqual(
+      mentioned.map((_, i) => (i < MENTION_EMAILS_MAX ? 1 : 0))
+    );
+  });
+
+  it.each([
+    ["'>' nesting", "\ufeff" + ">".repeat(3000) + " a"],
+    ["'- ' nesting", "\ufeff" + "- ".repeat(2000) + "a"],
+    ["a quote followed by lazy lines", "\ufeff> a\n" + "b\n".repeat(4990)],
+  ])(
+    "sends a body of %s after a leading BOM as plain text",
+    async (_name, body) => {
+      const { me, session } = await room();
+
+      const sent = await sendMessage(session.id, me.token, { body });
+
+      expect(sent.status).toBe(201);
+      const row = await prisma.message.findUniqueOrThrow({
+        where: { id: sent.body.message.id },
+      });
+      expect(row.bodyText).toBe(body.trim());
+    }
+  );
+
+  it("emails a reader once for a sender's mentions within the cooldown", async () => {
+    const { org, me, session } = await room();
+    const other = await signIn(org);
+    await fixtures.participant(session, { id: other.principalId });
+    const reader = await fixtures.principal();
+    await fixtures.participant(session, reader);
+
+    await sendMessage(session.id, me.token, { body: `<@${reader.id}> one` });
+    await sendMessage(session.id, me.token, { body: `<@${reader.id}> two` });
+    expect(await notificationsTo(reader.tereoUserId!)).toHaveLength(1);
+
+    await sendMessage(session.id, other.token, { body: `<@${reader.id}> hi` });
+    expect(await notificationsTo(reader.tereoUserId!)).toHaveLength(2);
+  });
+
+  it("fills the email cap from readers out of cooldown, in mention order", async () => {
+    const { me, session } = await room();
+    const readers = [];
+    for (let i = 0; i < MENTION_EMAILS_MAX + 5; i++) {
+      const p = await fixtures.principal();
+      await fixtures.participant(session, p);
+      readers.push(p);
+    }
+    const cooling = readers.slice(0, 3).map((p) => p.id);
+    for (const id of cooling) {
+      await redis.set(mentionCooldownKey(me.principalId, id), "1", "EX", 60);
+    }
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: readers.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(sent.status).toBe(201);
+    await redis.del(
+      cooling.map((id) => mentionCooldownKey(me.principalId, id))
+    );
+    const emailed = await Promise.all(
+      readers.map(async (p) => (await notificationsTo(p.tereoUserId!)).length)
+    );
+    expect(emailed).toEqual(
+      readers.map((_, i) => (i >= 3 && i < MENTION_EMAILS_MAX + 3 ? 1 : 0))
+    );
+  });
 });

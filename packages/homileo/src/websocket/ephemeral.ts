@@ -6,6 +6,7 @@ import { canPost, canWriteChat } from "../policy/index.js";
 import { readableSession } from "../utils/access.js";
 import { IdSchema } from "../utils/idSchema.js";
 import { logger } from "../utils/logger.js";
+import { failureAck } from "./failures.js";
 import { MAX_WATCHED } from "./limits.js";
 import { z } from "zod";
 
@@ -158,9 +159,7 @@ export const handleEphemeral = (socket: AppSocket): void => {
       };
       handler(payload).then(reply, (err: unknown) => {
         logFailure(socket, event)(err);
-        reply(
-          failure({ code: "server_error", message: "Something went wrong" })
-        );
+        reply(failure(failureAck(err)));
       });
     };
 

@@ -2,6 +2,7 @@
 // @module-tag spaces
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spaceApiFixtures } from "../../../support/spaceApi.js";
+import { byId, walkPages } from "../../../support/pages.js";
 import { prisma } from "../../../../utils/db/prisma.js";
 import { startV1App } from "../../../support/v1App.js";
 import { botToken } from "../../../support/tokens.js";
@@ -213,7 +214,10 @@ describe("/v1/spaces", () => {
       const kind = await api.kind(kindName(), {
         grants: [{ permission: "spaces-test.read", access: "read" }],
       });
-      const { principal, token } = await api.actor(org, ["spaces-test.read"]);
+      const { principal, token } = await api.actor(org, [
+        "spaces-test.read",
+        "homileo.spaces.read",
+      ]);
       const owner = await fixtures.principal();
       const mine = await fixtures.space({ org });
       await fixtures.member(mine, principal, "member");
@@ -308,6 +312,41 @@ describe("/v1/spaces", () => {
       expect(sizes).toEqual([2, 2, 1]);
       expect(seen).toEqual(expected);
     });
+
+    it.each([1, 2, 4])(
+      "walks every space once, in order, with ties in created_at, %i a page",
+      async (limit) => {
+        const org = api.organization();
+        const { principal, token } = await api.actor(org);
+        for (const t of [-1, -2, -2, -2, -3, -3]) {
+          const s = await fixtures.space({ org });
+          await fixtures.member(s, principal);
+          await prisma.space.update({
+            where: { id: s.id },
+            data: { createdAt: new Date(Date.UTC(2026, 0, 1) + t * 1000) },
+          });
+        }
+        const rows = await prisma.space.findMany({
+          where: { organizationId: org },
+        });
+        const expected = rows
+          .sort(
+            (a, b) =>
+              b.createdAt.getTime() - a.createdAt.getTime() || byId(b.id, a.id)
+          )
+          .map((s) => s.id);
+
+        const { ids, pages } = await walkPages(
+          token,
+          (cursor) =>
+            `${url}/v1/spaces?limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`,
+          (s) => String(s.id)
+        );
+
+        expect(ids).toEqual(expected);
+        expect(pages).toBe(Math.ceil(expected.length / limit));
+      }
+    );
 
     it("filters by externalRef and kind, and hides archived spaces unless asked", async () => {
       const org = api.organization();

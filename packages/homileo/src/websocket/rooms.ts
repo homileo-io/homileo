@@ -1,10 +1,12 @@
+import type { AppRemoteSocket, AppSocket, IOServer } from "./types.js";
 import { sessionFactsFor, spaceFactsFor } from "../utils/access.js";
 import type { Space } from "../../prisma/generated/client/index.js";
 import { canReadSession, canReadSpace } from "../policy/index.js";
 import type { SpaceFacts, SpaceRole } from "../policy/index.js";
-import type { AppRemoteSocket, AppSocket } from "./types.js";
 import type { Caller } from "../middleware/auth.js";
 import { prisma } from "../utils/db/prisma.js";
+import { logger } from "../utils/logger.js";
+import { runPool } from "./pool.js";
 import {
   sessionIdOf,
   sessionRoom,
@@ -224,6 +226,88 @@ export const recheckSockets = async (
 };
 
 /**
+ * Leaves the socket's `session:` and `space:` rooms that neither `held` (a `roomsOnConnect`
+ * load) nor a load taken after them returns, and no explicit subscription holds: a
+ * participation or membership removed before the socket was in the room, whose removal never
+ * left it. Any join was committed before the room was joined, so the later load shows it.
+ */
+export const leaveUnheldRooms = async (
+  socket: AppSocket,
+  held: string[]
+): Promise<void> => {
+  const keep = new Set(held);
+  const candidates = [...socket.rooms].filter(
+    (r) =>
+      (sessionIdOf(r) !== null || spaceIdOf(r) !== null) &&
+      !keep.has(r) &&
+      !socket.data.subscriptions.has(r)
+  );
+  if (candidates.length === 0) return;
+  const still = new Set(await roomsOnConnect(socket.data.caller));
+  const leaving = candidates.filter(
+    (r) => !still.has(r) && !socket.data.subscriptions.has(r)
+  );
+  await leaveRooms(socket, leaving);
+  const sessionIds = leaving.flatMap((r) => sessionIdOf(r) ?? []);
+  if (sessionIds.length === 0) return;
+  const spaces = await prisma.session.findMany({
+    where: { id: { in: sessionIds } },
+    select: { spaceId: true },
+    distinct: ["spaceId"],
+  });
+  for (const { spaceId } of spaces) {
+    if (spaceId) await leaveSpaceOfIfUnused(socket, spaceId, "");
+  }
+};
+
+/** `roomsOnConnect` loads in flight at once during a sweep. */
+const SWEEP_CONCURRENCY = 10;
+
+/**
+ * The backstop for this node's sockets: joins each to the participation and membership rooms
+ * it is missing (a join lost in Redis), drops the subscriptions those rooms now hold, leaves
+ * those rooms it no longer holds (`leaveUnheldRooms`), then re-checks them all.
+ */
+export const sweepSockets = async (io: IOServer): Promise<void> => {
+  const sockets = [...io.of("/").sockets.values()];
+  const loads = new Map<Caller, Promise<string[]>>();
+  const load = (c: Caller) => {
+    let rooms = loads.get(c);
+    if (!rooms) {
+      rooms = roomsOnConnect(c);
+      loads.set(c, rooms);
+    }
+    return rooms;
+  };
+  await runPool(sockets, SWEEP_CONCURRENCY, async (socket) => {
+    const c = socket.data?.caller;
+    if (!c) return;
+    try {
+      const rooms = await load(c);
+      const held = new Set(rooms);
+      for (const r of socket.data.subscriptions) {
+        if (held.has(r)) socket.data.subscriptions.delete(r);
+      }
+      if (socket.disconnected) return;
+      await leaveUnheldRooms(socket, rooms);
+      const missing = rooms.filter((r) => !socket.rooms.has(r));
+      if (missing.length === 0 || socket.disconnected) return;
+      await socket.join(missing);
+      // A removal committed since the load shows in this reload, or fans out after the join.
+      const still = new Set(await roomsOnConnect(c));
+      const gone = missing.filter((r) => !still.has(r));
+      for (const r of gone) await socket.leave(r);
+    } catch (err) {
+      logger.error(
+        { err, principalId: c.principalId },
+        "Joining a socket's missing rooms failed"
+      );
+    }
+  });
+  await recheckSockets(sockets);
+};
+
+/**
  * The ids of `sockets` whose own caller can read the session now. A mention reaches only
  * these, as `/sync` judges a mention by the reader's own token.
  */
@@ -271,19 +355,14 @@ export const socketsReadingSession = async (
 };
 
 /**
- * Leaves `rooms`, explicit subscriptions included. A remote socket's data is a copy: its own
- * node prunes the subscription on its next subscribe.
+ * Leaves `rooms`, explicit subscriptions included: the socket's own node drops those from its
+ * list and tells it (`watchSubscriptionLoss`).
  */
 export const leaveRooms = async (
   socket: AppSocket | AppRemoteSocket,
   rooms: string[]
 ): Promise<void> => {
-  for (const room of rooms) {
-    await socket.leave(room);
-    if (socket.data.subscriptions instanceof Set) {
-      socket.data.subscriptions.delete(room);
-    }
-  }
+  for (const room of rooms) await socket.leave(room);
 };
 
 /**
@@ -295,13 +374,23 @@ export const leaveSpaceOfIfUnused = async (
   spaceId: string,
   except: string
 ): Promise<void> => {
-  const others = [...socket.rooms].flatMap((room) => {
-    const id = room === except ? null : sessionIdOf(room);
-    return id ? [id] : [];
-  });
-  const remaining =
-    others.length === 0
-      ? 0
-      : await prisma.session.count({ where: { id: { in: others }, spaceId } });
-  if (remaining === 0) await socket.leave(spaceOfRoom(spaceId));
+  const checked = new Set<string>();
+  for (;;) {
+    // Read again after each count: a fan-out join of another session room of the space can
+    // land while it runs. That join adds the session room and `spaceof:` together, so rooms
+    // read with no await before the leave are a consistent view.
+    const fresh = [...socket.rooms].flatMap((room) => {
+      const id = room === except ? null : sessionIdOf(room);
+      return id && !checked.has(id) ? [id] : [];
+    });
+    if (fresh.length === 0) {
+      await socket.leave(spaceOfRoom(spaceId));
+      return;
+    }
+    const inSpace = await prisma.session.count({
+      where: { id: { in: fresh }, spaceId },
+    });
+    if (inSpace > 0) return;
+    for (const id of fresh) checked.add(id);
+  }
 };

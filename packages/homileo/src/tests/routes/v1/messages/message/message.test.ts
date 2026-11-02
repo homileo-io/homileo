@@ -1,9 +1,11 @@
 // @module-tag int
 // @module-tag messages
 import { purgeOrganizations, signIn } from "../../../../support/signedIn.js";
+import { mentionCooldownKey } from "../../../../../utils/notifyMentions.js";
 import { chatFixtures } from "../../../../support/chatFixtures.js";
 import { prisma } from "../../../../../utils/db/prisma.js";
 import { afterAll, describe, expect, it } from "vitest";
+import { redis } from "../../../../../utils/redis.js";
 import { v7 as uuidv7 } from "uuid";
 import {
   deleteMessage,
@@ -20,6 +22,10 @@ afterAll(async () => {
   await fixtures.cleanup();
   await purgeOrganizations(orgs);
 });
+
+// Lifts the cooldown, so only message_ever_mentions keeps an edit from emailing again.
+const endCooldown = (senderId: string, ...readerIds: string[]) =>
+  redis.del(...readerIds.map((id) => mentionCooldownKey(senderId, id)));
 
 const room = async () => {
   const org = uuidv7();
@@ -139,6 +145,7 @@ describe("PATCH /v1/messages/:messageId", () => {
     });
     const id = sent.body.message.id;
     expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
+    await endCooldown(me.principalId, a.id);
 
     const res = await editMessage(id, me.token, {
       body: `<@${a.id}> <@${b.id}> <!here> hello`,
@@ -148,6 +155,7 @@ describe("PATCH /v1/messages/:messageId", () => {
     expect(await mentionIds(id)).toEqual([a.id, b.id, "broadcast"].sort());
     expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
     expect(await notificationsTo(b.tereoUserId!)).toHaveLength(1);
+    await endCooldown(me.principalId, a.id, b.id);
 
     await editMessage(id, me.token, { body: `<@${b.id}> bye` });
     expect(await mentionIds(id)).toEqual([b.id]);
@@ -163,8 +171,12 @@ describe("PATCH /v1/messages/:messageId", () => {
     });
     const id = sent.body.message.id;
 
+    expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
+    await endCooldown(me.principalId, a.id);
+
     await editMessage(id, me.token, { body: "hello" });
     await editMessage(id, me.token, { body: `<@${a.id}> hello again` });
+    await endCooldown(me.principalId, a.id);
     await editMessage(id, me.token, { body: "hello" });
     const res = await editMessage(id, me.token, { body: `hi <@${a.id}>` });
 
@@ -219,6 +231,7 @@ describe("PATCH /v1/messages/:messageId", () => {
       },
     });
     await prisma.messageMention.deleteMany({ where: { messageId: id } });
+    await prisma.messageEverMention.deleteMany({ where: { messageId: id } });
     await prisma.principal.deleteMany({
       where: { id: { in: principals.map((p) => p.id) } },
     });

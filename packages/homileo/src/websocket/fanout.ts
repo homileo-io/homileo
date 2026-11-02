@@ -31,6 +31,7 @@ import {
   leaveSpaceOfIfUnused,
   recheckSockets,
   socketsReadingSession,
+  sweepSockets,
 } from "./rooms.js";
 
 /** The backstop re-check of every local socket, for access lost without an event. */
@@ -130,8 +131,8 @@ const recheckUpdated = async (
 
 /**
  * Joins each principal's sockets to its room: this node's at once, so the emit that follows
- * finds them there, and other nodes' through the adapter. Then re-checks them, so an add that
- * fans out after a later removal cannot leave a removed principal in the room.
+ * finds them there, then other nodes' by socket id. Then re-checks them, so an add that fans
+ * out after a later removal cannot leave a removed principal in the room.
  */
 const joinAudience = async (
   io: IOServer,
@@ -139,31 +140,35 @@ const joinAudience = async (
   join: Audience["join"]
 ): Promise<void> => {
   const owners = new Set<string>();
+  const roomsOf = new Map<string, string[]>();
   const joined = new Map<string, AppSocket | AppRemoteSocket>();
   for (const { principalId, room } of join) {
     const owner = userRoom(e.organizationId, principalId);
     owners.add(owner);
-    const local = await io.local.in(owner).fetchSockets();
-    for (const socket of local) {
+    roomsOf.set(principalId, [...(roomsOf.get(principalId) ?? []), room]);
+    for (const socket of await io.local.in(owner).fetchSockets()) {
       joined.set(socket.id, socket);
       // The room is now the principal's own, not a subscription. Other nodes' lists are out
-      // of reach: their `unsubscribe` checks participation and membership instead.
+      // of reach: a subscribe at the cap, and the sweep, prune them there.
       socket.data.subscriptions.delete(room);
       await socket.join(room);
     }
-    // The adapter's join comes back to this node too, through Redis: excepting the sockets
-    // joined above keeps it from putting one back after the re-check below left the room.
-    io.in(owner)
-      .except(local.map((s) => s.id))
-      .socketsJoin(room);
   }
   const rooms = join.map((j) => j.room);
   // This node's first, so a Redis failure fetching the others' cannot skip it.
   await recheckSockets([...joined.values()], rooms);
-  // A remote socket's leave is published after its join, so Redis delivers them in order.
+  // By id, not by a join to the personal room: that would come back to this node through
+  // Redis too, and could join a socket that connected since after a removal skipped it. A
+  // socket of this node that connected since loaded its rooms after the commit.
+  const local = io.of("/").sockets;
   const remote = (await socketsIn(io, [...owners])).filter(
-    (s) => !joined.has(s.id)
+    (s) => !joined.has(s.id) && !local.has(s.id) && s.data?.caller
   );
+  for (const socket of remote) {
+    const own = roomsOf.get(socket.data.caller.principalId);
+    if (own) socket.join(own);
+  }
+  // A remote socket's leave is published after its join, so Redis delivers them in order.
   await recheckSockets(remote, rooms);
 };
 
@@ -171,6 +176,23 @@ const socketsIn = (
   io: IOServer,
   rooms: string[]
 ): Promise<(AppSocket | AppRemoteSocket)[]> => io.in(rooms).fetchSockets();
+
+/** The sockets in `rooms` on every node, or this node's only when the others' fetch fails. */
+const socketsOrLocal = async (
+  io: IOServer,
+  e: ChangeEvent,
+  rooms: string[]
+): Promise<(AppSocket | AppRemoteSocket)[]> => {
+  try {
+    return await socketsIn(io, rooms);
+  } catch (err) {
+    logger.error(
+      { err, eventId: e.id.toString(), type: e.type },
+      "Fetching the sockets of every node failed; acting on this node's only"
+    );
+    return io.local.in(rooms).fetchSockets();
+  }
+};
 
 /** Runs one step of an event's fan-out; a failure is logged and the rest go on. */
 const step = async (
@@ -188,15 +210,31 @@ const step = async (
   }
 };
 
-/** The mentioned principals each message event still reaches, by message id. */
+/**
+ * The mentioned principals each message event still reaches beyond its session room, by
+ * message id. Participants who joined by the message's first event in the batch are left out:
+ * the room reaches them, under its own checks, as `/sync` reaches a participant only while they
+ * can read the session. One who joined later may not be in the room yet.
+ */
 const loadMentions = async (
   events: ChangeEvent[]
 ): Promise<Map<string, string[]>> => {
   try {
+    const firstEventAt = new Map<string, Date>();
+    for (const e of events) {
+      const id = mentionedMessageOf(e);
+      const seen = id ? firstEventAt.get(id) : undefined;
+      if (id && (!seen || e.createdAt < seen))
+        firstEventAt.set(id, e.createdAt);
+    }
+    const stored = await db.messages.storedMentionsOf(prisma, [
+      ...firstEventAt.keys(),
+    ]);
     return currentMentionReaders(
-      await db.messages.storedMentionsOf(
-        prisma,
-        events.flatMap((e) => mentionedMessageOf(e) ?? [])
+      stored.filter(
+        (m) =>
+          m.participantJoinedAt === null ||
+          m.participantJoinedAt > firstEventAt.get(m.messageId)!
       )
     );
   } catch (err) {
@@ -222,16 +260,41 @@ const moderatorSockets = async (
   return sockets.flatMap((s, i) => (can[i] ? [s.id] : []));
 };
 
+/**
+ * The sockets of the batch's mentioned principals, fetched from every node once, on first
+ * use: a mention event then takes those in its own `mentioned` rooms.
+ */
+const mentionSockets = (io: IOServer, audiences: Audience[]) => {
+  let fetched: Promise<(AppSocket | AppRemoteSocket)[]> | null = null;
+  return async (rooms: string[]) => {
+    fetched ??= socketsIn(io, [
+      ...new Set(audiences.flatMap((a) => a.mentioned)),
+    ]);
+    const wanted = new Set(rooms);
+    return (await fetched).filter(
+      (s) =>
+        s.data?.caller &&
+        wanted.has(
+          userRoom(s.data.caller.organizationId, s.data.caller.principalId)
+        )
+    );
+  };
+};
+
 const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
   const mentions = await loadMentions(events);
-
-  for (const e of events) {
+  const audiences = events.map((e) => {
     const messageId = mentionedMessageOf(e);
-    const audience = eventAudience(
+    return eventAudience(
       e,
       messageId ? (mentions.get(messageId) ?? []) : [],
       foundersOf(e, events)
     );
+  });
+  const mentionedSockets = mentionSockets(io, audiences);
+
+  for (const [i, e] of events.entries()) {
+    const audience = audiences[i];
     const view = eventView(e);
 
     if (audience.join.length > 0) {
@@ -256,7 +319,7 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
       // On failure the mentioned non-participants catch up through /sync.
       await step(e, "mentions", async () => {
         mentioned = await socketsReadingSession(
-          await socketsIn(io, audience.mentioned),
+          await mentionedSockets(audience.mentioned),
           sessionId
         );
       });
@@ -275,11 +338,11 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
     const target = targetOf(e);
     if (removed && target) {
       await step(e, "removal", async () => {
-        const sockets = await socketsIn(io, [
+        const sockets = await socketsOrLocal(io, e, [
           userRoom(e.organizationId, target),
         ]);
+        // Whether or not the fetch saw it in the room: a join may still be in flight.
         for (const socket of sockets) {
-          if (!socket.rooms.has(removed)) continue;
           await leaveRooms(socket, [removed]);
           if (e.type === "session.participant_removed" && e.spaceId) {
             await leaveSpaceOfIfUnused(socket, e.spaceId, removed);
@@ -293,7 +356,7 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
     // comes earlier in the batch, so the target has that already.
     await step(e, "revocation", async () => {
       for (const principalId of audience.recheck) {
-        const sockets = await socketsIn(io, [
+        const sockets = await socketsOrLocal(io, e, [
           userRoom(e.organizationId, principalId),
         ]);
         await recheckSockets(sockets);
@@ -327,12 +390,9 @@ export const startFanout = (io: IOServer): void => {
       );
     },
     sweep: setInterval(() => {
-      io.local
-        .fetchSockets()
-        .then(recheckSockets)
-        .catch((err: unknown) => {
-          logger.error({ err }, "Re-checking the sockets' rooms failed");
-        });
+      sweepSockets(io).catch((err: unknown) => {
+        logger.error({ err }, "Re-checking the sockets' rooms failed");
+      });
     }, SWEEP_INTERVAL_MS).unref(),
   };
   running.set(io, fanout);

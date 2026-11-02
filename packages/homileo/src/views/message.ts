@@ -45,6 +45,7 @@ export const messageView = (row: MessageRow): MessageView => {
           position: a.position,
         })),
     reactions: deleted ? [] : row.reactions,
+    reactionSeq: Number(row.reactionSeq),
   };
 };
 

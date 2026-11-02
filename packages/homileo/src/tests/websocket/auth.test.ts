@@ -1,9 +1,11 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag auth
+import { revalidateSockets, startTokenRecheck } from "../../websocket/auth.js";
 import { botToken, personToken } from "../support/tokens.js";
-import { revalidateSockets } from "../../websocket/auth.js";
+import { connectCheckOf } from "../../websocket/index.js";
 import { UnauthorizedError } from "../../utils/errors.js";
+import * as rooms from "../../websocket/rooms.js";
 import * as auth from "../../middleware/auth.js";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -27,6 +29,11 @@ import {
 vi.mock("../../middleware/auth.js", async (importOriginal) => {
   const original = await importOriginal<typeof auth>();
   return { ...original, callerFromToken: vi.fn(original.callerFromToken) };
+});
+// Passes through; counted to tell whether a re-check judged the rooms again.
+vi.mock("../../websocket/rooms.js", async (importOriginal) => {
+  const original = await importOriginal<typeof rooms>();
+  return { ...original, recheckSockets: vi.fn(original.recheckSockets) };
 });
 
 const opened: ClientSocket[] = [];
@@ -73,6 +80,26 @@ describe("socket handshake", () => {
       "organization_required"
     );
   });
+
+  it.each([[[]], [["homileo.messages.read_private"]]])(
+    "refuses a token with %j, without homileo.spaces.read, as forbidden",
+    async (perms: string[]) => {
+      expect(await refusal(personToken({ org: uuidv7(), perms }))).toBe(
+        "forbidden"
+      );
+    }
+  );
+
+  it.each([["homileo.spaces.read"], ["homileo.chat.admin"]])(
+    "connects a token with only %s",
+    async (permission) => {
+      const socket = await open(
+        personToken({ org: uuidv7(), perms: [permission] })
+      );
+
+      expect(socket.connected).toBe(true);
+    }
+  );
 
   it("refuses the 21st socket of one principal", async () => {
     const token = personToken({ org: uuidv7() });
@@ -161,13 +188,63 @@ describe("socket token expiry", () => {
           .then((m) => m.callerFromToken(token));
         return {
           ...result,
-          caller: { ...result.caller, permissions: ["homileo.chat.admin"] },
+          caller: {
+            ...result.caller,
+            permissions: ["homileo.chat.admin"],
+            isAdmin: true,
+          },
         };
       });
 
       await revalidateSockets([onServer]);
 
       expect(onServer.data.caller.permissions).toEqual(["homileo.chat.admin"]);
+      expect(socket.connected).toBe(true);
+    });
+
+    it("disconnects a socket whose token no longer holds homileo.spaces.read", async () => {
+      const socket = await open(
+        personToken({ org: uuidv7(), perms: ["homileo.spaces.read"] }),
+        local.url
+      );
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return { ...result, caller: { ...result.caller, permissions: [] } };
+      });
+
+      await revalidateSockets([serverSocket(socket)]);
+
+      expect(await disconnected(socket)).toBe("io server disconnect");
+    });
+
+    it("does not re-check the rooms when only the permissions' order changed", async () => {
+      const perms = ["homileo.spaces.write", "homileo.messages.read_private"];
+      const socket = await open(
+        personToken({ org: uuidv7(), perms }),
+        local.url
+      );
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return {
+          ...result,
+          caller: { ...result.caller, permissions: [...perms].reverse() },
+        };
+      });
+      const onServer = serverSocket(socket);
+      // Connecting re-checks the rooms once of its own.
+      await connectCheckOf(onServer);
+      const recheck = vi.mocked(rooms.recheckSockets);
+      recheck.mockClear();
+
+      await revalidateSockets([onServer]);
+
+      expect(recheck).not.toHaveBeenCalled();
       expect(socket.connected).toBe(true);
     });
 
@@ -180,6 +257,77 @@ describe("socket token expiry", () => {
       await revalidateSockets([serverSocket(socket)]);
 
       expect(socket.connected).toBe(true);
+    });
+
+    it("keeps the token out of the handshake that other nodes' fetches receive", async () => {
+      // On the shared server: this node fetches it through Redis.
+      const socket = await open(personToken({ org: uuidv7() }));
+
+      const fetched = (await local.io.fetchSockets()).find(
+        (s) => s.id === socket.id
+      );
+
+      expect(fetched).toBeDefined();
+      expect(fetched!.handshake.auth).not.toHaveProperty("token");
+    });
+
+    it("waits on stop for a re-check in flight, and starts no other", async () => {
+      const token = personToken({ org: uuidv7() });
+      await open(token, local.url);
+      const { callerFromToken: original } = await vi.importActual<typeof auth>(
+        "../../middleware/auth.js"
+      );
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let calls = 0;
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementation(async (t) => {
+        if (t === token) {
+          calls++;
+          await gate;
+        }
+        return original(t);
+      });
+      try {
+        const stop = startTokenRecheck(local.io, 100);
+        await expect.poll(() => calls).toBe(1);
+
+        let stopped = false;
+        const stopping = stop().then(() => (stopped = true));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(stopped).toBe(false);
+        release();
+        await stopping;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        expect(calls).toBe(1);
+      } finally {
+        release();
+        real.mockImplementation(original);
+      }
+    });
+
+    it("ends a paced re-check as soon as it is stopped, introspecting no more", async () => {
+      const tokens = [
+        personToken({ org: uuidv7() }),
+        personToken({ org: uuidv7() }),
+      ];
+      const sockets = [];
+      for (const t of tokens) sockets.push(await open(t, local.url));
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockClear();
+      const stop = new AbortController();
+
+      // Paced over a minute: the second token would wait 30 s.
+      const run = revalidateSockets(sockets.map(serverSocket), {
+        spreadMs: 60_000,
+        signal: stop.signal,
+      });
+      await expect.poll(() => real.mock.calls.length).toBe(1);
+      stop.abort();
+      await run;
+
+      expect(real.mock.calls.map(([t]) => t)).toEqual([tokens[0]]);
     });
 
     it("introspects a token shared by several sockets once", async () => {

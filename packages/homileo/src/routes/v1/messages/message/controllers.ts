@@ -9,8 +9,6 @@ import { db, prisma } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
 import {
-  everMentionedIds,
-  parseRevisionMentions,
   resolveMentions,
   readBody,
 } from "../../../../utils/resolveMentions.js";
@@ -26,6 +24,7 @@ import {
 import {
   canDeleteMessage,
   canEditMessage,
+  canReadSession,
   editWindowOpen,
 } from "../../../../policy/index.js";
 import {
@@ -73,10 +72,6 @@ export const editMessage = async (req: Request, res: Response) => {
   // Unlocked, so a caller who may not edit never costs a parse; checked again under the lock.
   refuseEdit(caller, await readableMessage(caller, messageId), new Date());
   const read = readBody(body.body);
-  const parsedRevisions =
-    body.body === undefined
-      ? new Map<string, string[]>()
-      : await parseRevisionMentions(messageId);
 
   const message = await withChanges(async (tx, record) => {
     const context = await lockedMessage(tx, caller, messageId);
@@ -109,10 +104,6 @@ export const editMessage = async (req: Request, res: Response) => {
       data.editedAt = now;
       data.body = newBody;
       data.payload = (newPayload ?? undefined) as Prisma.InputJsonValue;
-      // Read before this edit's revision is stored, or its own mentions would count as earlier ones.
-      const before = bodyChanged
-        ? await everMentionedIds(tx, row.id, parsedRevisions)
-        : new Set<string>();
       await tx.messageRevision.create({
         data: {
           messageId: row.id,
@@ -128,6 +119,17 @@ export const editMessage = async (req: Request, res: Response) => {
         const mentions = await resolveMentions(tx, context, read);
         data.bodyText = mentions.bodyText;
 
+        // Read before this revision's mentions are added, or they would count as earlier ones.
+        const before = await db.messages.everMentioned(
+          tx,
+          row.id,
+          mentions.readers.map((p) => p.id)
+        );
+        await db.messages.recordEverMentioned(
+          tx,
+          row.id,
+          mentions.mentionedIds
+        );
         await db.messages.deleteMentions(tx, row.id);
         await db.messages.insertMentions(
           tx,
@@ -166,12 +168,12 @@ export const deleteMessage = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
 
-  const message = await withChanges(async (tx, record) => {
+  const { message, readable } = await withChanges(async (tx, record) => {
     const {
       message: row,
       session,
       facts,
-    } = await lockedMessage(tx, caller, messageId);
+    } = await lockedMessage(tx, caller, messageId, { moderate: true });
     if (row.deletedAt !== null) {
       throw new ArchivedError("The message was already deleted");
     }
@@ -221,8 +223,13 @@ export const deleteMessage = async (req: Request, res: Response) => {
         },
       });
     }
-    return view;
+    return { message: view, readable: canReadSession(caller, facts) };
   });
 
+  // A moderator deleting in a session it cannot read gets no view of the message.
+  if (!readable) {
+    res.status(204).end();
+    return;
+  }
   res.status(200).json({ message });
 };

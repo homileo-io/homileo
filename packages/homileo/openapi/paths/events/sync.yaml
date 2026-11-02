@@ -6,7 +6,8 @@
       The events the caller would have received on the socket after `since`, with the same ids, in
       commit order. A client calls it on reconnect, with the socket already connected and
       buffering, passing as `until` the position the socket's `ready` event (and its `subscribe`
-      acks) gave, until `hasMore` is false; then it applies the buffered socket events, skipping
+      acks) gave, until `hasMore` is false, backing off briefly only after a page whose `next` is
+      the cursor it sent (an empty page that advanced is normal: go on at once); then it applies the buffered socket events, skipping
       ids it has seen. Without `since` it returns no events and the head as `next`.
 
       Events are read only from transactions older than every one still running on the database
@@ -34,10 +35,19 @@
       `message.created`, `message.edited` and `message.deleted` carry the message's **current**
       view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
       at the event: every event of a deleted message carries its deleted view, and every event of
-      an edited one its latest revision. The cursor is not signed; because of this and the rule
-      above, a made-up cursor reveals nothing the REST routes do not.
+      an edited one its latest revision. The exception is `reactions` with `reactionSeq`, which keep
+      the pair stored with the event (a deleted message's are its view's: none). Every reaction
+      event carries the message's whole summary and `reactionSeq` too; a client keeps the summary
+      with the highest `reactionSeq`, so it converges whatever order the events arrive in. The cursor is not
+      signed; because of this and the rule above, a made-up cursor reveals nothing the REST
+      routes do not.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      One page scans at most 5000 rows of the caller's organization's log, matching or not; a
+      page cut there answers `hasMore: true` with a `next` past the rows it scanned, so a reader
+      with few relevant events in a busy log pages through it rather than one request scanning it
+      all.
+
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: sync
     parameters:
       - $ref: '../../components/events/parameters.yaml#/SyncSinceParam'
@@ -54,6 +64,7 @@
               $ref: '../../components/events/schemas.yaml#/SyncResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

@@ -56,4 +56,30 @@ describe("PUT /v1/threads/:rootId/read races", () => {
     });
     expect(Number(row.lastReadSeq)).toBe(seqs[8]);
   });
+
+  it("answers while a send holds the session row, as it locks only the follower row", async () => {
+    const author = await signIn(org);
+    const reader = await signIn(org);
+    const session = await fixtures.session({ org });
+    await fixtures.participant(session, { id: author.principalId });
+    await fixtures.participant(session, { id: reader.principalId });
+    const root = await sendMessage(session.id, author.token, { body: "root" });
+    const rootId: string = root.body.message.id;
+
+    const status = await prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "chat"."sessions" WHERE id = ${session.id}::uuid FOR UPDATE`;
+        const res = await fetchJson(
+          "PUT",
+          `${env.PUBLIC_URL}/v1/threads/${rootId}/read`,
+          reader.token,
+          { seq: 1 }
+        );
+        return res.status;
+      },
+      { timeout: 30_000 }
+    );
+
+    expect(status).toBe(200);
+  });
 });

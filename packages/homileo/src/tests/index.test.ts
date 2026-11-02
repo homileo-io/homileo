@@ -16,6 +16,23 @@ import { v7 as uuidv7 } from "uuid";
 import { fileURLToPath } from "url";
 import path from "path";
 
+const recheck = vi.hoisted(() => ({ stopped: false }));
+vi.mock("../websocket/auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../websocket/auth.js")>();
+  return {
+    ...actual,
+    startTokenRecheck: (
+      ...args: Parameters<typeof actual.startTokenRecheck>
+    ) => {
+      const stop = actual.startTokenRecheck(...args);
+      return () => {
+        recheck.stopped = true;
+        return stop();
+      };
+    },
+  };
+});
+
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../.."
@@ -125,8 +142,12 @@ describe("stop", () => {
         .status
     ).toBe(200);
     const redisAtDisconnect: string[] = [];
+    const recheckStoppedAtDisconnect: boolean[] = [];
     getIO().on("connection", (socket) => {
-      socket.on("disconnect", () => redisAtDisconnect.push(redis.status));
+      socket.on("disconnect", () => {
+        redisAtDisconnect.push(redis.status);
+        recheckStoppedAtDisconnect.push(recheck.stopped);
+      });
     });
     const client = await openSocket(
       personToken({ org: uuidv7() }),
@@ -138,6 +159,8 @@ describe("stop", () => {
 
     expect(await closed).toBe("io server disconnect");
     expect(redisAtDisconnect).toEqual(["ready"]);
+    // Stopped as the drain begins, not after it: it introspects no closed socket's token.
+    expect(recheckStoppedAtDisconnect).toEqual([true]);
 
     expect(tereoStop).toHaveBeenCalledTimes(1);
     expect(server.isRunning()).toBe(false);
