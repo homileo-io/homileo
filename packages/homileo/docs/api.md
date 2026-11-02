@@ -205,7 +205,10 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
   24 h, and returns a presigned write URL for the object's id. A message names the object id. The
   send fetches the objects from tereo before its transaction, then checks inside it the key prefix
-  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit.
+  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit. If that
+  fails or never runs, a repeat of the send with the same `clientMessageId` (`409
+  duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
+  every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
   Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
   returns a presigned read URL. A tereo failure on these routes, other than a 404, is
   `503 temporarily_unavailable`.

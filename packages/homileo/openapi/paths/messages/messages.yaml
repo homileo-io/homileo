@@ -39,7 +39,8 @@
 
       - A repeat of `clientMessageId` by the same sender in the session is
         `409 duplicate_client_message`, whose body carries the existing `message`; nothing is
-        recorded and no `seq` is used.
+        recorded and no `seq` is used. The repeat keeps that message's attachments again, so a
+        retry after a lost response leaves them kept.
       - The caller must be a participant (`403 not_a_participant`) and, in a space whose
         `postPolicy` is `moderators`, able to moderate it (`403 posting_restricted`). An archived
         session or space is `409 resource_archived`.
