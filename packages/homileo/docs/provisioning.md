@@ -22,7 +22,7 @@ start (or exits the CLI with 1) after logging every problem, each with its file 
 
 ```jsonc
 {
-  "version": "1.0.0",                     // semver
+  "version": "1.0.0",                     // semver, at most 64 characters
   "app": "support",                       // ^[a-z][a-z0-9-]{0,62}$; the namespace of kinds and message types
   "spaceKinds": [
     {
