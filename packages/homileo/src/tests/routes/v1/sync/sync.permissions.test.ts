@@ -147,7 +147,7 @@ describe("GET /v1/sync access", () => {
     });
     const space = await fixtures.space({ org, kind, visibility: "members" });
     const session = await fixtures.session({ space, access: "members" });
-    const granted = await api.actor(org, [permission]);
+    const granted = await api.actor(org, [permission, "homileo.spaces.read"]);
     await fixtures.member(space, bob.principal, "owner");
     await fixtures.participant(session, bob.principal, "owner");
     await fixtures.participant(session, granted.principal);

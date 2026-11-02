@@ -9,7 +9,8 @@ const permsField = (perms: string[]) =>
 /**
  * Test tokens, as tereo's SDK test mode reads them: the user id, then `|`
  * separated fields. `org: null` is a token without an organization; `perms: []`
- * is a token without permissions.
+ * is a token without permissions, which every `/v1` route and socket refuses. A
+ * list that names only a kind's grant needs `homileo.spaces.read` beside it.
  */
 export const personToken = (o: {
   userId?: string;

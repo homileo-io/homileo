@@ -135,7 +135,7 @@ describe("startFanout losing access", () => {
     const session = await fixtures.session({ space, access: "members" });
     await fixtures.member(space, owner.principal, "owner");
     await fixtures.participant(session, owner.principal, "owner");
-    const granted = await api.actor(org, [permission]);
+    const granted = await api.actor(org, [permission, "homileo.spaces.read"]);
     const plain = await api.actor(org);
     await fixtures.participant(session, granted.principal);
     await fixtures.participant(session, plain.principal);

@@ -6,7 +6,7 @@
       The requests in one state (`pending` by default), oldest first. Pages with `cursor` and
       `limit`.
 
-      **Required permissions:** none; the caller must be able to moderate the space. A caller who
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
       can read the space but not moderate it gets 403; one who cannot read it, 404.
     operationId: listJoinRequests
     parameters:

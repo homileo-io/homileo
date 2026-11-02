@@ -213,7 +213,10 @@ describe("/v1/spaces", () => {
       const kind = await api.kind(kindName(), {
         grants: [{ permission: "spaces-test.read", access: "read" }],
       });
-      const { principal, token } = await api.actor(org, ["spaces-test.read"]);
+      const { principal, token } = await api.actor(org, [
+        "spaces-test.read",
+        "homileo.spaces.read",
+      ]);
       const owner = await fixtures.principal();
       const mine = await fixtures.space({ org });
       await fixtures.member(mine, principal, "member");

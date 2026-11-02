@@ -8,12 +8,16 @@
  * - every route answers 401 to a request without a token;
  * - every route answers 400 `organization_required` to a token without an
  *   organization, before validation or any lookup runs;
+ * - every route answers 403 to a token without `homileo.spaces.read` (none, or
+ *   only permissions off the ladder), before validation or any lookup runs, and
+ *   lets `homileo.spaces.read`, `homileo.spaces.write` or `homileo.chat.admin`
+ *   through; none is exempt (`READ_EXEMPT`);
  * - every route that changes shared chat state (`WRITE_GATED`) answers 403 to a
  *   token with only `homileo.spaces.read`, and lets `homileo.spaces.write` or
  *   `homileo.chat.admin` through; every other route that is not a GET is listed
  *   in `OPEN_TO_READERS`, so a new mutation must be classified;
  * - the removal routes in `SELF_REMOVAL` refuse a read-only token removing
- *   someone else but let it remove itself.
+ *   someone else but let it remove itself, by its id in either case.
  *
  * What it does not prove: which resources a caller may read or change. That is
  * the policy's, tested in `src/tests/policy` and in each route's own
@@ -92,11 +96,11 @@ const WRITE_GATED: readonly RouteEntry[] = [
   { method: "delete", path: "/v1/messages/:messageId" },
   { method: "put", path: "/v1/messages/:messageId/reactions/:emoji" },
   { method: "delete", path: "/v1/messages/:messageId/reactions/:emoji" },
+  { method: "post", path: "/v1/principals/resolve" },
 ];
 
 /** Routes other than GETs that a read-only token may call: they change only the caller's own state, or nothing. */
 const OPEN_TO_READERS: readonly RouteEntry[] = [
-  { method: "post", path: "/v1/principals/resolve" },
   { method: "put", path: "/v1/sessions/:sessionId/read" },
   { method: "put", path: "/v1/sessions/:sessionId/notify" },
   { method: "put", path: "/v1/threads/:rootId/read" },
@@ -112,7 +116,14 @@ const SELF_REMOVAL: readonly RouteEntry[] = [
   },
 ];
 
+/** `/v1` routes a token without `homileo.spaces.read` may call. */
+const READ_EXEMPT: readonly RouteEntry[] = [];
+
 const key = (r: RouteEntry) => `${r.method} ${r.path}`;
+
+const readGated = v1Routes.filter(
+  ([, , route]) => !READ_EXEMPT.map(key).includes(key(route))
+);
 
 describe("route table", () => {
   it("finds the routes under /v1", () => {
@@ -149,6 +160,35 @@ describe.each(v1Routes)("%s %s", (_method, _path, route) => {
 
     expect(status, body).toBe(400);
     expect(JSON.parse(body).error).toBe("organization_required");
+  });
+});
+
+describe.each(readGated)("read-gated %s %s", (_method, _path, route) => {
+  it.each([[[]], [["homileo.messages.read_private"]]])(
+    "returns 403 forbidden for a token with %j",
+    async (perms: string[]) => {
+      const token = personToken({ org: ORG, perms });
+
+      const { status, body } = await request(route, token);
+
+      expect(status, body).toBe(403);
+      expect(JSON.parse(body)).toMatchObject({
+        error: "forbidden",
+        error_description: "Requires the homileo.spaces.read permission",
+      });
+    }
+  );
+
+  it.each([
+    ["homileo.spaces.read"],
+    ["homileo.spaces.write"],
+    ["homileo.chat.admin"],
+  ])("passes the read gate with %s", async (permission) => {
+    const token = personToken({ org: ORG, perms: [permission] });
+
+    const { body } = await request(route, token);
+
+    expect(body).not.toContain("Requires the homileo.spaces.read permission");
   });
 });
 
@@ -196,6 +236,19 @@ describe.each(SELF_REMOVAL)("self-removal $method $path", (route) => {
     const me = await fetchJson("GET", `${env.PUBLIC_URL}/v1/me`, token);
 
     const { status, body } = await request(route, token, me.body.principal.id);
+
+    expect(status, body).not.toBe(403);
+  });
+
+  it("does not refuse a token with only homileo.spaces.read removing itself by its upper-case id", async () => {
+    const token = personToken({ org: ORG, perms: READ_ONLY });
+    const me = await fetchJson("GET", `${env.PUBLIC_URL}/v1/me`, token);
+
+    const { status, body } = await request(
+      route,
+      token,
+      String(me.body.principal.id).toUpperCase()
+    );
 
     expect(status, body).not.toBe(403);
   });

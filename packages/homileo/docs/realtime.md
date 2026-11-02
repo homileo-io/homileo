@@ -16,7 +16,8 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 
 - The token is a tereo access token in the handshake's `auth.token`, checked as a request's is. A
   refusal is a `connect_error` whose message is the code: `unauthorized` (missing or bad token),
-  `organization_required`, `too_many_connections`, `connection_closed` (the connection closed
+  `organization_required`, `forbidden` (a token without `homileo.spaces.read`, which
+  `homileo.spaces.write` and `homileo.chat.admin` include), `too_many_connections`, `connection_closed` (the connection closed
   while the handshake was checked), `shutting_down` or `server_error`.
 - A socket belongs to the token's organization and sees nothing of another.
 - At most 20 sockets per principal per node. Packets over 16 KiB close the connection.
@@ -25,9 +26,10 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 - Every 60 s each node introspects its sockets' tokens again through tereo, once per distinct
   token and at most 10 at a time, skipping a round while the last is still running. A token tereo
   no longer accepts (revoked, expired, or tereo unreachable, as a request would then get `401`)
-  closes its sockets; a token without `exp` is closed this way, never by expiry. A token still
-  active gives its sockets its current permissions, and those whose permissions changed are
-  re-checked. With tereo's introspection cache (60 s), a revoked token's sockets close within
+  closes its sockets; a token without `exp` is closed this way, never by expiry. So does a token
+  that no longer holds `homileo.spaces.read`, so every socket action runs for a caller with read.
+  A token still active gives its sockets its current permissions, and those whose permissions
+  changed (in any order: a reordering is no change) are re-checked. With tereo's introspection cache (60 s), a revoked token's sockets close within
   about two minutes.
 - Connecting counts as a presence heartbeat.
 - The server accepts the `websocket` and `polling` transports. Polling sends each request of one

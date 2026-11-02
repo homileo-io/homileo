@@ -3,7 +3,9 @@
 // @module-tag auth
 import { botToken, personToken } from "../support/tokens.js";
 import { revalidateSockets } from "../../websocket/auth.js";
+import { connectCheckOf } from "../../websocket/index.js";
 import { UnauthorizedError } from "../../utils/errors.js";
+import * as rooms from "../../websocket/rooms.js";
 import * as auth from "../../middleware/auth.js";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -27,6 +29,11 @@ import {
 vi.mock("../../middleware/auth.js", async (importOriginal) => {
   const original = await importOriginal<typeof auth>();
   return { ...original, callerFromToken: vi.fn(original.callerFromToken) };
+});
+// Passes through; counted to tell whether a re-check judged the rooms again.
+vi.mock("../../websocket/rooms.js", async (importOriginal) => {
+  const original = await importOriginal<typeof rooms>();
+  return { ...original, recheckSockets: vi.fn(original.recheckSockets) };
 });
 
 const opened: ClientSocket[] = [];
@@ -73,6 +80,26 @@ describe("socket handshake", () => {
       "organization_required"
     );
   });
+
+  it.each([[[]], [["homileo.messages.read_private"]]])(
+    "refuses a token with %j, without homileo.spaces.read, as forbidden",
+    async (perms: string[]) => {
+      expect(await refusal(personToken({ org: uuidv7(), perms }))).toBe(
+        "forbidden"
+      );
+    }
+  );
+
+  it.each([["homileo.spaces.read"], ["homileo.chat.admin"]])(
+    "connects a token with only %s",
+    async (permission) => {
+      const socket = await open(
+        personToken({ org: uuidv7(), perms: [permission] })
+      );
+
+      expect(socket.connected).toBe(true);
+    }
+  );
 
   it("refuses the 21st socket of one principal", async () => {
     const token = personToken({ org: uuidv7() });
@@ -161,13 +188,63 @@ describe("socket token expiry", () => {
           .then((m) => m.callerFromToken(token));
         return {
           ...result,
-          caller: { ...result.caller, permissions: ["homileo.chat.admin"] },
+          caller: {
+            ...result.caller,
+            permissions: ["homileo.chat.admin"],
+            isAdmin: true,
+          },
         };
       });
 
       await revalidateSockets([onServer]);
 
       expect(onServer.data.caller.permissions).toEqual(["homileo.chat.admin"]);
+      expect(socket.connected).toBe(true);
+    });
+
+    it("disconnects a socket whose token no longer holds homileo.spaces.read", async () => {
+      const socket = await open(
+        personToken({ org: uuidv7(), perms: ["homileo.spaces.read"] }),
+        local.url
+      );
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return { ...result, caller: { ...result.caller, permissions: [] } };
+      });
+
+      await revalidateSockets([serverSocket(socket)]);
+
+      expect(await disconnected(socket)).toBe("io server disconnect");
+    });
+
+    it("does not re-check the rooms when only the permissions' order changed", async () => {
+      const perms = ["homileo.spaces.write", "homileo.messages.read_private"];
+      const socket = await open(
+        personToken({ org: uuidv7(), perms }),
+        local.url
+      );
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return {
+          ...result,
+          caller: { ...result.caller, permissions: [...perms].reverse() },
+        };
+      });
+      const onServer = serverSocket(socket);
+      // Connecting re-checks the rooms once of its own.
+      await connectCheckOf(onServer);
+      const recheck = vi.mocked(rooms.recheckSockets);
+      recheck.mockClear();
+
+      await revalidateSockets([onServer]);
+
+      expect(recheck).not.toHaveBeenCalled();
       expect(socket.connected).toBe(true);
     });
 

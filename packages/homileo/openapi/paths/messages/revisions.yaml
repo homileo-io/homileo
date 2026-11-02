@@ -6,7 +6,7 @@
       Every revision of the message, oldest first; revision 1 is the original. Deleted messages
       keep theirs.
 
-      **Required permissions:** none; the caller must be the message's sender or able to
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be the message's sender or able to
       moderate its space (`403` for any other reader). A caller who cannot read the message gets
       `404`.
     operationId: listMessageRevisions

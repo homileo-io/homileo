@@ -10,6 +10,9 @@ export const SERVICE_SLUG = "homileo";
 /** The tereo bucket that holds message attachments. */
 export const ATTACHMENTS_BUCKET = "homileo-attachments";
 
+/** Needed by every `/v1` route and every socket (`canReadChat`). */
+export const SPACES_READ_PERMISSION = "homileo.spaces.read";
+
 /** Needed by every route that changes shared chat state (`canWriteChat`). */
 export const SPACES_WRITE_PERMISSION = "homileo.spaces.write";
 
@@ -37,9 +40,10 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
     },
     permissions: [
       {
-        name: "homileo.spaces.read",
+        name: SPACES_READ_PERMISSION,
         displayName: "Read spaces",
-        description: "Read spaces, sessions and messages, and their events",
+        description:
+          "Use the chat API and realtime: read spaces, sessions and messages, keep one's own read state, and receive their webhook events",
         orgAssignable: true,
       },
       {
@@ -59,11 +63,11 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         orgAssignable: true,
       },
       {
-        // Off the homileo.spaces ladder, so `canWriteChat` names it beside write.
+        // Off the homileo.spaces ladder, so `canReadChat` and `canWriteChat` name it.
         name: CHAT_ADMIN_PERMISSION,
         displayName: "Administer chat",
         description:
-          "Administer every space and session of the organization; also grants Use spaces",
+          "Administer every space and session of the organization, without reading its DMs; also grants Read spaces and Use spaces",
         orgAssignable: true,
       },
     ],
@@ -87,7 +91,7 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
       description: eventType,
       readPermission: privateTypes.has(eventType)
         ? READ_PRIVATE_PERMISSION
-        : "homileo.spaces.read",
+        : SPACES_READ_PERMISSION,
     })),
   },
 });

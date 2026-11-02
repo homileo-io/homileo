@@ -9,7 +9,7 @@
       moved. The message must be a top-level message (`400 reply_to_reply`). Any reader of the
       session may track a thread; participation is not required.
 
-      **Required permissions:** none; the caller must be able to read the session (`404` otherwise).
+      **Required permissions:** `homileo.spaces.read` (`403 forbidden` without); the caller must be able to read the session (`404` otherwise).
     operationId: putThreadRead
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/ThreadIdParam'
@@ -28,6 +28,7 @@
               $ref: '../../components/messages/schemas.yaml#/ThreadReadResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

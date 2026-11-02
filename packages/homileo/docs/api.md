@@ -9,15 +9,18 @@ them where a route is concerned.
 - Every `/v1` route needs a tereo access token with an organization (`org_id`): `401` without a
   token, `400 organization_required` with one that has no organization. No header names an
   organization. `routes/routes.permissions.test.ts` checks both for every route.
-- Every route that changes shared chat state needs `homileo.spaces.write` or `homileo.chat.admin`
-  in the token, and answers `403 forbidden` ("Requires the homileo.spaces.write permission")
-  without it, before validation or any lookup: creating, changing and archiving spaces and
-  sessions, joining, adding and removing someone else (members and participants), join request
-  decisions, sending, editing and deleting messages, reactions and attachment placeholders. Reads,
-  leaving (a `DELETE` of the caller's own member or participant row) and the calls that touch
-  only the caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`,
-  `POST /principals/resolve`) need no permission. The rest is
-  decided by `src/policy/` (see [access.md](access.md#write-permission)).
+- Every `/v1` route needs `homileo.spaces.read` (which `homileo.spaces.write` and
+  `homileo.chat.admin` include) and answers `403 forbidden` ("Requires the homileo.spaces.read
+  permission") without it, before validation or any lookup. That is all that reads, leaving (a
+  `DELETE` of the caller's own member or participant row) and the calls that touch only the
+  caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`) need.
+- Every route that changes shared chat state also needs `homileo.spaces.write` or
+  `homileo.chat.admin`, and answers `403 forbidden` ("Requires the homileo.spaces.write
+  permission") without it, before validation or any lookup: creating, changing and archiving
+  spaces and sessions, joining, adding and removing someone else (members and participants), join
+  request decisions, sending, editing and deleting messages, reactions, attachment placeholders
+  and `POST /principals/resolve`. The rest is decided by `src/policy/` (see
+  [access.md](access.md#read-permission)).
 - An id that does not parse as a UUID is `400 invalid_request`.
 - JSON bodies are limited to 256 KiB on `/v1/sessions` and `/v1/messages`, 64 KiB elsewhere.
 
@@ -26,7 +29,8 @@ them where a route is concerned.
 A space, session or message that does not exist, is in another organization, or that the caller
 cannot read answers `404 not_found` with the same message in each case, so a caller cannot tell
 them apart. `403` is only for a caller who can read the resource but may not do the action, and
-for a token without the write permission, which is refused before any lookup (so it reveals nothing).
+for a token without the read or write permission, which is refused before any lookup (so it
+reveals nothing).
 `utils/access.ts` (`readableSpace`, `readableSession`, `readableMessage`) is where this is applied;
 a route does not decide it itself.
 
