@@ -21,6 +21,29 @@ type Client = Tx | typeof prisma;
 type Record = (change: ChangeInput) => Promise<ChangeEvent>;
 
 /**
+ * Inserts or re-joins one participant. `joined_at` is the database's `now()`, the clock
+ * `chat.events.created_at` comes from, because fan-out compares the two; Prisma would fill
+ * `@default(now())` from the app's clock.
+ */
+const joinParticipant = async (
+  tx: Tx,
+  sessionId: string,
+  userId: string,
+  role: ParticipantRole
+): Promise<SessionParticipant> => {
+  const [row] = await tx.$queryRaw<SessionParticipant[]>`
+    INSERT INTO "chat"."session_participants" (session_id, user_id, role, joined_at)
+    VALUES (${sessionId}::uuid, ${userId}::uuid,
+      ${role}::"chat"."participant_role", now())
+    ON CONFLICT (session_id, user_id) DO UPDATE
+      SET left_at = NULL, joined_at = now(), role = EXCLUDED.role
+    RETURNING session_id::text AS "sessionId", user_id::text AS "userId",
+      role::text AS role, last_read_seq AS "lastReadSeq", notify::text AS notify,
+      joined_at AS "joinedAt", left_at AS "leftAt"`;
+  return row;
+};
+
+/**
  * Makes each principal a participant of `session` and records `session.participant_added`
  * for those it added. A row with `left_at` set is re-joined (its read position stays);
  * current participants are left as they are. Returns the rows it added.
@@ -46,14 +69,7 @@ export const addParticipants = async (
   for (const userId of ids) {
     const current = existing.get(userId);
     if (current && current.leftAt === null) continue;
-    const row = current
-      ? await tx.sessionParticipant.update({
-          where: { sessionId_userId: { sessionId: session.id, userId } },
-          data: { leftAt: null, joinedAt: new Date(), role },
-        })
-      : await tx.sessionParticipant.create({
-          data: { sessionId: session.id, userId, role },
-        });
+    const row = await joinParticipant(tx, session.id, userId, role);
     added.push(row);
     await record({
       type: "session.participant_added",

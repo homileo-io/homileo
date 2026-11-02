@@ -266,6 +266,7 @@ model SessionParticipant {
   role        ParticipantRole @default(member)
   lastReadSeq BigInt          @default(0) @map("last_read_seq")
   notify      NotifyLevel     @default(all)
+  // Written with the database's now() (db.sessions.addParticipants), the clock of chat.events.created_at.
   joinedAt    DateTime        @default(now()) @map("joined_at") @db.Timestamp(3)
   leftAt      DateTime?       @map("left_at") @db.Timestamp(3)
 

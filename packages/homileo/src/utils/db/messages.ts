@@ -18,39 +18,75 @@ export type { Message };
 /** How many reactors a reaction summary names. */
 const REACTION_PRINCIPALS = 50;
 
-/** Reaction summaries by message id: per emoji the count and the first reactors; a message with none is absent. */
-export const reactionSummaries = async (
+/** A message's reaction summaries (per emoji the count and the first reactors) and its `reactionSeq`. */
+export interface ReactionState {
+  reactionSeq: bigint;
+  reactions: ReactionSummary[];
+}
+
+/**
+ * Reaction states by message id, an absent message left out. One statement, so its snapshot
+ * gives each summary exactly at its `reactionSeq`, even without the session lock.
+ */
+export const reactionStates = async (
   client: Client,
   messageIds: string[]
-): Promise<Map<string, ReactionSummary[]>> => {
+): Promise<Map<string, ReactionState>> => {
   const rows = await client.$queryRaw<
     Array<{
       message_id: string;
-      emoji: string;
-      count: number;
-      principal_ids: string[];
+      reaction_seq: bigint;
+      emoji: string | null;
+      count: number | null;
+      principal_ids: string[] | null;
     }>
   >`
-    SELECT message_id::text, emoji, count(*)::int AS count,
-      (array_agg(user_id::text ORDER BY created_at, user_id))[1:${REACTION_PRINCIPALS}] AS principal_ids
-    FROM "chat"."reactions"
-    WHERE message_id = ANY(${messageIds}::uuid[])
-    GROUP BY message_id, emoji
-    ORDER BY message_id, min(created_at), emoji`;
-  const byMessage = new Map<string, ReactionSummary[]>();
+    SELECT m.id::text AS message_id, m.reaction_seq, r.emoji, r.count, r.principal_ids
+    FROM "chat"."messages" m
+    LEFT JOIN LATERAL (
+      SELECT emoji, count(*)::int AS count, min(created_at) AS first_at,
+        (array_agg(user_id::text ORDER BY created_at, user_id))[1:${REACTION_PRINCIPALS}] AS principal_ids
+      FROM "chat"."reactions"
+      WHERE message_id = m.id
+      GROUP BY emoji
+    ) r ON true
+    WHERE m.id = ANY(${messageIds}::uuid[])
+    ORDER BY m.id, r.first_at, r.emoji`;
+  const byMessage = new Map<string, ReactionState>();
   for (const r of rows) {
-    const list = byMessage.get(r.message_id) ?? [];
-    list.push({
-      emoji: r.emoji,
-      count: r.count,
-      principalIds: r.principal_ids,
-    });
-    byMessage.set(r.message_id, list);
+    const state = byMessage.get(r.message_id) ?? {
+      reactionSeq: r.reaction_seq,
+      reactions: [],
+    };
+    if (r.emoji !== null) {
+      state.reactions.push({
+        emoji: r.emoji,
+        count: r.count!,
+        principalIds: r.principal_ids!,
+      });
+    }
+    byMessage.set(r.message_id, state);
   }
   return byMessage;
 };
 
-/** Attachments (by position) and reaction summaries for a page of messages, then their views. */
+/** Reaction summaries by message id; a message with none is absent. */
+export const reactionSummaries = async (
+  client: Client,
+  messageIds: string[]
+): Promise<Map<string, ReactionSummary[]>> => {
+  const states = await reactionStates(client, messageIds);
+  return new Map(
+    [...states]
+      .filter(([, s]) => s.reactions.length > 0)
+      .map(([id, s]) => [id, s.reactions])
+  );
+};
+
+/**
+ * Attachments (by position) and reaction states for a page of messages, then their views. The
+ * views' `reactionSeq` is the one read with their summaries, not the one in `rows`.
+ */
 export const loadViews = async (
   client: Client,
   rows: Message[]
@@ -61,7 +97,7 @@ export const loadViews = async (
     where: { messageId: { in: ids } },
     orderBy: [{ messageId: "asc" }, { position: "asc" }],
   });
-  const reactionsOf = await reactionSummaries(client, ids);
+  const statesOf = await reactionStates(client, ids);
 
   const attachmentsOf = new Map<string, typeof attachments>();
   for (const a of attachments) {
@@ -70,13 +106,15 @@ export const loadViews = async (
       a,
     ]);
   }
-  return rows.map((row) =>
-    messageView({
+  return rows.map((row) => {
+    const state = statesOf.get(row.id);
+    return messageView({
       ...row,
+      reactionSeq: state?.reactionSeq ?? row.reactionSeq,
       attachments: attachmentsOf.get(row.id) ?? [],
-      reactions: reactionsOf.get(row.id) ?? [],
-    })
-  );
+      reactions: state?.reactions ?? [],
+    });
+  });
 };
 
 export const findByClientId = (
