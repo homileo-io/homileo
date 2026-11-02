@@ -16,6 +16,8 @@ export interface MentionListParams {
 // cut to `limit` (filtering after the cut would shorten pages and lose the cursor):
 // the caller's own mentions, and for each current participation the broadcast
 // mentions (here/session), read through `message_mentions_session_broadcast_idx`.
+// A message can carry both a here and a session row, so that branch is made
+// distinct before its cut; duplicates would take its slots and end paging early.
 const listQuery = (p: MentionListParams) => PrismaSql.sql`
   SELECT m.id::text AS id
   FROM (
@@ -37,7 +39,7 @@ const listQuery = (p: MentionListParams) => PrismaSql.sql`
       SELECT b.message_id
       FROM "chat"."session_participants" sp
       CROSS JOIN LATERAL (
-        SELECT mm.message_id
+        SELECT DISTINCT mm.message_id
         FROM "chat"."message_mentions" mm
         JOIN "chat"."messages" m ON m.id = mm.message_id
         JOIN "chat"."sessions" s ON s.id = m.session_id

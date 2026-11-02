@@ -138,6 +138,24 @@ describe("GET /v1/me/mentions", () => {
     expect(third.body.nextCursor).toBeNull();
   });
 
+  it("pages past messages mentioning both here and session", async () => {
+    const { me, other, s } = await setup();
+    const both = [{ kind: "here" as const }, { kind: "session" as const }];
+    const older = await seed.add(s.id, other.id, { mentions: both });
+    const newer = await seed.add(s.id, other.id, { mentions: both });
+
+    const first = await get(me.token, "?limit=1");
+    const second = await get(
+      me.token,
+      `?limit=1&cursor=${first.body.nextCursor}`
+    );
+
+    expect(first.body.data.map((i: Item) => i.message.id)).toEqual([newer.id]);
+    expect(first.body.nextCursor).not.toBeNull();
+    expect(second.body.data.map((i: Item) => i.message.id)).toEqual([older.id]);
+    expect(second.body.nextCursor).toBeNull();
+  });
+
   it("drops mentions in a session the caller was removed from, and here mentions after leaving", async () => {
     const { me, other, s } = await setup();
     await seed.add(s.id, other.id, {
