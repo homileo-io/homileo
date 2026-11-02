@@ -66,6 +66,31 @@ describe("PUT /v1/sessions/:sessionId/participants/:principalId", () => {
     expect(again.body.participant.principalId).toBe(me.principalId);
   });
 
+  it.each([
+    ["a members-only session", true, "member"],
+    ["a space-less group", false, "member"],
+    ["a space-less group, as its owner", false, "owner"],
+  ] as const)(
+    "answers 200 to a current participant of %s who puts themselves",
+    async (_n, inSpace, role) => {
+      const me = await signIn(org);
+      const space = inSpace
+        ? await fixtures.space({ org, visibility: "members" })
+        : undefined;
+      if (space) await fixtures.member(space, { id: me.principalId });
+      const s = await fixtures.session({ org, space, access: "members" });
+      await fixtures.participant(s, { id: me.principalId }, role);
+
+      const res = await fetchJson("PUT", url(s.id, me.principalId), me.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.participant).toMatchObject({
+        principalId: me.principalId,
+        role,
+      });
+    }
+  );
+
   it("re-joins after leaving", async () => {
     const space = await fixtures.space({
       org,

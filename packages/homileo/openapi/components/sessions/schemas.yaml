@@ -2,7 +2,8 @@ Metadata:
   type: object
   description: |
     A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
-    `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+    `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized, each value nested at most 32 arrays and objects deep. `PATCH`
+    replaces it whole.
   additionalProperties: true
   propertyNames:
     pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,63}$'

@@ -9,6 +9,7 @@ import {
   PARSE_MAX_DEPTH,
   PARSE_MAX_LENGTH,
   PARSE_MAX_MARKUP,
+  PARSE_MAX_WORK,
   plainText,
 } from "../../utils/markdown.js";
 
@@ -59,19 +60,22 @@ describe("plainText", () => {
 
 describe("measureMarkup", () => {
   it.each([
-    ["plain prose", "just some words, no markup.", 0, 0],
+    ["plain prose", "just some words, no markup.", 0, 0, 1],
     [
       "emphasis, strikethrough, link and image delimiters",
       "a *b* _c_ ~~d~~ [e](f) ![g](h)!",
       13,
       0,
+      1,
     ],
-    ["nested quote and list markers", "> > - 1. x\n> y", 5, 4],
-    ["a marker needs a space after it", "+x 1.z", 0, 0],
-    ["heading, fence and thematic-break lines", "# a\n```\n---\n=", 4, 0],
-    ["\\r ends a line", ">x\r>y\r\n>z", 3, 1],
-  ])("%s", (_name, markdown, count, depth) => {
-    expect(measureMarkup(markdown)).toEqual({ count, depth });
+    ["nested quote and list markers", "> > - 1. x\n> y", 5, 4, 10],
+    ["a marker needs a space after it", "+x 1.z", 0, 0, 1],
+    ["heading, fence and thematic-break lines", "# a\n```\n---\n=", 4, 0, 4],
+    ["\\r ends a line", ">x\r>y\r\n>z", 3, 1, 8],
+    ["blank lines keep containers open", "- - a\n\n\n", 2, 2, 9],
+    ["indent counts as nesting", "- a\n\t- b\n    - c", 3, 1, 2 + 4 + 4],
+  ])("%s", (_name, markdown, count, depth, work) => {
+    expect(measureMarkup(markdown)).toEqual({ count, depth, work });
   });
 });
 
@@ -89,6 +93,40 @@ describe("parseBody", () => {
     ["nested deeper than PARSE_MAX_DEPTH", ">".repeat(PARSE_MAX_DEPTH + 1)],
   ])("reads a body %s as plain text", (_name, markdown) => {
     expect(parseBody(markdown)).toBeNull();
+  });
+
+  const blanks = (head: string, line: string) =>
+    (head + line.repeat(PARSE_MAX_LENGTH)).slice(0, PARSE_MAX_LENGTH);
+  const tabNested = Array.from(
+    { length: 40 },
+    (_, i) => "\t".repeat(i) + "- a"
+  ).join("\n");
+
+  it.each([
+    ["'- ' nesting", blanks("- ".repeat(100) + "a\n", "\n")],
+    ["'* ' nesting", blanks("* ".repeat(100) + "a\n", "\n")],
+    ["'1. ' nesting", blanks("1. ".repeat(100) + "a\n", "\n")],
+    ["'- ' nesting ended by \\r", blanks("- ".repeat(100) + "a\r", "\r")],
+    [
+      "'- ' nesting ended by \\r\\n",
+      blanks("- ".repeat(100) + "a\r\n", "\r\n"),
+    ],
+    ["tab-indented nesting", blanks(tabNested, "\n")],
+    [
+      "two-space-indented nesting",
+      blanks(tabNested.replaceAll("\t", "  "), "\n"),
+    ],
+  ])("reads %s followed by blank lines as plain text", (_name, markdown) => {
+    expect(markdown.length).toBeLessThanOrEqual(PARSE_MAX_LENGTH);
+    expect(measureMarkup(markdown).depth).toBeLessThanOrEqual(PARSE_MAX_DEPTH);
+    expect(measureMarkup(markdown).work).toBeGreaterThan(PARSE_MAX_WORK);
+    expect(parseBody(markdown)).toBeNull();
+  });
+
+  it("parses a body of the most lines with four open containers", () => {
+    const markdown = blanks("> - > - a\n", "\n");
+    expect(measureMarkup(markdown).work).toBeLessThanOrEqual(PARSE_MAX_WORK);
+    expect(parseBody(markdown)).not.toBeNull();
   });
 });
 
@@ -162,6 +200,12 @@ describe("pathological bodies", () => {
     ["setext headings", atLimit("a\n=\n".repeat(PARSE_MAX_MARKUP))],
     ["a list of links", atLimit("- [a](u)\n".repeat(PARSE_MAX_MARKUP / 3))],
     ["an unmatched bracket before a long paragraph", atLimit("[a [a x](u)")],
+    [
+      "'- ' nesting followed by blank lines",
+      "- ".repeat(PARSE_MAX_DEPTH) +
+        "a" +
+        "\n".repeat(Math.floor(PARSE_MAX_WORK / (PARSE_MAX_DEPTH + 1)) - 1),
+    ],
   ])("parses %s at the parse limits in under 100 ms", (_name, markdown) => {
     expect(parseBody(markdown)).not.toBeNull();
     expect(readTime(markdown)).toBeLessThan(100);

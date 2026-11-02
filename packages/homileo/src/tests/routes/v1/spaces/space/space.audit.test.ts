@@ -59,7 +59,10 @@ describe("PATCH /v1/spaces/:spaceId events", () => {
     expect(
       EVENT_TYPES["space.updated"].payload.safeParse(events[0].payload).success
     ).toBe(true);
-    expect(events[0].payload).toEqual({ space: res.body.space });
+    expect(events[0].payload).toEqual({
+      space: res.body.space,
+      previousVisibility: space.visibility,
+    });
     const rows = await outbox(org);
     expect(rows.find((r) => r.destination === "audit")?.payload).toMatchObject({
       action: "UPDATE",

@@ -1,4 +1,3 @@
-import { leaveRooms, leaveSpaceOfIfUnused, recheckSockets } from "./rooms.js";
 import type { AppRemoteSocket, AppSocket, IOServer } from "./types.js";
 import type { ChangeEvent } from "../utils/changes.js";
 import type { Caller } from "../middleware/auth.js";
@@ -9,6 +8,7 @@ import { eventView } from "../views/event.js";
 import { logger } from "../utils/logger.js";
 import { db } from "../utils/db/index.js";
 import {
+  type Audience,
   eventAudience,
   foundersOf,
   mentionedMessageOf,
@@ -26,6 +26,12 @@ import {
   readableSession,
   readableSpace,
 } from "../utils/access.js";
+import {
+  leaveRooms,
+  leaveSpaceOfIfUnused,
+  recheckSockets,
+  socketsReadingSession,
+} from "./rooms.js";
 
 /** The backstop re-check of every local socket, for access lost without an event. */
 export const SWEEP_INTERVAL_MS = 300_000;
@@ -78,21 +84,87 @@ const removedFrom = (e: ChangeEvent): string | null => {
 };
 
 /**
- * The rooms whose sockets an update may have locked out. The payload holds only the new
- * state, so an update that leaves a space members-only (a rename, say) still re-checks;
- * one that leaves it public, or a session's read following its space, cannot lock anyone out.
+ * The rooms whose sockets an update may have locked out: only a space turning from public to
+ * members-only narrows access. A session's `access` cannot be changed.
  */
 const updatedRooms = (e: ChangeEvent): string[] => {
-  const state = (e.payload as Record<string, unknown> | null) ?? {};
-  if (e.type === "space.updated" && e.spaceId) {
-    if (field(state.space, "visibility") === "public") return [];
-    return [spaceRoom(e.spaceId), spaceOfRoom(e.spaceId)];
+  if (e.type !== "space.updated" || !e.spaceId) return [];
+  const payload = e.payload as Record<string, unknown> | null;
+  const narrowed =
+    field(payload, "previousVisibility") === "public" &&
+    field(payload?.space, "visibility") !== "public";
+  return narrowed ? [spaceRoom(e.spaceId), spaceOfRoom(e.spaceId)] : [];
+};
+
+/**
+ * Re-checks the sockets in `rooms` before an update reaches them, and says which sockets may
+ * be sent it: all of them, only this node's (the cluster-wide re-check failed, a local one
+ * did not), or none.
+ */
+const recheckUpdated = async (
+  io: IOServer,
+  e: ChangeEvent,
+  rooms: string[]
+): Promise<"all" | "local" | "none"> => {
+  const log = { eventId: e.id.toString(), type: e.type };
+  try {
+    await recheckSockets(await socketsIn(io, rooms));
+    return "all";
+  } catch (err) {
+    logger.error(
+      { err, ...log },
+      "Re-checking the updated rooms' sockets failed; sending to this node's only"
+    );
   }
-  if (e.type === "session.updated" && e.sessionId) {
-    if (field(state.session, "access") === "space") return [];
-    return [sessionRoom(e.sessionId)];
+  try {
+    await recheckSockets(await io.local.in(rooms).fetchSockets());
+    return "local";
+  } catch (err) {
+    logger.error(
+      { err, ...log },
+      "Re-checking this node's sockets in the updated rooms failed; not sending to them"
+    );
+    return "none";
   }
-  return [];
+};
+
+/**
+ * Joins each principal's sockets to its room: this node's at once, so the emit that follows
+ * finds them there, and other nodes' through the adapter. Then re-checks them, so an add that
+ * fans out after a later removal cannot leave a removed principal in the room.
+ */
+const joinAudience = async (
+  io: IOServer,
+  e: ChangeEvent,
+  join: Audience["join"]
+): Promise<void> => {
+  const owners = new Set<string>();
+  const joined = new Map<string, AppSocket | AppRemoteSocket>();
+  for (const { principalId, room } of join) {
+    const owner = userRoom(e.organizationId, principalId);
+    owners.add(owner);
+    const local = await io.local.in(owner).fetchSockets();
+    for (const socket of local) {
+      joined.set(socket.id, socket);
+      // The room is now the principal's own, not a subscription. Other nodes' lists are out
+      // of reach: their `unsubscribe` checks participation and membership instead.
+      socket.data.subscriptions.delete(room);
+      await socket.join(room);
+    }
+    // The adapter's join comes back to this node too, through Redis: excepting the sockets
+    // joined above keeps it from putting one back after the re-check below left the room.
+    io.in(owner)
+      .except(local.map((s) => s.id))
+      .socketsJoin(room);
+  }
+  const rooms = join.map((j) => j.room);
+  // This node's first, so a Redis failure fetching the others' cannot skip it.
+  await recheckSockets([...joined.values()], rooms);
+  // A remote socket's leave is published after its join, so Redis delivers them in order.
+  const remote = (await socketsIn(io, [...owners])).filter(
+    (s) => !joined.has(s.id)
+  );
+  await recheckSockets(remote, rooms);
 };
 
 const socketsIn = (
@@ -162,26 +234,14 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
     );
     const view = eventView(e);
 
-    await step(e, "join", async () => {
-      for (const { principalId, room } of audience.join) {
-        const owner = userRoom(e.organizationId, principalId);
-        // Synchronous for this node's sockets, so the emit below finds them in the room.
-        io.in(owner).socketsJoin(room);
-        // The room is now the principal's own, not a subscription. Other nodes' lists are
-        // out of reach: their `unsubscribe` checks participation and membership instead.
-        for (const socket of await io.local.in(owner).fetchSockets()) {
-          socket.data.subscriptions.delete(room);
-        }
-      }
-    });
+    if (audience.join.length > 0) {
+      await step(e, "join", () => joinAudience(io, e, audience.join));
+    }
 
     // Before the emit, so a socket that just lost access does not get the update.
     const updated = updatedRooms(e);
-    if (updated.length > 0) {
-      await step(e, "update recheck", async () => {
-        await recheckSockets(await socketsIn(io, updated));
-      });
-    }
+    const reach =
+      updated.length > 0 ? await recheckUpdated(io, e, updated) : "all";
 
     let moderators: string[] = [];
     const moderated = audience.moderators;
@@ -190,9 +250,26 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
         moderators = await moderatorSockets(io, moderated);
       });
     }
+    let mentioned: string[] = [];
+    const { sessionId } = e;
+    if (audience.mentioned.length > 0 && sessionId) {
+      // On failure the mentioned non-participants catch up through /sync.
+      await step(e, "mentions", async () => {
+        mentioned = await socketsReadingSession(
+          await socketsIn(io, audience.mentioned),
+          sessionId
+        );
+      });
+    }
     // socket.io sends once per socket across the union of the rooms; a socket id is a room.
-    const to = [...audience.rooms, ...moderators];
-    if (to.length > 0) io.to(to).emit(e.type, view);
+    const to = [...audience.rooms, ...moderators, ...mentioned];
+    if (reach === "all") {
+      if (to.length > 0) io.to(to).emit(e.type, view);
+    } else {
+      const rest = to.filter((room) => !updated.includes(room));
+      if (rest.length > 0) io.to(rest).except(updated).emit(e.type, view);
+      if (reach === "local") io.local.to(updated).emit(e.type, view);
+    }
 
     const removed = removedFrom(e);
     const target = targetOf(e);

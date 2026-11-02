@@ -119,7 +119,7 @@ export const messageRevision = {
 
 export const EVENT_EXAMPLES: Record<string, unknown> = {
   "space.created": { space },
-  "space.updated": { space },
+  "space.updated": { space, previousVisibility: "public" },
   "space.archived": { space },
   "space.member_added": { spaceId: id(3), member: spaceMember },
   "space.member_removed": { spaceId: id(3), principalId: id(1) },

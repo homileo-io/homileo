@@ -28,6 +28,7 @@
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   post:
     tags: [Spaces]
     summary: Create a space
@@ -41,7 +42,7 @@
       emitted and an audit entry is written.
 
       **Required permissions:**
-      - `homileo.spaces.write`
+      - `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without)
 
       **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
       `409 external_ref_taken`.
@@ -63,4 +64,6 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

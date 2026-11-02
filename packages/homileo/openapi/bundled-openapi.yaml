@@ -21,11 +21,17 @@ info:
 
     ## Permissions and access
 
-    Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). Every other route is
-    open to any signed-in caller in an organization, and what the caller may see or do is decided
-    by the access rules in `docs/access.md`. A space, session or message that does not exist, is in
-    another organization, or that the caller cannot read, is **`404`**, never `403`: `403` means
-    the caller can read the resource but may not do the action.
+    Every route that changes shared chat state needs `homileo.spaces.write` or
+    `homileo.chat.admin` in the token: creating, changing and archiving spaces and sessions,
+    joining, membership and participant changes (removing someone else included), join request
+    decisions, sending, editing and deleting messages, reactions and attachment uploads. Without
+    it the answer is `403 forbidden`, before the body is validated or any resource is looked up.
+    Reads, leaving a space or session, and the calls that touch only the caller's own state (read
+    markers, notify settings, thread follows, `POST /v1/principals/resolve`), need no permission. Beyond that, what the caller may
+    see or do is decided by the access rules in `docs/access.md`. A space, session or message that
+    does not exist, is in another organization, or that the caller cannot read, is **`404`**:
+    apart from the write-permission refusal, `403` means the caller can read the resource but may
+    not do the action.
 
     ## Pagination
 
@@ -110,6 +116,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/me/unread:
     get:
       tags:
@@ -136,6 +144,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/me/mentions:
     get:
       tags:
@@ -166,6 +176,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces:
     get:
       tags:
@@ -200,6 +212,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Spaces
@@ -214,7 +228,7 @@ paths:
         emitted and an audit entry is written.
 
         **Required permissions:**
-        - `homileo.spaces.write`
+        - `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without)
 
         **Errors:** `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`,
         `409 external_ref_taken`.
@@ -240,8 +254,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}:
     get:
       tags:
@@ -271,6 +289,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Spaces
@@ -280,7 +300,7 @@ paths:
         nothing records nothing and returns the space as it is. Otherwise a `space.updated` event
         is recorded, the `homileo.space.updated` webhook is emitted and an audit entry is written.
 
-        **Required permissions:** none; the caller must be able to moderate the space (its `owner`
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space (its `owner`
         or a `moderator`, the holder of a `moderate` grant of its kind, or a `homileo.chat.admin`).
         A caller who can read the space but not moderate it gets 403; one who cannot read it, 404.
 
@@ -313,8 +333,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/archive:
     post:
       tags:
@@ -325,7 +349,7 @@ paths:
         is. A `space.archived` event is recorded, the `homileo.space.archived` webhook is emitted
         and an audit entry is written.
 
-        **Required permissions:** none; the caller must be able to manage the space (its `owner` or
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to manage the space (its `owner` or
         a `homileo.chat.admin`). A moderator who is not an owner gets 403; a caller who cannot read
         the space, 404.
 
@@ -352,6 +376,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/members:
     get:
       tags:
@@ -384,6 +410,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/members/{principalId}:
     put:
       tags:
@@ -396,7 +424,7 @@ paths:
         previous role); each emits its webhook and writes an audit entry. Adding a principal with a
         pending join request approves it as the caller (recording `space.join_decided`).
 
-        **Required permissions:** none; the caller must be able to moderate the space to add a
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space to add a
         `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
         who cannot read it, 404.
@@ -437,8 +465,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Spaces
@@ -451,7 +483,7 @@ paths:
         this is judged from membership and visibility alone; their kind grants are not known.
         Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave. Anyone may leave, even an archived space. A moderator
         removes `member`s; removing a moderator or owner needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
         one who cannot read it, 404.
@@ -477,6 +509,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join:
     post:
       tags:
@@ -489,7 +523,7 @@ paths:
         `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
         a repeat returns the pending request without a new event. `invite`: 403.
 
-        **Required permissions:** none; the caller must be able to read the space (a space they
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the space (a space they
         cannot read is a 404). An archived space cannot be joined (`409 resource_archived`).
       operationId: joinSpace
       parameters:
@@ -519,6 +553,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests:
     get:
       tags:
@@ -553,6 +589,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests/{principalId}/approve:
     post:
       tags:
@@ -561,7 +599,7 @@ paths:
       description: |
         Approves the applicant's pending request and makes them a `member` (recording `space.member_added`); for an applicant who is already a member it only closes the request. Records `space.join_decided`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
@@ -589,6 +627,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/spaces/{spaceId}/join-requests/{principalId}/deny:
     post:
       tags:
@@ -597,7 +637,7 @@ paths:
       description: |
         Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
 
-        **Required permissions:** none; the caller must be able to moderate the space. A caller who
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
@@ -626,6 +666,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/principals/resolve:
     post:
       tags:
@@ -657,8 +699,12 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/principals/{principalId}:
     get:
       tags:
@@ -692,6 +738,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions:
     get:
       tags:
@@ -703,8 +751,8 @@ paths:
         participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
         every one). The space itself must be readable, else `404`.
 
-        With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
-        reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+        With `externalRef` and no `spaceId`, every session of the organization carrying that
+        reference that the caller can read, in any space or none, paged like any other list.
 
         Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
         first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
@@ -763,6 +811,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Sessions
@@ -779,7 +829,7 @@ paths:
 
         Records `session.created` and one `session.participant_added` per participant.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: createSession
       requestBody:
         required: true
@@ -804,8 +854,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/direct:
     post:
       tags:
@@ -823,7 +877,7 @@ paths:
         removed from the DM is re-added as a `member` (recording `session.participant_added`); the
         other principal is left as they are.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: createDirectSession
       requestBody:
         required: true
@@ -848,12 +902,18 @@ paths:
           $ref: '#/components/responses/BadRequestResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}:
     get:
       tags:
@@ -888,6 +948,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Sessions
@@ -898,7 +960,7 @@ paths:
         nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
         changes nothing records no event. Records `session.updated`.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: updateSession
       parameters:
         - name: sessionId
@@ -930,8 +992,12 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/archive:
     post:
       tags:
@@ -941,10 +1007,11 @@ paths:
         Archives the session. In a space it needs the right to moderate the space; in a group without
         a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
         An admin of the session's organization reaches it without being a participant, though it
-        still cannot read a space-less session. Archiving an archived session is
-        `409 already_archived`. Records `session.archived`.
+        still cannot read a space-less session: such an admin gets `204` with no body instead of the
+        session's view. Archiving an archived session is `409 already_archived`. Records
+        `session.archived`.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: archiveSession
       parameters:
         - name: sessionId
@@ -960,6 +1027,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
+        '204':
+          description: Archived by an admin who cannot read the session (a DM or a space-less group)
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':
@@ -972,6 +1041,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/participants:
     get:
       tags:
@@ -1007,6 +1078,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/participants/{principalId}:
     put:
       tags:
@@ -1021,10 +1094,11 @@ paths:
         invalid_request` with an issue at `principalId`); in a group without a space only its
         `owner` may add; nobody adds to a DM. An unknown principal is `404`. A principal who left is
         re-joined. Answers `201` when the principal was added, `200` (and records nothing) when
-        already a current participant. Records `session.participant_added`. An archived session, or
+        already a current participant, to any caller who can read the session and before the join or
+        add rules are checked. Records `session.participant_added`. An archived session, or
         one in an archived space, takes neither (`409 resource_archived`).
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
       operationId: putSessionParticipant
       parameters:
         - name: sessionId
@@ -1064,6 +1138,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Sessions
@@ -1079,7 +1155,7 @@ paths:
         joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
         removed principal can no longer read the session. Removing someone else is audited.
 
-        **Required permissions:** none; any signed-in caller in an organization.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave.
       operationId: deleteSessionParticipant
       parameters:
         - name: sessionId
@@ -1109,6 +1185,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/read:
     put:
       tags:
@@ -1149,8 +1227,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/notify:
     put:
       tags:
@@ -1190,8 +1272,12 @@ paths:
           $ref: '#/components/responses/ForbiddenResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/messages:
     get:
       tags:
@@ -1231,6 +1317,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     post:
       tags:
         - Messages
@@ -1248,8 +1336,8 @@ paths:
           session or space is `409 resource_archived`.
         - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
           its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
-        - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
-          `400 attachment_not_uploaded`); they are kept once the message is sent.
+        - `attachments` name up to 10 uploaded files of at most `ATTACHMENT_MAX_BYTES` each
+          (`400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`); they are kept once the message is sent.
         - A reply's root must be a top-level, undeleted message of the same session:
           `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
           The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
@@ -1265,7 +1353,7 @@ paths:
         Records `message.created` (and `thread.updated` for a reply), emitting
         `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
 
-        **Required permissions:** none; the caller must be able to read the session.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
       operationId: sendMessage
       parameters:
         - name: sessionId
@@ -1303,6 +1391,8 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/DuplicateClientMessageError'
                   - $ref: '#/components/schemas/Error'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
         '503':
@@ -1314,7 +1404,7 @@ paths:
       summary: Get a message
       description: |
         A message the caller can read. A deleted message is returned with `body`, `payload`,
-        `attachments` and `reactions` cleared and `deletedAt` set.
+        `metadata` (as `{}`), `attachments` and `reactions` cleared and `deletedAt` set.
 
         **Required permissions:** none; the caller must be able to read the message's session.
         Anything else is `404`.
@@ -1336,6 +1426,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     patch:
       tags:
         - Messages
@@ -1357,7 +1449,7 @@ paths:
 
         Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
 
-        **Required permissions:** none; see above.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
       operationId: editMessage
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1384,16 +1476,20 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Messages
       summary: Delete a message
       description: |
-        Clears the message's `body` and `payload` and sets `deletedAt` and `deletedBy`; the row, its
-        revisions, reactions and attachments stay (reads show reactions and attachments as empty).
-        Its mentions are removed. Deleting a reply lowers the root's `replyCount`.
+        Clears the message's `body` and `payload`, empties its `metadata` and sets `deletedAt` and
+        `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
+        reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
         The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
         already deleted message is `409 resource_archived`; any other refusal is `403`.
@@ -1402,7 +1498,7 @@ paths:
         `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
         else's message also writes an audit `DELETE` entry.
 
-        **Required permissions:** none; see above.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
       operationId: deleteMessage
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1425,6 +1521,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sessions/{sessionId}/attachments:
     post:
       tags:
@@ -1440,7 +1538,7 @@ paths:
         where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
         archived session or space is `409 resource_archived`. Records no event.
 
-        **Required permissions:** none; the caller must be able to read the session.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
       operationId: createAttachmentUpload
       parameters:
         - name: sessionId
@@ -1472,6 +1570,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '409':
           $ref: '#/components/responses/ConflictResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
         '503':
@@ -1545,6 +1645,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/reactions/{emoji}:
     put:
       tags:
@@ -1562,7 +1664,7 @@ paths:
         A message carries at most 50 distinct emoji. Adding one it does not have yet when it already
         has 50 is `409 reaction_limit`; reacting with an emoji it already has is always allowed.
 
-        **Required permissions:** none; the caller must be a participant.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
       operationId: addMessageReaction
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1592,6 +1694,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
     delete:
       tags:
         - Messages
@@ -1600,7 +1704,7 @@ paths:
         Removes the caller's reaction with this emoji; `404` when the caller had not reacted with
         it. The same checks as adding apply, including `409 resource_archived`.
 
-        **Required permissions:** none; the caller must be a participant.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be a participant.
       operationId: removeMessageReaction
       parameters:
         - $ref: '#/components/parameters/MessageIdParam'
@@ -1624,6 +1728,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/thread:
     get:
       tags:
@@ -1663,6 +1769,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/threads/{rootId}/read:
     put:
       tags:
@@ -1698,8 +1806,12 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/threads/{rootId}/follow:
     put:
       tags:
@@ -1734,8 +1846,12 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/sync:
     get:
       tags:
@@ -1770,6 +1886,12 @@ paths:
 
         Events of other organizations are never returned.
 
+        `message.created`, `message.edited` and `message.deleted` carry the message's **current**
+        view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
+        at the event: every event of a deleted message carries its deleted view, and every event of
+        an edited one its latest revision. The cursor is not signed; because of this and the rule
+        above, a made-up cursor reveals nothing the REST routes do not.
+
         **Required permissions:** none; any signed-in caller in an organization.
       operationId: sync
       parameters:
@@ -1793,6 +1915,8 @@ paths:
           $ref: '#/components/responses/SyncResyncRequiredResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
 webhooks:
   homileo.space.created:
     post:
@@ -1840,7 +1964,7 @@ webhooks:
                     entityType:
                       const: space
                     data:
-                      $ref: '#/components/schemas/SpaceEventData'
+                      $ref: '#/components/schemas/SpaceUpdatedEventData'
       responses:
         2XX:
           description: Any 2xx response acknowledges the delivery; anything else is retried.
@@ -2567,9 +2691,10 @@ components:
         permissions and organization (`org_id`) from it. A token without an organization is refused
         with `400 organization_required`.
 
-        The one permission a route asks of the token is `homileo.spaces.write`, on `POST /v1/spaces`.
-        Permissions are tereo's dotted, hierarchical form: `write` covers `read`, and a domain's
-        `admin` covers all of it. Everything else is decided by the access rules for the resource.
+        The one permission a route asks of the token is `homileo.spaces.write`, on every route that
+        changes shared chat state; `homileo.chat.admin` passes the same check. Permissions are tereo's
+        dotted, hierarchical form: `write` covers `read`, and a domain's `admin` covers all of it.
+        Everything else is decided by the access rules for the resource.
   parameters:
     CursorParam:
       name: cursor
@@ -2802,25 +2927,39 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ConflictResponse:
-      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
+      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, or `version_conflict` (a concurrent write or deadlock; re-read and retry)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PayloadTooLargeResponse:
+      description: Payload too large - `payload_too_large`, the body is over the route's size limit
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     ServerErrorResponse:
-      description: Server error
+      description: Server error - `server_error`
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailableResponse:
+      description: |
+        Service unavailable - `temporarily_unavailable`: tereo's file storage did not answer, or the
+        database was too busy (a transaction or a lock wait ran out of time, or no connection was free).
+        Nothing was changed; retry, after `Retry-After` when it is given.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying; sent when the database was too busy
+          schema:
+            type: integer
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     NoContentResponse:
       description: Done; no content
-    ServiceUnavailableResponse:
-      description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     SyncResyncRequiredResponse:
       description: |
         Gone - `resync_required`: the cursor is older than the oldest retained events (plus a 10 minute
@@ -3281,7 +3420,7 @@ components:
             - 'null'
           minLength: 1
           maxLength: 255
-          description: Unique per organization and kind, else `409 external_ref_taken`
+          description: Unique per organization and kind, else `409 external_ref_taken`, even when the space holding it is one the caller cannot read (a deliberate oracle)
         metadata:
           $ref: '#/components/schemas/Metadata-2'
       examples:
@@ -3371,7 +3510,7 @@ components:
           $ref: '#/components/schemas/Space'
     SpaceEventData:
       type: object
-      description: The payload of `space.created`, `space.updated` and `space.archived`, with the event's id
+      description: The payload of `space.created` and `space.archived`, with the event's id
       required:
         - eventId
         - space
@@ -3380,6 +3519,24 @@ components:
           type: string
         space:
           $ref: '#/components/schemas/Space'
+    SpaceUpdatedEventData:
+      type: object
+      description: The payload of `space.updated`, with the event's id
+      required:
+        - eventId
+        - space
+        - previousVisibility
+      properties:
+        eventId:
+          type: string
+        space:
+          $ref: '#/components/schemas/Space'
+        previousVisibility:
+          type: string
+          enum:
+            - public
+            - members
+          description: The space's `visibility` before the update
     SpaceMemberAddedEventData:
       type: object
       required:
@@ -3398,7 +3555,8 @@ components:
       type: object
       description: |
         A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
-        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized, each value nested at most 32 arrays and objects deep. `PATCH`
+        replaces it whole.
       additionalProperties: true
       propertyNames:
         pattern: ^[A-Za-z][A-Za-z0-9_.-]{0,63}$
@@ -4091,7 +4249,7 @@ components:
           type:
             - string
             - 'null'
-          description: Markdown (CommonMark with GFM strikethrough and task lists; clients may also render bare URLs as links, which the server does not parse), with mentions as `<@principal-id>`, `<!here>` and `<!session>`. A body past the parse limits (over 10,000 characters, 500 markup marks or 100 nested block quotes and list items on one line) is accepted and read as plain text for mentions
+          description: Markdown (CommonMark with GFM strikethrough and task lists; clients may also render bare URLs as links, which the server does not parse), with mentions as `<@principal-id>`, `<!here>` and `<!session>`. A body past the parse limits (over 10,000 characters, 500 markup marks, 100 nested block quotes and list items on one line, or a work bound of 50,000 that counts every line once plus once for each block quote and list item that may still be open on it) is accepted and read as plain text for mentions
         payload:
           description: A provisioned type's data, valid against its schema; `null` for `text`
         metadata:
@@ -4163,7 +4321,7 @@ components:
           minLength: 1
           maxLength: 40000
         payload:
-          description: Any JSON value except `null`, at most 64 KiB serialized
+          description: Any JSON value except `null`, at most 64 KiB serialized and nested at most 32 arrays and objects deep
         metadata:
           $ref: '#/components/schemas/Metadata'
         threadRootId:
@@ -4176,7 +4334,8 @@ components:
           description: |
             Files uploaded through `POST /v1/sessions/{sessionId}/attachments` by this sender for
             this session, in display order. Each `objectId` must be unique, uploaded (not empty) and
-            not on another message, else `400 attachment_not_uploaded` or `400 attachment_not_found`.
+            not on another message, and at most `ATTACHMENT_MAX_BYTES` (100 MiB by default), else
+            `400 attachment_not_uploaded`, `400 attachment_not_found` or `400 attachment_too_large`.
           items:
             type: object
             additionalProperties: false
@@ -4249,7 +4408,7 @@ components:
           minLength: 1
           maxLength: 40000
         payload:
-          description: Any JSON value except `null`, at most 64 KiB serialized
+          description: Any JSON value except `null`, at most 64 KiB serialized and nested at most 32 arrays and objects deep
         metadata:
           $ref: '#/components/schemas/Metadata'
       examples:
@@ -4418,7 +4577,10 @@ components:
           description: The organization the event belongs to
         eventType:
           type: string
-          description: The event type, `homileo.<area>.<verb>`
+          description: |
+            The event type, `homileo.<area>.<verb>`. A session event of a private session (no space,
+            or `access: members`) is `homileo.private_<area>.<verb>`, which only subscribers holding
+            `homileo.messages.read_private` receive.
         entityType:
           type: string
           description: The kind of entity the event is about

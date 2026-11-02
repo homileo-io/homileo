@@ -17,11 +17,18 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 - The token is a tereo access token in the handshake's `auth.token`, checked as a request's is. A
   refusal is a `connect_error` whose message is the code: `unauthorized` (missing or bad token),
   `organization_required`, `too_many_connections`, `connection_closed` (the connection closed
-  while the handshake was checked), `shutting_down` or `internal_error`.
+  while the handshake was checked), `shutting_down` or `server_error`.
 - A socket belongs to the token's organization and sees nothing of another.
 - At most 20 sockets per principal per node. Packets over 16 KiB close the connection.
 - The socket closes when the token's `exp` passes. The client reconnects with a fresh token, which
   refreshes the permissions the socket is judged by.
+- Every 60 s each node introspects its sockets' tokens again through tereo, once per distinct
+  token and at most 10 at a time, skipping a round while the last is still running. A token tereo
+  no longer accepts (revoked, expired, or tereo unreachable, as a request would then get `401`)
+  closes its sockets; a token without `exp` is closed this way, never by expiry. A token still
+  active gives its sockets its current permissions, and those whose permissions changed are
+  re-checked. With tereo's introspection cache (60 s), a revoked token's sockets close within
+  about two minutes.
 - Connecting counts as a presence heartbeat.
 - The server accepts the `websocket` and `polling` transports. Polling sends each request of one
   connection separately, so with more than one api replica behind a load balancer, either route a
@@ -35,35 +42,47 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 
 ## Rooms
 
-| Room | Holds | Joined by |
-|---|---|---|
-| `user:<organizationId>:<principalId>` | every socket of a principal | connecting |
-| `space:<spaceId>` | sockets that follow a space | a member who can read the space, on connect and when added; or `subscribe { spaceId }` |
-| `session:<sessionId>` | sockets that follow a session | a participant who can read the session, on connect and when added; or `subscribe { sessionId }` |
-| `spaceof:<spaceId>` | every socket in a session room of that space | joined and left with the session rooms |
-| `presence:<organizationId>:<principalId>` | sockets watching that principal | `presence.watch` |
+| Room                                      | Holds                                        | Joined by                                                                                       |
+| ----------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `user:<organizationId>:<principalId>`     | every socket of a principal                  | connecting                                                                                      |
+| `space:<spaceId>`                         | sockets that follow a space                  | a member who can read the space, on connect and when added; or `subscribe { spaceId }`          |
+| `session:<sessionId>`                     | sockets that follow a session                | a participant who can read the session, on connect and when added; or `subscribe { sessionId }` |
+| `spaceof:<spaceId>`                       | every socket in a session room of that space | joined and left with the session rooms                                                          |
+| `presence:<organizationId>:<principalId>` | sockets watching that principal              | `presence.watch`                                                                                |
+
+When a member or participant is added, their sockets on the node that fans out join the room at
+once, before the event is sent; other nodes' sockets join through the Redis adapter, a round trip
+later. All of them are then re-checked, so an add that fans out after a later removal does not
+leave the removed principal in the room.
 
 A socket joined for membership or participation never leaves it on `unsubscribe`; that only undoes
 `subscribe`. `unsubscribe` checks participation or membership again after leaving, and joins again
 if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
 socket is up, so a change committed in between is not missed.
 
+A join on being added gives no such guarantee. The socket joins the room when the
+`session.participant_added` or `space.member_added` event naming it is fanned out, so events of
+that resource committed between the add and the join are not pushed, and no `until` marks where
+the room's delivery begins. On receiving either event, the client catches that resource up with
+`/sync` (`sessionIds` or `spaceIds` set to it) from a cursor taken before the event, such as its
+saved `next`, until `hasMore` is false, dropping ids already applied.
+
 ## Client events
 
 Every client event takes an optional ack. An ack is `{ ok: true, … }` or
 `{ ok: false, error: { code, message, issues? } }`. Codes: `invalid_request` (with `issues`),
 `not_found` (the resource is missing, in another organization, unreadable, or, for typing, not
-postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
-`internal_error`. A socket may send 20 client events a second; the rest are dropped and answered
+postable), `forbidden` (typing with a read-only token), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
+`server_error`. A socket may send 20 client events a second; the rest are dropped and answered
 `rate_limited`.
 
-| Event | Payload | Ack |
-|---|---|---|
-| `subscribe` | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true, until }` |
-| `unsubscribe` | the same | `{ ok: true }` |
-| `typing.start`, `typing.stop` | `{ sessionId }` | `{ ok: true }` |
-| `presence.heartbeat` | none | `{ ok: true }` |
-| `presence.watch` | `{ principalIds: string[] }` | `{ ok: true, statuses: { [principalId]: "online" \| "offline" } }` |
+| Event                         | Payload                                        | Ack                                                                |
+| ----------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `subscribe`                   | `{ sessionId }` or `{ spaceId }` (exactly one) | `{ ok: true, until }`                                              |
+| `unsubscribe`                 | the same                                       | `{ ok: true }`                                                     |
+| `typing.start`, `typing.stop` | `{ sessionId }`                                | `{ ok: true }`                                                     |
+| `presence.heartbeat`          | none                                           | `{ ok: true }`                                                     |
+| `presence.watch`              | `{ principalIds: string[] }`                   | `{ ok: true, statuses: { [principalId]: "online" \| "offline" } }` |
 
 `subscribe` requires that the caller can read the target now (the same check as the REST route,
 [access.md](access.md)). A session subscription also joins that session's `spaceof:` room. A socket
@@ -78,8 +97,16 @@ revocation that committed during the check cannot leave it in the room: the ack 
 The socket.io event name is the event's `type`. The argument is always
 
 ```json
-{ "id": "1042", "type": "message.created", "createdAt": "2026-10-31T09:00:00.000Z",
-  "organizationId": "…", "spaceId": "…", "sessionId": "…", "actorId": "…", "payload": { } }
+{
+  "id": "1042",
+  "type": "message.created",
+  "createdAt": "2026-10-31T09:00:00.000Z",
+  "organizationId": "…",
+  "spaceId": "…",
+  "sessionId": "…",
+  "actorId": "…",
+  "payload": {}
+}
 ```
 
 `id` is the event id as a decimal string, `spaceId` and `sessionId` are `null` where they do not
@@ -118,9 +145,10 @@ More precisely:
   and `session.archived` of an `access: space` session also go to `space:<id>`. Those of an
   `access: members` session do not, not even to readers of the space who could read the session
   through a kind grant or `homileo.chat.admin`: they hear it by taking part or subscribing.
-- **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the personal room
-  of each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
-  participant, or a member of the space of an `access: space` session). Someone removed since the
+- **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the sockets of
+  each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
+  participant, or a member of the space of an `access: space` session) and, judged by the
+  socket's own token, can read the session, as `/sync` requires. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that
@@ -155,11 +183,12 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
   session rooms, and `spaceof:` once no session room of the space remains. The revocation goes to
   each socket of theirs that, judged by its own token, cannot read the resource, whether or not it
   was following it.
-- After `space.updated` or `session.updated`, the sockets in that resource's room (and `spaceof:`
-  for a space) are re-checked before the update is sent, so a socket that lost access with it does
-  not receive it. The payload holds only the new state, so the re-check runs only when the new
-  state could narrow access: a `members` space, or a `members` session. A `public` space or an
-  `access: space` session cannot lock anyone out and is not re-checked.
+- After a `space.updated` that turns a space from `public` to `members` (its payload's
+  `previousVisibility` says what it was), the sockets in `space:<id>` and `spaceof:<id>` are
+  re-checked before the update is sent, so a socket that lost access with it does not receive it.
+  No other update can lock anyone out (a session's `access` cannot be changed), so none other is
+  re-checked. If the re-check cannot reach the other nodes, this node's sockets are re-checked and
+  only they get the update through those rooms; if that fails too, no socket gets it through them.
 - Narrowing visibility records no revocation event: the subscribers it locks out are dropped from
   the room silently. Only removing a member or participant revokes, and only when they cannot read
   the resource any more.
@@ -170,7 +199,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 
 ## Typing and presence
 
-- **Typing** is for sessions the caller can post in; otherwise `not_found`. `typing.start` is
+- **Typing** is for sessions the caller can post in; otherwise `not_found`. A token without
+  `homileo.spaces.write` (or `homileo.chat.admin`) is acked `forbidden` before the session is read. `typing.start` is
   throttled to one every 2 s per socket and session (the rest are acked `ok` and not sent); a
   `typing.stop` ends the throttle, so the next start is sent at once. The signal expires after
   `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends `typing.stop` when
@@ -189,7 +219,7 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
 the catch-up must reach). It answers
 
 ```json
-{ "events": [ { "id": "…" } ], "next": "<cursor>", "hasMore": false }
+{ "events": [{ "id": "…" }], "next": "<cursor>", "hasMore": false }
 ```
 
 - **The cursor is opaque.** Event ids come from one sequence but are not in commit order, so "the
@@ -197,6 +227,12 @@ the catch-up must reach). It answers
   `[txId, id, at]`: the transaction id and event id as decimal strings, and the database time in ms
   when it was issued. Events are read in `(txId, id)` order, only from transactions older than
   every transaction still running (`pg_snapshot_xmin`), so a late commit cannot land behind it.
+  The cursor is not signed, and a client can make one up (`["0","0",<now>]` reads the whole
+  retained log). That reveals nothing REST does not: events pass the audience rule against what
+  the caller can read now, and message events carry the message's current view (below), so an old
+  or forged cursor yields no deleted text and no earlier revision. Other events still carry the
+  state as of their commit (an earlier session name, a reaction since removed) of resources the
+  caller can read now.
 - **No `since`** returns `{ events: [], next: <head>, hasMore: false }`; a client starts from there
   (typically before it loads its initial state, so nothing in between is missed).
 - **`hasMore`** is true when more matching events remain. A page can be short or empty while later
@@ -221,6 +257,17 @@ the catch-up must reach). It answers
   and membership: an edit that adds or removes a mention changes whether the earlier
   `message.created` is returned. Clients drop events whose `id` they
   have applied.
+- **Message events carry the message as it is now.** For `message.created`, `message.edited` and
+  `message.deleted` (every event whose payload holds a message view), `/sync` replaces the view
+  stored with the event by the message's current view, built as `GET /v1/messages/:id` builds it:
+  body, payload, revision, attachments and reaction summaries as they stand when the page is read.
+  A deleted message's events all carry its deleted view (no body, payload, attachments or
+  reactions); an edited message's events all carry the latest revision, never an earlier one, so
+  earlier text stays limited to `/revisions`. Ids, order, types and the cursor are unchanged, so a
+  client sees several events for one message that agree with each other, and applying any of them
+  leaves the same state. The current rows are loaded once per page. A message row that no longer
+  exists drops its events from the page (Homileo never removes message rows, so this is defensive).
+  Live socket events keep the view as of their commit, which is current when they are sent.
 
 Limits of the implementation:
 
@@ -238,8 +285,8 @@ The socket is connected and buffering before `/sync` starts, and `/sync` runs un
 the position the server gave the socket, so nothing falls between them.
 
 ```ts
-let cursor = loadSavedCursor();           // the last `next`, or from /sync with no since
-const applied = new Set<string>();        // ids already applied, bounded by cursor age
+let cursor = loadSavedCursor(); // the last `next`, or from /sync with no since
+const applied = new Set<string>(); // ids already applied, bounded by cursor age
 
 socket.on("ready", async ({ until }) => {
   // Socket events are kept aside, in order, from the moment the socket connects.
@@ -247,7 +294,7 @@ socket.on("ready", async ({ until }) => {
     // Explicit subscriptions are gone after a reconnect.
     for (const target of subscriptions) {
       const ack = await socket.emitWithAck("subscribe", target);
-      if (ack.ok) until = ack.until;     // each is at least as late as the one before
+      if (ack.ok) until = ack.until; // each is at least as late as the one before
     }
     for (;;) {
       const page = await sync({ since: cursor, until, sessionIds, spaceIds });
@@ -257,14 +304,17 @@ socket.on("ready", async ({ until }) => {
       if (page.events.length === 0) await sleep(100 + Math.random() * 150);
     }
   } catch (e) {
-    if (e.status === 410) return reloadEverything();   // resync_required
+    if (e.status === 410) return reloadEverything(); // resync_required
     throw e;
   }
-  for (const e of buffered) apply(e);     // after /sync, skipping seen ids
+  for (const e of buffered) apply(e); // after /sync, skipping seen ids
   stopBuffering();
 });
 
-const apply = (e) => { if (applied.has(e.id)) return; applied.add(e.id); /* update state */ };
+const apply = (e) => {
+  if (applied.has(e.id)) return;
+  applied.add(e.id); /* update state */
+};
 ```
 
 Pass the subscribed resources in `sessionIds`/`spaceIds` so `/sync` covers what they missed. An

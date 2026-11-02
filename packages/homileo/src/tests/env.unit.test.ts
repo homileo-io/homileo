@@ -29,6 +29,26 @@ describe("env schema", () => {
     });
   });
 
+  it("defaults the transaction limits, with the lock timeout below the transaction's", () => {
+    const env = parseEnv({ ...base, TEREO_TEST_MODE: "true" });
+    expect(env).toMatchObject({
+      DB_TRANSACTION_MAX_WAIT_MS: 5000,
+      DB_TRANSACTION_TIMEOUT_MS: 10_000,
+      DB_LOCK_TIMEOUT_MS: 5000,
+    });
+  });
+
+  it("refuses a lock timeout not below the transaction timeout", () => {
+    expect(() =>
+      parseEnv({
+        ...base,
+        TEREO_TEST_MODE: "true",
+        DB_TRANSACTION_TIMEOUT_MS: "3000",
+        DB_LOCK_TIMEOUT_MS: "3000",
+      })
+    ).toThrow(/DB_LOCK_TIMEOUT_MS/);
+  });
+
   it("treats an empty value as unset", () => {
     const env = parseEnv({ ...base, ...tereo, PORT: "", ROLE: "" });
     expect(env).toMatchObject({ PORT: 4101, ROLE: "all" });

@@ -2,9 +2,9 @@ import { expire, goOffline, heartbeat, statuses } from "../utils/presence.js";
 import { presenceRoom, sessionRoom, userRoom } from "../realtime/rooms.js";
 import type { Ack, AckError, AppSocket, IOServer } from "./types.js";
 import { NotFoundError, issuesOf } from "../utils/errors.js";
+import { canPost, canWriteChat } from "../policy/index.js";
 import { readableSession } from "../utils/access.js";
 import { IdSchema } from "../utils/idSchema.js";
-import { canPost } from "../policy/index.js";
 import { logger } from "../utils/logger.js";
 import { MAX_WATCHED } from "./limits.js";
 import { z } from "zod";
@@ -43,6 +43,12 @@ const typing =
     }
     const { sessionId } = parsed.data;
     const { caller } = socket.data;
+    if (!canWriteChat(caller)) {
+      return failure({
+        code: "forbidden",
+        message: "Requires the homileo.spaces.write permission",
+      });
+    }
     const now = Date.now();
     if (isTyping) {
       for (const [id, at] of lastStart)
@@ -153,7 +159,7 @@ export const handleEphemeral = (socket: AppSocket): void => {
       handler(payload).then(reply, (err: unknown) => {
         logFailure(socket, event)(err);
         reply(
-          failure({ code: "internal_error", message: "Something went wrong" })
+          failure({ code: "server_error", message: "Something went wrong" })
         );
       });
     };

@@ -74,18 +74,19 @@ export const getKind = async (
 ): Promise<ResolvedSpaceKind | null> => (await kinds()).get(name) ?? null;
 
 /**
- * An active kind, read in `tx` with `FOR SHARE`: retiring it (which takes the
- * row `FOR UPDATE` first) waits for this transaction, or this waits for it.
+ * An active kind, read in `tx` under the kind's shared advisory lock
+ * (`db/provisioned.ts`): retiring it waits for this transaction, or this
+ * waits for the retirement and then finds the kind retired.
  */
 export const activeKind = async (
   tx: Tx,
   name: string
 ): Promise<ResolvedSpaceKind | null> => {
   if (name === BUILTIN_KIND.name) return BUILTIN_KIND;
+  await db.provisioned.holdShared(tx, "kind", name);
   const rows = await tx.$queryRaw<Array<{ definition: ResolvedSpaceKind }>>`
     SELECT definition FROM "chat"."provisioned_space_kinds"
-    WHERE name = ${name} AND retired_at IS NULL
-    FOR SHARE`;
+    WHERE name = ${name} AND retired_at IS NULL`;
   return rows[0]?.definition ?? null;
 };
 

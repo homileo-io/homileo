@@ -68,6 +68,7 @@ const audience = (o: Partial<Audience>): Audience => ({
   recheck: [],
   join: [],
   moderators: null,
+  mentioned: [],
   ...o,
 });
 
@@ -222,19 +223,19 @@ const TABLE: Array<[string, ChangeEvent, string[], Audience]> = [
     "message.created goes to the session and the mentioned, never the space",
     event("message.created", { ...inSpaceSession, payload: message }),
     [MENTIONED],
-    audience({ rooms: [SESSION_ROOM, MENTIONED_ROOM] }),
+    audience({ rooms: [SESSION_ROOM], mentioned: [MENTIONED_ROOM] }),
   ],
   [
     "message.edited goes to the mentioned too",
     event("message.edited", { ...inSession, payload: message }),
     [MENTIONED],
-    audience({ rooms: [SESSION_ROOM, MENTIONED_ROOM] }),
+    audience({ rooms: [SESSION_ROOM], mentioned: [MENTIONED_ROOM] }),
   ],
   [
     "message.deleted goes to the mentioned too",
     event("message.deleted", { ...inSession, payload: message }),
     [MENTIONED],
-    audience({ rooms: [SESSION_ROOM, MENTIONED_ROOM] }),
+    audience({ rooms: [SESSION_ROOM], mentioned: [MENTIONED_ROOM] }),
   ],
   [
     "reaction.added goes to the session, not the reactor's room",
@@ -300,6 +301,7 @@ describe("eventAudience", () => {
     expect(actual.recheck).toEqual(expected.recheck);
     expect(actual.join).toEqual(expected.join);
     expect(actual.moderators).toEqual(expected.moderators);
+    expect(actual.mentioned).toEqual(expected.mentioned);
   });
 
   it.each([
@@ -321,9 +323,10 @@ describe("eventAudience", () => {
   it("names each room once", () => {
     const e = event("message.created", { ...inSession, payload: message });
 
-    const { rooms } = eventAudience(e, [MENTIONED, MENTIONED]);
+    const { rooms, mentioned } = eventAudience(e, [MENTIONED, MENTIONED]);
 
-    expect(rooms.sort()).toEqual([SESSION_ROOM, MENTIONED_ROOM].sort());
+    expect(rooms).toEqual([SESSION_ROOM]);
+    expect(mentioned).toEqual([MENTIONED_ROOM]);
   });
 
   it("puts personal rooms in the event's organization", () => {
@@ -695,6 +698,11 @@ const SITUATIONS: Situation[] = [
     canRead: true,
   },
   {
+    name: "the mentioned principal, no longer reading the session",
+    principalId: MENTIONED,
+    canRead: false,
+  },
+  {
     name: "a moderator",
     principalId: ME,
     member: true,
@@ -754,6 +762,8 @@ const socketDelivers = (a: Audience, s: Situation): boolean => {
   if (a.moderators && s.canModerate && rooms.has(spaceRoom(a.moderators))) {
     return true;
   }
+  // Mentions are filtered per socket by its own caller's read of the session.
+  if (a.mentioned.some((room) => rooms.has(room)) && s.canRead) return true;
   return a.rooms.some((room) => rooms.has(room));
 };
 

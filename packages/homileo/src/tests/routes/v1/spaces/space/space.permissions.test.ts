@@ -70,9 +70,18 @@ describe("/v1/spaces/:spaceId access", () => {
       ],
     });
     const space = await fixtures.space({ org, kind });
-    const moderator = await api.actor(org, ["spaces-test.moderate"]);
-    const reader = await api.actor(org, ["spaces-test.read"]);
-    const outsider = await api.actor(org, ["other.moderate"]);
+    const moderator = await api.actor(org, [
+      "spaces-test.moderate",
+      "homileo.spaces.write",
+    ]);
+    const reader = await api.actor(org, [
+      "spaces-test.read",
+      "homileo.spaces.write",
+    ]);
+    const outsider = await api.actor(org, [
+      "other.moderate",
+      "homileo.spaces.write",
+    ]);
 
     expect((await patch(moderator.token, space.id)).status).toBe(200);
     expect((await get(reader.token, space.id)).status).toBe(200);

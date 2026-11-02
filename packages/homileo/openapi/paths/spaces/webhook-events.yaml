@@ -37,7 +37,7 @@ homileo.space.updated:
                 properties:
                   eventType: { const: homileo.space.updated }
                   entityType: { const: space }
-                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceEventData' }
+                  data: { $ref: '../../components/spaces/schemas.yaml#/SpaceUpdatedEventData' }
     responses:
       '2XX':
         description: Any 2xx response acknowledges the delivery; anything else is retried.

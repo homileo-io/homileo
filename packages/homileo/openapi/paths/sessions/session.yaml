@@ -25,6 +25,7 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   patch:
     tags: [Sessions]
     summary: Update a session
@@ -34,7 +35,7 @@
       nothing to edit (`403`). An archived session answers `409 resource_archived`. A body that
       changes nothing records no event. Records `session.updated`.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
     operationId: updateSession
     parameters:
       - name: sessionId
@@ -59,4 +60,6 @@
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

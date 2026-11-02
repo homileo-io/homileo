@@ -5,7 +5,7 @@
     description: |
       Denies the applicant's pending request; no one is added. Records `space.join_decided`, emits its webhook and writes an audit entry. The applicant may ask again.
 
-      **Required permissions:** none; the caller must be able to moderate the space. A caller who
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space. A caller who
       can read the space but not moderate it gets 403; one who cannot read it, 404.
 
       **Errors:** `404` when the principal has no request, `409 conflict` when their latest
@@ -28,3 +28,4 @@
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

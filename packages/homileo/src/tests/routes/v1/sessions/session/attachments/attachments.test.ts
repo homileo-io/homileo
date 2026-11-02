@@ -10,6 +10,7 @@ import { prisma } from "../../../../../../utils/db/prisma.js";
 import { startV1App } from "../../../../../support/v1App.js";
 import { fetchJson } from "../../../../../support/http.js";
 import { MessageSchema } from "@homileo-io/sdk";
+import env from "../../../../../../env.js";
 import { v7 as uuidv7 } from "uuid";
 
 const fixtures = chatFixtures();
@@ -329,6 +330,46 @@ describe("sending a message with attachments", () => {
       await prisma.message.count({ where: { sessionId: session.id } })
     ).toBe(0);
   });
+
+  it("refuses an object larger than ATTACHMENT_MAX_BYTES, and takes one at it", async () => {
+    const { me, session } = await room();
+    const over = await uploaded(
+      session.id,
+      me.token,
+      env.ATTACHMENT_MAX_BYTES + 1
+    );
+    const at = await uploaded(session.id, me.token, env.ATTACHMENT_MAX_BYTES);
+
+    const refused = await send(session.id, me.token, {
+      attachments: [{ objectId: over }],
+    });
+    const sent = await send(session.id, me.token, {
+      attachments: [{ objectId: at }],
+    });
+
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe("attachment_too_large");
+    expect(sent.status).toBe(201);
+  });
+
+  it.each([
+    ["no such session", false],
+    ["a session the caller cannot read", true],
+  ])(
+    "answers 404 for %s before it asks tereo for the objects",
+    async (_name, exists) => {
+      const { session } = await room();
+      const outsider = await signIn(session.organizationId);
+      files.failing.add("getObject");
+
+      const sent = await send(exists ? session.id : uuidv7(), outsider.token, {
+        body: "hi",
+        attachments: [{ objectId: uuidv7() }],
+      });
+
+      expect(sent.status).toBe(404);
+    }
+  );
 
   it("refuses 11 attachments", async () => {
     const { me, session } = await room();

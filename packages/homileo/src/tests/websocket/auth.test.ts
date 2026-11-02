@@ -2,6 +2,8 @@
 // @module-tag websocket
 // @module-tag auth
 import { botToken, personToken } from "../support/tokens.js";
+import { revalidateSockets } from "../../websocket/auth.js";
+import { UnauthorizedError } from "../../utils/errors.js";
 import * as auth from "../../middleware/auth.js";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -119,6 +121,80 @@ describe("socket token expiry", () => {
     const socket = await open(personToken({ org: uuidv7() }), local.url);
 
     expect(await disconnected(socket, 4000)).toBe("io server disconnect");
+  });
+
+  describe("re-introspection", () => {
+    const serverSocket = (socket: ClientSocket) => {
+      const found = local.io.of("/").sockets.get(socket.id!);
+      if (!found) throw new Error("no server socket");
+      return found;
+    };
+
+    it("disconnects a socket whose token tereo no longer accepts, even with no exp", async () => {
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return { ...result, exp: null };
+      });
+      const socket = await open(personToken({ org: uuidv7() }), local.url);
+      real.mockRejectedValueOnce(
+        new UnauthorizedError("Invalid or expired token")
+      );
+
+      await revalidateSockets([serverSocket(socket)]);
+
+      expect(await disconnected(socket)).toBe("io server disconnect");
+    });
+
+    it("takes the token's current permissions while it is still active", async () => {
+      const socket = await open(
+        personToken({ org: uuidv7(), perms: ["homileo.spaces.read"] }),
+        local.url
+      );
+      const onServer = serverSocket(socket);
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockImplementationOnce(async (token) => {
+        const result = await vi
+          .importActual<typeof auth>("../../middleware/auth.js")
+          .then((m) => m.callerFromToken(token));
+        return {
+          ...result,
+          caller: { ...result.caller, permissions: ["homileo.chat.admin"] },
+        };
+      });
+
+      await revalidateSockets([onServer]);
+
+      expect(onServer.data.caller.permissions).toEqual(["homileo.chat.admin"]);
+      expect(socket.connected).toBe(true);
+    });
+
+    it("keeps a socket when the re-check fails for another reason", async () => {
+      const socket = await open(personToken({ org: uuidv7() }), local.url);
+      vi.mocked(auth.callerFromToken).mockRejectedValueOnce(
+        new Error("database down")
+      );
+
+      await revalidateSockets([serverSocket(socket)]);
+
+      expect(socket.connected).toBe(true);
+    });
+
+    it("introspects a token shared by several sockets once", async () => {
+      const token = personToken({ org: uuidv7() });
+      const sockets = [
+        await open(token, local.url),
+        await open(token, local.url),
+      ];
+      const real = vi.mocked(auth.callerFromToken);
+      real.mockClear();
+
+      await revalidateSockets(sockets.map(serverSocket));
+
+      expect(real).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("keeps a socket whose token is still valid", async () => {

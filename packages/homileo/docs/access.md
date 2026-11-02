@@ -13,6 +13,41 @@ membership, role, grants or `homileo.chat.admin` (a route turns this into `404`)
 must also be in the session's organization. `public` means any signed-in user of that organization.
 Kind grants and `homileo.chat.admin` are checked against the permissions in the caller's token.
 
+## Write permission
+
+Changing shared chat state needs `canWriteChat` (`policy/chat.ts`): the token holds
+`homileo.spaces.write` (or anything above it on tereo's ladder: `homileo.spaces.admin`, `admin`) or
+`homileo.chat.admin`. `homileo.chat.admin` is named explicitly because it is on another branch
+(`homileo.chat`), so the ladder alone would not let an admin token archive a space or remove a
+participant. Holding it does not widen anything else: every change still goes through the rules
+below (an admin still cannot post in a DM it does not take part in).
+
+The routes ask it through `requireChatWrite` (`middleware/auth.ts`), before validation or any
+lookup, so a read-only token gets `403 forbidden` ("Requires the homileo.spaces.write permission")
+even for an id it cannot read. Gated:
+
+- spaces: create, `PATCH`, archive, join, member add, change and removal of someone else, join
+  request approve and deny;
+- sessions: create, direct, `PATCH`, archive, participant add and removal of someone else;
+- messages: send, edit, delete; reactions add and remove; attachment placeholders;
+- the socket's `typing.start` and `typing.stop` (a signal other participants see), acked
+  `forbidden`.
+
+Reading needs no Homileo permission, and neither do the calls that touch only the caller's own
+state: `PUT /sessions/:id/read`, `PUT /sessions/:id/notify`, `PUT /threads/:rootId/read`,
+`PUT /threads/:rootId/follow`, plus `POST /principals/resolve`, subscriptions and presence.
+
+Leaving is the one exception that others see: `DELETE /spaces/:id/members/:principalId` and
+`DELETE /sessions/:id/participants/:principalId` with the caller's own id are open to a read-only
+token, so a principal someone added is never trapped. `canRemoveWithToken(caller, targetId)`
+(`policy/chat.ts`) decides it, and those two routes ask it through `requireChatWriteUnlessSelf`;
+removing anyone else still needs `canWriteChat`. The leave itself is then judged by the usual rules
+(`canChangeMember`, `canLeaveSession`: a DM still cannot be left).
+
+A token with only `homileo.spaces.read` (or none) can therefore read, keep its own read state and
+leave, and change nothing else others see. `routes/routes.permissions.test.ts` lists every route
+that is not a GET as one or the other, and checks the self-removal exception.
+
 ## Read a space
 
 Any of: the caller is a member; `visibility` is `public`; the space's kind grants a permission the
@@ -23,8 +58,24 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 | Session | Readable by |
 |---|---|
 | In a space, `access: space` | anyone who can read the space |
-| In a space, `access: members` | participants, holders of a kind grant, `homileo.chat.admin` |
+| In a space, `access: members` | among those who can read the space: participants, holders of a kind grant, `homileo.chat.admin` |
 | No space | participants only (`homileo.chat.admin` cannot read) |
+
+Session access only ever narrows the space's: a session in a space is readable only by someone who
+can read the space, participants included. A participant who loses read on the space (a removed
+member of a `members` space, a grant holder whose grant is gone) loses every session in it, and
+with it posting, reacting and its socket rooms. `readsEverySessionOf` is the `access: members`
+branch for non-participants (a kind grant, or admin); the session list's `spaceId` filter uses it
+to skip the participation test.
+
+A moderator who is not a space member (a kind grant `moderate`, or `homileo.chat.admin`) can create
+a session in the space and becomes its participant without becoming a member. That is deliberate:
+the creator is not enrolled in the space, because the read rule above already ends their access
+when the grant goes.
+
+The listing `GET /sessions?externalRef=` without `spaceId` applies the same table in SQL
+(`readableSessionWhere` in `utils/db/sessions.ts`, beside `readableSpaceWhere` in `spaces.ts`), so
+sessions the caller cannot read never take a page's places; the policy then checks each row again.
 
 ## Webhooks
 
@@ -96,7 +147,15 @@ The design does not state these.
 
 - **Archive a session** (`canArchiveSession`): in a space, `canModerateSpace`; in a space-less group,
   its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`. The admin need
-  not be a participant.
+  not be a participant. A caller who can read the session gets `200` with its view; an admin who
+  archives one it cannot read (a DM, a space-less group) gets `204` and no body, as removing a
+  participant answers `204`.
+- **`409 external_ref_taken` is a known oracle.** Creating or editing a space with an `externalRef`
+  that another space of the kind in the organization already has answers `409 external_ref_taken`,
+  even when the caller cannot read that space. It is accepted: the uniqueness is the point of the
+  reference, the answer reveals only that some space of the kind carries it (not its id or
+  content), and only to a caller of the same organization who may create or edit spaces of that
+  kind.
 - **Create a session in a space** (`canCreateSessionIn`): space membership or `canModerateSpace`, an
   unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. Space-less groups and
   DMs are open to any caller (no function; routes need no check).
@@ -133,7 +192,8 @@ The design does not state these.
   after the change and a stand-in caller, `judgedAs` in `utils/access.ts` (the caller themselves
   when they leave; otherwise the principal with no permissions and no admin role).
 - **React** (`canReact`): participation and an unarchived session and space; the post policy does
-  not apply.
+  not apply. `reactRefusal` names why it is false, as `postRefusal` does for posting:
+  `not_found`, `archived`, `not_a_participant`.
 - **Session settings** (`canEditSessionSettings`: rename, `metadata`, `externalRef`, `state`): in a
   space, `canModerateSpace` while neither the session nor the space is archived; in a space-less
   group, its `owner`; never a DM. An admin does not touch space-less content.
@@ -180,8 +240,12 @@ then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
 needs both. A route that changes a session's participants or settings, archives it, or edits,
 deletes or reacts to a message starts from a session id and locks its space first
-(`db.sessions.lockSpaceOf(tx, sessionId)`): `FOR SHARE`, since it needs the space to stay
-as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
+(`db.sessions.lockSpaceOf(tx, organizationId, sessionId)`): `FOR SHARE`, since it needs the space
+to stay as it is, not to change it. Every locking `SELECT` names the caller's organization, so a
+leaked id of another organization's row locks nothing before the `404`. Because the space is only
+shared, a self-join that makes the caller a space member inserts the membership with
+`ON CONFLICT DO NOTHING`: the caller's parallel join of another session of the space may have
+inserted it first, and then this join records no `space.member_added`. Space changes (`PATCH`, archive, member changes, join) take the space
 `FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
 only the caller's participant row; an attachment upload takes no lock. Removing a member locks the
 space, then the owner rows, then the member's active sessions in id order, and only then changes

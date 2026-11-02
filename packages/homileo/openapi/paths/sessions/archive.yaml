@@ -6,10 +6,11 @@
       Archives the session. In a space it needs the right to moderate the space; in a group without
       a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
       An admin of the session's organization reaches it without being a participant, though it
-      still cannot read a space-less session. Archiving an archived session is
-      `409 already_archived`. Records `session.archived`.
+      still cannot read a space-less session: such an admin gets `204` with no body instead of the
+      session's view. Archiving an archived session is `409 already_archived`. Records
+      `session.archived`.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
     operationId: archiveSession
     parameters:
       - name: sessionId
@@ -23,9 +24,12 @@
           application/json:
             schema:
               $ref: '../../components/sessions/schemas.yaml#/SessionResponse'
+      '204':
+        description: Archived by an admin who cannot read the session (a DM or a space-less group)
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

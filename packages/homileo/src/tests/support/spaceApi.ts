@@ -18,7 +18,7 @@ export const spaceApiFixtures = () => {
   };
 
   /** A person with a principal row (so fixtures can make them a member) and a token. */
-  const actor = async (org: string, perms: string[] = []) => {
+  const actor = async (org: string, perms?: string[]) => {
     const principal = await fixtures.principal();
     return {
       principal,

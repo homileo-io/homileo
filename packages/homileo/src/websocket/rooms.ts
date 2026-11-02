@@ -105,16 +105,21 @@ const spacesJoinedSince = async (
 /**
  * Re-checks each socket's `session:` and `space:` rooms with the socket's own caller, loading
  * the facts for all of them at once, and leaves those it can no longer read, with `spaceof:`
- * once no session room of that space remains. Returns the rooms left, by socket id.
+ * once no session room of that space remains. `joining` are judged as if the socket were
+ * already in them, since a remote socket's join may still be in flight. Returns the rooms
+ * left, by socket id.
  */
 export const recheckSockets = async (
-  sockets: (AppSocket | AppRemoteSocket)[]
+  sockets: (AppSocket | AppRemoteSocket)[],
+  joining: string[] = []
 ): Promise<Map<string, string[]>> => {
   const left = new Map<string, string[]>();
   const targets = sockets.filter((s) => s.data?.caller);
   // Rooms joined while the facts load were checked by whatever joined them, and have no
   // facts loaded here: judging them would leave them.
-  const roomsOf = new Map(targets.map((s) => [s.id, [...s.rooms]]));
+  const roomsOf = new Map(
+    targets.map((s) => [s.id, [...new Set([...s.rooms, ...joining])]])
+  );
   const sessionIds = new Set<string>();
   const spaceIds = new Set<string>();
   for (const socket of targets) {
@@ -216,6 +221,53 @@ export const recheckSockets = async (
     left.set(socket.id, leaving);
   }
   return left;
+};
+
+/**
+ * The ids of `sockets` whose own caller can read the session now. A mention reaches only
+ * these, as `/sync` judges a mention by the reader's own token.
+ */
+export const socketsReadingSession = async (
+  sockets: (AppSocket | AppRemoteSocket)[],
+  sessionId: string
+): Promise<string[]> => {
+  const targets = sockets.filter((s) => s.data?.caller);
+  if (targets.length === 0) return [];
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!session) return [];
+  const principalIds = [
+    ...new Set(targets.map((s) => s.data.caller.principalId)),
+  ];
+  const [space, members, participants] = await Promise.all([
+    session.spaceId
+      ? prisma.space.findUnique({ where: { id: session.spaceId } })
+      : null,
+    session.spaceId
+      ? prisma.spaceMember.findMany({
+          where: { spaceId: session.spaceId, userId: { in: principalIds } },
+        })
+      : [],
+    prisma.sessionParticipant.findMany({
+      where: { sessionId, userId: { in: principalIds }, leftAt: null },
+    }),
+  ]);
+  if (session.spaceId && !space) return [];
+  const roleOf = new Map(members.map((m) => [m.userId, m.role]));
+  const participantOf = new Map(participants.map((p) => [p.userId, p]));
+  const reading: string[] = [];
+  for (const socket of targets) {
+    const c = socket.data.caller;
+    const spaceFacts = space
+      ? await spaceFactsFor(c, space, roleOf.get(c.principalId) ?? null)
+      : null;
+    const facts = sessionFactsFor(
+      session,
+      spaceFacts,
+      participantOf.get(c.principalId) ?? null
+    );
+    if (canReadSession(c, facts)) reading.push(socket.id);
+  }
+  return reading;
 };
 
 /**

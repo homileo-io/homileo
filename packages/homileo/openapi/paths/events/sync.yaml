@@ -31,6 +31,12 @@
 
       Events of other organizations are never returned.
 
+      `message.created`, `message.edited` and `message.deleted` carry the message's **current**
+      view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
+      at the event: every event of a deleted message carries its deleted view, and every event of
+      an edited one its latest revision. The cursor is not signed; because of this and the rule
+      above, a made-up cursor reveals nothing the REST routes do not.
+
       **Required permissions:** none; any signed-in caller in an organization.
     operationId: sync
     parameters:
@@ -50,3 +56,4 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

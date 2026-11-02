@@ -21,6 +21,8 @@ import {
   canRemoveParticipant,
   isPrivateSession,
   postRefusal,
+  reactRefusal,
+  readsEverySessionOf,
 } from "../../policy/index.js";
 
 const grants = kind({
@@ -47,9 +49,25 @@ describe("canReadSession", () => {
       true,
     ],
     [
-      "members access, participant",
+      "members access, participant and space member",
+      {},
+      { access: "members", participantRole: "member", space: inSpace() },
+      true,
+    ],
+    [
+      "members access, participant who cannot read the space",
       {},
       { access: "members", participantRole: "member" },
+      false,
+    ],
+    [
+      "members access, participant of a public space, not a member",
+      {},
+      {
+        access: "members",
+        participantRole: "member",
+        space: space({ visibility: "public" }),
+      },
       true,
     ],
     [
@@ -112,6 +130,17 @@ describe("canReadSession", () => {
     ],
   ])("%s -> %s", (_n, c, ss, want) => {
     expect(canReadSession(caller(c), session(ss))).toBe(want);
+  });
+});
+
+describe("readsEverySessionOf", () => {
+  it.each([
+    ["space member", {}, inSpace(), false],
+    ["space owner", {}, space({ role: "owner" }), false],
+    ["grant holder", grantHolder, space({ kind: grants }), true],
+    ["admin", admin, space(), true],
+  ])("%s -> %s", (_n, c, s, want) => {
+    expect(readsEverySessionOf(caller(c), s)).toBe(want);
   });
 });
 
@@ -475,9 +504,9 @@ describe("canReact", () => {
       false,
     ],
     [
-      "participant who lost read access",
+      "members-session participant who lost read on the space",
       session({ participantRole: "member", access: "members", space: space() }),
-      true,
+      false,
     ],
     ["DM participant", dm(), true],
   ])("%s -> %s", (_n, ss, want) => {
@@ -631,6 +660,40 @@ describe("postRefusal", () => {
                       canPost(caller(c), ss)
                     );
                   }
+  });
+});
+
+describe("reactRefusal", () => {
+  it.each([
+    ["cannot read", session({ space: space() }), "not_found"],
+    [
+      "members-session participant who lost read on the space",
+      session({ participantRole: "member", access: "members", space: space() }),
+      "not_found",
+    ],
+    [
+      "archived space",
+      session({
+        participantRole: "member",
+        space: inSpace({ archived: true }),
+      }),
+      "archived",
+    ],
+    [
+      "readable, not a participant",
+      session({ space: inSpace() }),
+      "not_a_participant",
+    ],
+    [
+      "moderators posting, plain participant",
+      session({
+        participantRole: "member",
+        space: inSpace({ postPolicy: "moderators" }),
+      }),
+      null,
+    ],
+  ])("%s -> %s", (_n, ss, want) => {
+    expect(reactRefusal(caller(), ss)).toBe(want);
   });
 });
 

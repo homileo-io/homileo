@@ -6,9 +6,11 @@ import {
 } from "../../definitions/builtins.js";
 
 // Payload schemas are the apps' own: unknown keywords and formats are theirs
-// to use, so only a schema that cannot be compiled is a problem.
+// to use, so only a schema that cannot be compiled is a problem. Validation
+// stops at the first failure: collecting every one lets a payload inside the
+// body limit produce a response many times its size.
 export const createPayloadAjv = () =>
-  new Ajv2020({ strict: false, validateFormats: false, allErrors: true });
+  new Ajv2020({ strict: false, validateFormats: false, allErrors: false });
 
 /** The rules that span documents, and the ones a schema cannot express. Returns every problem. */
 export const validateSet = (documents: LoadedDocument[]): Problem[] => {

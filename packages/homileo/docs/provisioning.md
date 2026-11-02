@@ -29,7 +29,7 @@ start (or exits the CLI with 1) after logging every problem, each with its file 
       "name": "support:case",             // "<app>:<slug>", at most 64 characters
       "defaults": { "visibility": "members", "join": "invite", "posting": "members" },
       "overridable": [],                  // which defaults a space may change; default []
-      "states": ["open", "resolved"],     // unique, ^[a-z][a-z0-9_]{0,62}$; the first is the initial state
+      "states": ["open", "resolved"],     // unique, ^[a-z][a-z0-9_]{0,62}$; a space starts with `state: null` unless its create names one
       "grants": [{ "permission": "support.cases.read", "access": "moderate" }], // access: read | moderate
       "bots": ["<service-account user id>"], // tereo user UUIDs that join every session of the kind
       "editWindowSeconds": null,          // integer >= 0, or null for no limit

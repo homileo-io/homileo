@@ -3,11 +3,14 @@
 // @module-tag messages
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { provision } from "../../utils/provisioning/index.js";
-import { validatePayload } from "../../utils/messageTypes.js";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { prisma } from "../../utils/db/prisma.js";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  MAX_PAYLOAD_ISSUES,
+  validatePayload,
+} from "../../utils/messageTypes.js";
 
 const TYPE = "types-test:card";
 let dir: string;
@@ -98,6 +101,36 @@ describe("validatePayload", () => {
 
     expect(await codeOf({ amount: "three" })).toBe("invalid_payload");
   });
+
+  it.each([
+    [
+      "an array of many bad items",
+      { type: "array", items: { type: "number" } },
+      Array.from({ length: 500 }, () => "x"),
+    ],
+    [
+      "an anyOf with many failing branches",
+      {
+        anyOf: Array.from({ length: 40 }, (_, i) => ({ const: i })),
+      },
+      "none",
+    ],
+  ])(
+    "caps the issues it returns for %s",
+    async (_name, payloadSchema, payload) => {
+      await provisionWith(payloadSchema);
+
+      const failure = await prisma
+        .$transaction((tx) => validatePayload(TYPE, payload, tx))
+        .catch((err: unknown) => err as { details: { issues: unknown[] } });
+
+      expect(failure).toMatchObject({ code: "invalid_payload" });
+      const { issues } = (failure as { details: { issues: unknown[] } })
+        .details;
+      expect(issues.length).toBeGreaterThan(0);
+      expect(issues.length).toBeLessThanOrEqual(MAX_PAYLOAD_ISSUES);
+    }
+  );
 
   it("refuses a payload on the built-in text type", async () => {
     await expect(

@@ -1,9 +1,9 @@
 import { CreateSessionBodySchema, ListSessionsQuerySchema } from "./schemas.js";
-import { holdsKindGrant, canCreateSessionIn } from "../../../policy/index.js";
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
 import { readableSessions, readableSpace } from "../../../utils/access.js";
 import { approvePendingJoinRequest } from "../../../utils/joinRequests.js";
 import { participantView, sessionView } from "../../../views/session.js";
+import type { ListSessionsScope } from "../../../utils/db/sessions.js";
 import { encodeSessionCursor, parseSessionCursor } from "./utils.js";
 import { callerOf, type Caller } from "../../../middleware/auth.js";
 import { prisma, type Prisma } from "../../../utils/db/prisma.js";
@@ -14,59 +14,43 @@ import { memberView } from "../../../views/space.js";
 import type { Request, Response } from "express";
 import { db } from "../../../utils/db/index.js";
 import {
+  canCreateSessionIn,
+  readsEverySessionOf,
+} from "../../../policy/index.js";
+import {
   ArchivedError,
   ForbiddenError,
   PostingRestrictedError,
   ValidationError,
 } from "../../../utils/errors.js";
 
-/** Matches of one reference that are read before the caller's limit applies. */
-const EXTERNAL_REF_SCAN_LIMIT = 1000;
+const listScope = async (
+  caller: Caller,
+  query: { spaceId?: string; externalRef?: string }
+): Promise<ListSessionsScope> => {
+  if (query.spaceId !== undefined) {
+    const { facts } = await readableSpace(caller, query.spaceId);
+    return {
+      spaceId: query.spaceId,
+      everything: readsEverySessionOf(caller, facts),
+    };
+  }
+  // A reference names sessions in any space, so it searches every readable session.
+  if (query.externalRef !== undefined) return { readable: true };
+  return { participating: true };
+};
 
 export const listSessions = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const query = validateQuery(ListSessionsQuerySchema, req);
   const after = query.cursor ? parseSessionCursor(query.cursor) : undefined;
 
-  const base = {
-    organizationId: caller.organizationId,
-    principalId: caller.principalId,
+  const rows = await db.sessions.list(prisma, {
+    caller,
+    scope: await listScope(caller, query),
     type: query.type,
     externalRef: query.externalRef,
     includeArchived: query.includeArchived,
-  };
-
-  if (query.spaceId === undefined && query.externalRef !== undefined) {
-    const rows = await db.sessions.list(prisma, {
-      ...base,
-      // Visibility here is per session, so the policy filters after the read.
-      spaceId: undefined,
-      everything: true,
-      take: EXTERNAL_REF_SCAN_LIMIT,
-    });
-    const readable = await readableSessions(
-      caller,
-      rows.map((r) => r.id)
-    );
-    const visible = rows
-      .filter((r) => readable.has(r.id))
-      .slice(0, query.limit);
-    res.status(200).json({
-      data: await withParticipants(caller, visible),
-      nextCursor: null,
-    });
-    return;
-  }
-
-  let everything = false;
-  if (query.spaceId !== undefined) {
-    const { facts } = await readableSpace(caller, query.spaceId);
-    everything = holdsKindGrant(caller, facts) || caller.isAdmin;
-  }
-  const rows = await db.sessions.list(prisma, {
-    ...base,
-    spaceId: query.spaceId,
-    everything,
     after,
     take: query.limit + 1,
   });

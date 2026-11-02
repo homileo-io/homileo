@@ -53,6 +53,10 @@ export const findOrCreateUser = async (input: {
 }): Promise<Principal> => {
   const where = { tereoUserId: input.tereoUserId };
   const found = await prisma.principal.findUnique({ where });
+  // The token says what the user is now; a row made from a bot declaration or an older token may differ.
+  if (found && found.isBot !== input.isBot) {
+    return prisma.principal.update({ where, data: { isBot: input.isBot } });
+  }
   if (found) return found;
 
   await prisma.$executeRaw`INSERT INTO "chat"."principals"
@@ -89,6 +93,7 @@ export const refreshProfile = async (principal: Principal): Promise<void> => {
   // The lookup may also carry a photo; the installed SDK's user type has none.
   const photo = (user as { photo?: { url?: string } | string | null } | null)
     ?.photo;
+  const photoUrl = typeof photo === "string" ? photo : photo?.url;
   await prisma.principal.update({
     where: { id: principal.id },
     data: {
@@ -96,12 +101,19 @@ export const refreshProfile = async (principal: Principal): Promise<void> => {
       ...(user && {
         displayName: truncateDisplayName(user.name ?? principal.displayName),
         avatarUrl:
-          (typeof photo === "string" ? photo : photo?.url) ??
-          principal.avatarUrl,
+          photoUrl === undefined || photoUrl === null
+            ? principal.avatarUrl
+            : fittingAvatarUrl(photoUrl),
       }),
     },
   });
 };
+
+const AVATAR_URL_MAX = 2048;
+
+/** A URL too long for the column is dropped, so it cannot block the name's refresh. */
+const fittingAvatarUrl = (url: string): string | null =>
+  url.length <= AVATAR_URL_MAX ? url : null;
 
 /**
  * Refreshes a stale profile without holding up the request. The Redis key
@@ -141,7 +153,12 @@ export const findOrCreateMany = async (
   users: NewUserPrincipal[],
   client: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<Principal[]> => {
-  const unique = [...new Map(users.map((u) => [u.tereoUserId, u])).values()];
+  // Lower-cased as Postgres returns a uuid, so the read-back finds every row.
+  const lowered = users.map((u) => ({
+    ...u,
+    tereoUserId: u.tereoUserId.toLowerCase(),
+  }));
+  const unique = [...new Map(lowered.map((u) => [u.tereoUserId, u])).values()];
   if (unique.length === 0) return [];
 
   // In id order: two inserts of overlapping new ids in opposite orders would

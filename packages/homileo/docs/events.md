@@ -21,7 +21,8 @@ Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionS
 
 | Type | Payload |
 |---|---|
-| `space.created`, `space.updated`, `space.archived` | `{ space }` |
+| `space.created`, `space.archived` | `{ space }` |
+| `space.updated` | `{ space, previousVisibility }`: the new space, and its `visibility` before the update |
 | `space.member_added` | `{ spaceId, member }` |
 | `space.member_removed` | `{ spaceId, principalId }` |
 | `space.member_role_changed` | `{ spaceId, member, previousRole }` |
@@ -35,6 +36,11 @@ Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionS
 | `read.updated` | `{ principalId, sessionId, threadRootId, lastReadSeq }` |
 | `space.access_revoked` | `{ principalId, spaceId }` |
 | `session.access_revoked` | `{ principalId, sessionId }` |
+
+The stored `{ message }` is the view at commit, and sockets and webhooks deliver it as stored.
+`/sync` instead returns each message event with the message's current view, as REST shows it now
+(a deleted message's deleted view, an edited one's latest revision): see
+[realtime.md](realtime.md#get-v1sync).
 
 `message.created` and `message.deleted` of a reply are recorded before the reply's `thread.updated`,
 so a consumer never sees a `replyCount` for a reply it has not received.

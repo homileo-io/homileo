@@ -9,8 +9,15 @@ them where a route is concerned.
 - Every `/v1` route needs a tereo access token with an organization (`org_id`): `401` without a
   token, `400 organization_required` with one that has no organization. No header names an
   organization. `routes/routes.permissions.test.ts` checks both for every route.
-- Only `POST /v1/spaces` needs a tereo permission (`homileo.spaces.write`). The rest are open to
-  any signed-in caller and decided by `src/policy/` (see [access.md](access.md)).
+- Every route that changes shared chat state needs `homileo.spaces.write` or `homileo.chat.admin`
+  in the token, and answers `403 forbidden` ("Requires the homileo.spaces.write permission")
+  without it, before validation or any lookup: creating, changing and archiving spaces and
+  sessions, joining, adding and removing someone else (members and participants), join request
+  decisions, sending, editing and deleting messages, reactions and attachment placeholders. Reads,
+  leaving (a `DELETE` of the caller's own member or participant row) and the calls that touch
+  only the caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`,
+  `POST /principals/resolve`) need no permission. The rest is
+  decided by `src/policy/` (see [access.md](access.md#write-permission)).
 - An id that does not parse as a UUID is `400 invalid_request`.
 - JSON bodies are limited to 256 KiB on `/v1/sessions` and `/v1/messages`, 64 KiB elsewhere.
 
@@ -18,7 +25,8 @@ them where a route is concerned.
 
 A space, session or message that does not exist, is in another organization, or that the caller
 cannot read answers `404 not_found` with the same message in each case, so a caller cannot tell
-them apart. `403` is only for a caller who can read the resource but may not do the action.
+them apart. `403` is only for a caller who can read the resource but may not do the action, and
+for a token without the write permission, which is refused before any lookup (so it reveals nothing).
 `utils/access.ts` (`readableSpace`, `readableSession`, `readableMessage`) is where this is applied;
 a route does not decide it itself.
 
@@ -32,13 +40,15 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 
 | Status | Code |
 |---|---|
-| 400 | `invalid_request`, `organization_required`, `kind_not_found`, `setting_not_overridable`, `invalid_state`, `message_type_not_found`, `invalid_payload`, `reply_to_reply`, `attachment_not_found`, `attachment_not_uploaded`, `cannot_dm_self` |
+| 400 | `invalid_request`, `organization_required`, `kind_not_found`, `setting_not_overridable`, `invalid_state`, `message_type_not_found`, `invalid_payload`, `reply_to_reply`, `attachment_not_found`, `attachment_not_uploaded`, `attachment_too_large`, `cannot_dm_self` |
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write or deadlock; re-read and retry) |
 | 410 | `resync_required` |
-| 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
+| 413 | `payload_too_large` (the body is over the route's size limit) |
+| 500 | `server_error` |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer, or the database was too busy: a transaction or lock wait ran out of time; retry after `Retry-After` when given) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
 
@@ -59,12 +69,13 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
-| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) and 100 block-quote and list markers on one line; past any of these it is read as plain text |
-| message `payload` | 64 KiB serialized |
-| `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the most block quotes and list items any line so far could have opened, from its markers and two columns of indent per level, since blank and lazy lines keep them open); past any of these it is read as plain text |
+| message `payload` | 64 KiB serialized, nested at most 32 arrays and objects deep |
+| `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON nested at most 32 arrays and objects deep |
 | `clientMessageId` | 1 to 128 characters |
 | `emoji` | 1 to 64 characters |
 | attachments per message | 10 |
+| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`); tereo's own upload limit is not checked |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
 
 ## JSON shapes
@@ -81,11 +92,18 @@ changes nothing (an idempotent repeat) records nothing.
 
 A mutation loads what it checks inside its transaction with `{ tx, lock: true }`, which takes the
 session (or space) row `FOR UPDATE`, so the checks and the write see the same rows. Creating a space
-reads its kind with `activeKind` (`FOR SHARE`); provisioning takes the kind's row `FOR UPDATE`
-before it counts the unarchived spaces of a kind it retires, so a space is never created in a kind
-as it retires. Message types work the same way: a send or an edit with a payload reads the type's
-row `FOR SHARE` (`validatePayload`), and provisioning takes it `FOR UPDATE` before it looks for a
-message of a type it retires, so no message is stored with a type as it retires, on any replica.
+reads its kind with `activeKind`, under a shared transaction-level advisory lock on the kind;
+provisioning takes that lock exclusive before it looks for an unarchived space of a kind it retires,
+so a space is never created in a kind as it retires. Message types work the same way: a send or an
+edit with a payload holds the type's lock shared (`validatePayload`), and provisioning takes it
+exclusive before it looks for a message of a type it retires, so no message is stored with a type
+as it retires, on any replica. The key is `hashtextextended('homileo.<kind|message_type>:<name>', 0)`
+(`utils/db/provisioned.ts`); provisioning takes its keys in name order.
+
+Every mutation's transaction runs with `lock_timeout` set to `DB_LOCK_TIMEOUT_MS`, under Prisma's
+`DB_TRANSACTION_MAX_WAIT_MS` (to start, a pool connection included) and `DB_TRANSACTION_TIMEOUT_MS`
+(to finish). Running out of any of them, or of `DB_POOL_CONNECTION_TIMEOUT_MS`, rolls the change back
+and answers `503 temporarily_unavailable` with `Retry-After`.
 
 Kinds are cached in the process for 60 seconds and dropped when provisioning applies
 (`invalidateKinds`). Message types are read on every use; only their compiled payload schemas are
@@ -103,7 +121,7 @@ the message under them. An edit that changes the
 on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
 a mention and adding it back sends nothing); a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
-nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
+nothing. A delete clears `body`, `body_text` and `payload`, empties `metadata` (to `{}`), keeps revisions, reactions and attachments
 (views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
 readers the message reached through a mention; `/me/mentions` and unread counts skip deleted
 messages), and lowers a reply's root `reply_count`.
@@ -111,7 +129,12 @@ messages), and lowers a reply's root `reply_count`.
 deleted message's text does not reach everyone in the session.
 
 A message body is parsed once, before the transaction, for its mentions and its `body_text`
-(`utils/markdown.ts`, `utils/mentions.ts`). Only a body within all three parse limits (see
+(`utils/markdown.ts`, `utils/mentions.ts`). A send first checks, without a lock, that the caller
+reads the session and may post in it, and an edit that the caller may edit the message, so a
+caller refused either way costs no parse and no tereo call; the transaction checks both again under
+its locks. An edit also parses the earlier revisions that hold a mention before the transaction,
+for the same Markdown-aware mentions the send stored (only a revision stored meanwhile is parsed
+under the lock). Only a body within all four parse limits (see
 [Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
 while past them micromark can take minutes or overflow the stack. Any other body is accepted and
 read as plain text: mentions count everywhere outside fenced code blocks and single-line code
@@ -139,7 +162,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | Route | Policy | Errors | Events |
 |---|---|---|---|
 | `GET /spaces` | `canReadSpace`; `membership` = `member` (default) or `readable` | | |
-| `POST /spaces` | needs tereo `homileo.spaces.write` | `403 forbidden`, `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.created`, `space.member_added` (creator as owner, plus kind bots) |
+| `POST /spaces` | write permission only | `403 forbidden`, `400 kind_not_found`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.created`, `space.member_added` (creator as owner, plus kind bots) |
 | `GET /spaces/:spaceId` | `canReadSpace` | | |
 | `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
 | `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
@@ -156,7 +179,9 @@ transaction, as the actor of that change, so a request never stays pending for a
 a member's request only closes it; denying it is `409 already_member`.
 
 `description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
-kind; `externalRef` is unique per kind within the organization.
+kind; `externalRef` is unique per kind within the organization. `409 external_ref_taken` is
+answered even when the space holding the reference is one the caller cannot read: a deliberate,
+documented oracle (see [access.md](access.md)).
 
 ### Sessions
 
@@ -167,15 +192,15 @@ kind; `externalRef` is unique per kind within the organization.
 | `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
-| `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
+| `POST /sessions/:sessionId/archive` | `canArchiveSession`; `200` with the session, or `204` with no body for an admin who cannot read it | `403`, `409 already_archived` | `session.archived` |
 | `GET /sessions/:sessionId/participants` | `canReadSession` | | |
-| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant` | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
+| `PUT /sessions/:sessionId/participants/:principalId` | `canJoinSession` (self) or `canAddParticipant`; a current participant is `200` to any reader, before the policy | `403`, `404` unknown principal, `400` for a non-member of a space, `409 resource_archived` | `session.participant_added`, `space.member_added` when joining through an open space |
 | `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived) or `canRemoveParticipant` | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
 | `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` (also when a leave commits first) | |
 | `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
-| `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
+| `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
 
 `GET /sessions` pages on `lastMessageAt`, which moves: a session not yet returned that gets a
 message during a page walk moves above the cursor and is skipped by the later pages. A client
@@ -211,7 +236,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
-| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
+| `PUT /messages/:messageId/reactions/:emoji` | `reactRefusal` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
 | `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
@@ -232,7 +257,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
   24 h, and returns a presigned write URL for the object's id. A message names the object id. The
   send fetches the objects from tereo before its transaction, then checks inside it the key prefix
-  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit. If that
+  (this session, this sender), `sizeBytes > 0` and `sizeBytes <= ATTACHMENT_MAX_BYTES`, and clears `deleteAfter` after commit. If that
   fails or never runs, a repeat of the send with the same `clientMessageId` (`409
   duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
   every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
@@ -246,7 +271,8 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 
 - **Body limits.** JSON bodies are parsed per area in `routes/v1/index.ts`: 256 KiB on `/sessions`
   and `/messages`, 64 KiB on `/principals`, `/spaces` and `/threads`. A larger body is `413`.
-- **Listing sessions by `externalRef` without `spaceId`** fetches up to 1,000 matches in the
-  organization, keeps those the caller can read, returns the first `limit` and `nextCursor: null`.
+- **Listing sessions by `externalRef` without `spaceId`** pages through every session of the
+  organization the caller can read that carries the reference, wherever it is; the read rule is
+  applied in SQL, so other users' sessions never crowd out the caller's.
 - **Lock order** in every mutation: the space row, then the session row, then other rows (see
   [access.md](access.md)).

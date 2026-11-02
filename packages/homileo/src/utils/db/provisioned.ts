@@ -96,20 +96,55 @@ export const retireType = async (tx: Tx, name: string): Promise<void> => {
   });
 };
 
-export const lockKind = async (tx: Tx, name: string): Promise<void> => {
+/*
+ * Using a kind or message type (creating a space, storing a payload) holds a
+ * shared transaction-level advisory lock on it; retiring one takes it
+ * exclusive first, so the use and the retirement's "in use?" check never
+ * interleave, on any replica. Unlike FOR SHARE on the row, a shared advisory
+ * lock writes nothing, so busy types make no MultiXact churn.
+ *
+ * Key: hashtextextended('homileo.<kind|message_type>:<name>', 0), a bigint. A
+ * collision only makes two names wait on each other. Nothing else in Homileo
+ * takes advisory locks. Lock order: a use takes one key after its row locks
+ * (space, session); provisioning takes keys in name order and no space or
+ * session row locks.
+ */
+type Provisioned = "kind" | "message_type";
+
+const advisoryKey = (what: Provisioned, name: string) =>
+  `homileo.${what}:${name}`;
+
+export const holdShared = async (
+  tx: Tx,
+  what: Provisioned,
+  name: string
+): Promise<void> => {
   await tx.$queryRaw`
-    SELECT name FROM "chat"."provisioned_space_kinds"
-    WHERE name = ${name} FOR UPDATE`;
+    SELECT 1 AS held
+    FROM pg_advisory_xact_lock_shared(hashtextextended(${advisoryKey(what, name)}, 0))`;
 };
 
-export const countUnarchivedSpaces = (tx: Tx, kind: string): Promise<number> =>
-  tx.space.count({ where: { kind, archivedAt: null } });
-
-export const lockType = async (tx: Tx, name: string): Promise<void> => {
+export const holdExclusive = async (
+  tx: Tx,
+  what: Provisioned,
+  name: string
+): Promise<void> => {
   await tx.$queryRaw`
-    SELECT name FROM "chat"."provisioned_message_types"
-    WHERE name = ${name} FOR UPDATE`;
+    SELECT 1 AS held
+    FROM pg_advisory_xact_lock(hashtextextended(${advisoryKey(what, name)}, 0))`;
 };
+
+// Served by the partial spaces_kind_unarchived_idx.
+export const hasUnarchivedSpaces = async (
+  tx: Tx,
+  kind: string
+): Promise<boolean> =>
+  (
+    await tx.$queryRaw<unknown[]>`
+      SELECT 1 FROM "chat"."spaces"
+      WHERE kind = ${kind} AND archived_at IS NULL
+      LIMIT 1`
+  ).length > 0;
 
 // The literal `type <> 'text'` lets even a generic plan use the partial
 // messages_type_idx.

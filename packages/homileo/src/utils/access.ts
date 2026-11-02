@@ -148,7 +148,9 @@ export const readableSpace = async (
   const client = clientOf(opts);
   if (opts.lock) {
     await (client as Tx).$queryRaw`
-      SELECT id FROM "chat"."spaces" WHERE id = ${spaceId}::uuid FOR UPDATE`;
+      SELECT id FROM "chat"."spaces"
+      WHERE id = ${spaceId}::uuid AND organization_id = ${c.organizationId}::uuid
+      FOR UPDATE`;
   }
   const space = await client.space.findUnique({ where: { id: spaceId } });
   if (!space || space.organizationId !== c.organizationId) {
@@ -192,9 +194,16 @@ const sessionContext = async (
   return { session, space, facts, participant };
 };
 
-const lockSession = async (tx: Tx, sessionId: string): Promise<void> => {
+// The organization is in the locking SELECT, so another organization's row is never locked.
+const lockSession = async (
+  tx: Tx,
+  c: Caller,
+  sessionId: string
+): Promise<void> => {
   await tx.$queryRaw`
-    SELECT id FROM "chat"."sessions" WHERE id = ${sessionId}::uuid FOR UPDATE`;
+    SELECT id FROM "chat"."sessions"
+    WHERE id = ${sessionId}::uuid AND organization_id = ${c.organizationId}::uuid
+    FOR UPDATE`;
 };
 
 export const readableSession = async (
@@ -203,7 +212,7 @@ export const readableSession = async (
   opts: SessionLoadOptions = {}
 ): Promise<SessionContext> => {
   const client = clientOf(opts);
-  if (opts.lock) await lockSession(client as Tx, sessionId);
+  if (opts.lock) await lockSession(client as Tx, c, sessionId);
   const session = await client.session.findUnique({ where: { id: sessionId } });
   const context = session
     ? await sessionContext(c, session, client, opts.adminManage)
@@ -222,7 +231,7 @@ export const readableMessage = async (
   if (!message) throw messageNotFound();
   if (opts.lock) {
     // The session row is what serializes writers; the message is read again under it.
-    await lockSession(client as Tx, message.sessionId);
+    await lockSession(client as Tx, c, message.sessionId);
     message = await client.message.findUnique({ where: { id: messageId } });
     if (!message) throw messageNotFound();
   }

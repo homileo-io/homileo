@@ -4,7 +4,7 @@
     summary: Get a message
     description: |
       A message the caller can read. A deleted message is returned with `body`, `payload`,
-      `attachments` and `reactions` cleared and `deletedAt` set.
+      `metadata` (as `{}`), `attachments` and `reactions` cleared and `deletedAt` set.
 
       **Required permissions:** none; the caller must be able to read the message's session.
       Anything else is `404`.
@@ -22,6 +22,7 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   patch:
     tags: [Messages]
     summary: Edit a message
@@ -42,7 +43,7 @@
 
       Records `message.edited`, emitting `homileo.message.edited`; the message is not audited.
 
-      **Required permissions:** none; see above.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
     operationId: editMessage
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
@@ -64,14 +65,16 @@
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   delete:
     tags: [Messages]
     summary: Delete a message
     description: |
-      Clears the message's `body` and `payload` and sets `deletedAt` and `deletedBy`; the row, its
-      revisions, reactions and attachments stay (reads show reactions and attachments as empty).
-      Its mentions are removed. Deleting a reply lowers the root's `replyCount`.
+      Clears the message's `body` and `payload`, empties its `metadata` and sets `deletedAt` and
+      `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
+      reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
       The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
       already deleted message is `409 resource_archived`; any other refusal is `403`.
@@ -80,7 +83,7 @@
       `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
       else's message also writes an audit `DELETE` entry.
 
-      **Required permissions:** none; see above.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); see above.
     operationId: deleteMessage
     parameters:
       - $ref: '../../components/messages/parameters.yaml#/MessageIdParam'
@@ -97,3 +100,4 @@
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

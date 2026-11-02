@@ -177,6 +177,8 @@ model Space {
 
   @@unique([organizationId, kind, externalRef])
   @@unique([id, organizationId])
+  // Raw SQL in 20261102143311_spaces_kind_unarchived_idx:
+  // spaces_kind_unarchived_idx (kind) WHERE archived_at IS NULL.
   @@map("spaces")
   @@schema("chat")
 }

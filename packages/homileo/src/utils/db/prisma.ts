@@ -27,7 +27,13 @@ const probePool = new Pool({
 });
 
 const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({
+  adapter,
+  transactionOptions: {
+    maxWait: env.DB_TRANSACTION_MAX_WAIT_MS,
+    timeout: env.DB_TRANSACTION_TIMEOUT_MS,
+  },
+});
 
 export const disconnectDatabase = async (): Promise<void> => {
   await prisma.$disconnect();

@@ -4,9 +4,9 @@ import { readPayload, spacePayload } from "../support/eventPayloads.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeTereo, stopTereo } from "../../utils/tereo.js";
 import { chatFixtures } from "../support/chatFixtures.js";
-import { ValidationError } from "../../utils/errors.js";
 import { recordChange } from "../../utils/changes.js";
 import { prisma } from "../../utils/db/prisma.js";
+import { AppError } from "../../utils/errors.js";
 import { v7 as uuidv7 } from "uuid";
 
 const fixtures = chatFixtures();
@@ -194,12 +194,12 @@ describe("recordChange", () => {
     expect(await outboxRows(organizationId)).toHaveLength(0);
   });
 
-  it("refuses a payload its schema rejects", async () => {
+  it("refuses a payload its schema rejects as a server error, not the caller's", async () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();
 
-    await expect(
-      prisma.$transaction((tx) =>
+    const failure = await prisma
+      .$transaction((tx) =>
         recordChange(tx, {
           type: "space.created",
           organizationId,
@@ -208,7 +208,11 @@ describe("recordChange", () => {
           payload: "not an object",
         })
       )
-    ).rejects.toBeInstanceOf(ValidationError);
+      .catch((err: unknown) => err);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(AppError);
+    expect((failure as Error).message).toMatch(/space\.created/);
 
     expect(await prisma.event.count({ where: { organizationId } })).toBe(0);
     expect(await outboxRows(organizationId)).toHaveLength(0);

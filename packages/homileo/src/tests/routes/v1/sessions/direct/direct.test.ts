@@ -228,7 +228,7 @@ describe("POST /v1/sessions/direct", () => {
       `${env.PUBLIC_URL}/v1/sessions/${dm.body.session.id}/archive`,
       admin.token
     );
-    expect(archived.status).toBe(200);
+    expect(archived.status).toBe(204);
 
     const again = await fetchJson("POST", URL, b.token, {
       principalId: a.principalId,

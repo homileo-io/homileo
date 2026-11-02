@@ -30,6 +30,7 @@
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   post:
     tags: [Messages]
     summary: Send a message
@@ -46,8 +47,8 @@
         session or space is `409 resource_archived`.
       - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
         its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
-      - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
-        `400 attachment_not_uploaded`); they are kept once the message is sent.
+      - `attachments` name up to 10 uploaded files of at most `ATTACHMENT_MAX_BYTES` each
+        (`400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`); they are kept once the message is sent.
       - A reply's root must be a top-level, undeleted message of the same session:
         `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
         The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
@@ -63,7 +64,7 @@
       Records `message.created` (and `thread.updated` for a reply), emitting
       `homileo.message.created` and `homileo.thread.updated`. Messages are not audited.
 
-      **Required permissions:** none; the caller must be able to read the session.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to read the session.
     operationId: sendMessage
     parameters:
       - name: sessionId
@@ -95,5 +96,6 @@
               oneOf:
                 - $ref: '../../components/messages/schemas.yaml#/DuplicateClientMessageError'
                 - $ref: '../../components/responses.yaml#/Error'
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

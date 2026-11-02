@@ -98,7 +98,7 @@ describe("POST /v1/sessions/:sessionId/archive", () => {
     expect((await archive(dm.body.session.id, admin.token)).status).toBe(200);
   });
 
-  it("lets an admin who is not in a DM archive it, still without reading it", async () => {
+  it("lets an admin who is not in a DM archive it with a 204 and no view, still without reading it", async () => {
     const org = newOrg();
     const a = await signIn(org);
     const b = await signIn(org);
@@ -110,7 +110,12 @@ describe("POST /v1/sessions/:sessionId/archive", () => {
     const id = dm.body.session.id;
 
     expect((await archive(id, foreignAdmin.token)).status).toBe(404);
-    expect((await archive(id, admin.token)).status).toBe(200);
+    const archived = await archive(id, admin.token);
+    expect(archived.status).toBe(204);
+    expect(archived.body).toBeFalsy();
+    expect(
+      (await prisma.session.findUnique({ where: { id } }))?.archivedAt
+    ).not.toBeNull();
     expect((await fetchJson("GET", `${URL}/${id}`, admin.token)).status).toBe(
       404
     );

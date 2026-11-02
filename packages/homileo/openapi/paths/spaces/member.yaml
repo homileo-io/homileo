@@ -9,7 +9,7 @@
       previous role); each emits its webhook and writes an audit entry. Adding a principal with a
       pending join request approves it as the caller (recording `space.join_decided`).
 
-      **Required permissions:** none; the caller must be able to moderate the space to add a
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without); the caller must be able to moderate the space to add a
       `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
       `homileo.chat.admin`. A caller who can read the space but not make the change gets 403; one
       who cannot read it, 404.
@@ -45,7 +45,9 @@
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
+      '413': { $ref: '../../components/responses.yaml#/PayloadTooLargeResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
   delete:
     tags: [Spaces]
     summary: Remove a member, or leave a space
@@ -57,7 +59,7 @@
       this is judged from membership and visibility alone; their kind grants are not known.
       Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-      **Required permissions:** none. Anyone may leave, even an archived space. A moderator
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; none to leave. Anyone may leave, even an archived space. A moderator
       removes `member`s; removing a moderator or owner needs the `owner` or a
       `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
       one who cannot read it, 404.
@@ -76,3 +78,4 @@
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
       '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

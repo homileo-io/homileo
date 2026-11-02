@@ -7,6 +7,7 @@ import { validatePayload } from "../../utils/messageTypes.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { prisma } from "../../utils/db/prisma.js";
+import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -111,11 +112,9 @@ describe("posting a message type against retiring it", () => {
     let locked!: () => void;
     const retiring = new Promise<void>((r) => (locked = r));
 
-    // Provisioning's retirement: the row FOR UPDATE, then retired_at.
+    // Provisioning's retirement: the type's lock exclusive, then retired_at.
     const retirement = prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT name FROM "chat"."provisioned_message_types"
-        WHERE name = ${type} FOR UPDATE`;
+      await db.provisioned.holdExclusive(tx, "message_type", type);
       await tx.provisionedMessageType.update({
         where: { name: type },
         data: { retiredAt: new Date() },

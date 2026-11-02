@@ -1,0 +1,6 @@
+---
+homileo: major
+'@homileo-io/sdk': major
+---
+
+Fixes from the second audit. Breaking: every chat mutation (spaces, sessions, members, participants, messages, reactions, attachments) now needs `homileo.spaces.write` or `homileo.chat.admin` (leaving, read state, notify and thread follow need none); `/v1/sync` message events carry the message's current view, so deleted and earlier-revision text is never replayed; `space.updated` carries `previousVisibility`; archive answers 204 to an admin who cannot read the session; `GET /sessions?externalRef=` pages; a deleted message's metadata is cleared; a busy database answers 503 instead of 500; socket errors use `server_error`. Also: Markdown parse work is budgeted and access is checked before parsing; a member-only session is readable only by those who can read its space; local sockets join rooms without a Redis round trip; sockets re-introspect their token; payload and metadata depth, attachment size and payload issue counts are bounded; provisioning uses advisory locks and an index for kind retirement; bot ids in provisioning documents are case-insensitive. New env vars: `ATTACHMENT_MAX_BYTES`, `DB_TRANSACTION_MAX_WAIT_MS`, `DB_TRANSACTION_TIMEOUT_MS`, `DB_LOCK_TIMEOUT_MS`.

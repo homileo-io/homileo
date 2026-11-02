@@ -1,7 +1,7 @@
 import { EVENT_TYPES, webhookEventName, type EventType } from "@homileo-io/sdk";
-import { issuesOf, ValidationError } from "./errors.js";
 import { isPrivateSession } from "../policy/index.js";
 import type { Prisma } from "./db/prisma.js";
+import { issuesOf } from "./errors.js";
 import { getTereo } from "./tereo.js";
 import { db } from "./db/index.js";
 
@@ -48,10 +48,10 @@ export const recordChange = async (
 ): Promise<ChangeEvent> => {
   const definition = EVENT_TYPES[change.type];
   const parsed = definition.payload.safeParse(change.payload);
+  // The server built the payload, so a mismatch is its bug: a 500, not a 400.
   if (!parsed.success) {
-    throw new ValidationError(
-      `Invalid payload for ${change.type}`,
-      issuesOf(parsed.error)
+    throw new Error(
+      `Built an invalid ${change.type} payload: ${JSON.stringify(issuesOf(parsed.error))}`
     );
   }
   const payload = parsed.data as Prisma.InputJsonValue;
