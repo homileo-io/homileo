@@ -79,8 +79,13 @@ const filtersOf = (q: MessageSearch): Prisma.Sql[] => [
 /**
  * One page of the messages the caller can read that match, best first: by relevance to 2
  * decimals, then newest. Relevance is the full-text rank plus, when the trigram arm applies, the
- * term's word similarity to the body. A sum, not the greater of the two: a body naming the word at
- * all has a similarity near 1, which would hide how often it names it.
+ * term's word similarity to the body or, if closer, to one of its file names. A sum, not the
+ * greater of the two: a body naming the word at all has a similarity near 1, which would hide how
+ * often it names it.
+ *
+ * The candidates come from one branch per index, combined with UNION ALL: an OR of the three in
+ * one WHERE, the attachments' as an EXISTS, makes Postgres scan every message. Access and every
+ * filter apply to the candidates, never inside a branch.
  *
  * `deleted_at`, not `body_text`, keeps deleted messages out: a message with attachments and no
  * text has no `body_text` either, and is still found by a file name.
@@ -91,31 +96,48 @@ export const messages = async (
   q: MessageSearch
 ): Promise<MessageSearchResult> => {
   const term = q.trigramTerm;
+  const tsq = Prisma.sql`websearch_to_tsquery('english', ${q.text})`;
+  const trigramBranches =
+    term === null
+      ? Prisma.empty
+      : Prisma.sql`
+        UNION ALL
+        SELECT m.id, 0::real AS file_similarity
+        FROM "chat"."messages" m
+        WHERE ${term} OPERATOR(chat.<%) m.body_text
+        UNION ALL
+        SELECT a.message_id, chat.word_similarity(${term}, a.filename)
+        FROM "chat"."attachments" a
+        WHERE ${term} OPERATOR(chat.<%) a.filename`;
   const trigramScore =
     term === null
       ? Prisma.sql`0`
-      : Prisma.sql`COALESCE(chat.word_similarity(${term}, m.body_text), 0)`;
-  const trigramMatch =
-    term === null
-      ? Prisma.empty
-      : Prisma.sql`OR ${term} OPERATOR(chat.<%) m.body_text
-          OR EXISTS (SELECT 1 FROM "chat"."attachments" a WHERE a.message_id = m.id AND ${term} OPERATOR(chat.<%) a.filename)`;
+      : Prisma.sql`GREATEST(COALESCE(chat.word_similarity(${term}, m.body_text), 0), c.file_similarity)`;
   const filters = filtersOf(q);
 
   const rows = await prisma.$queryRaw<Array<{ id: string; headline: string }>>`
-    WITH hits AS (
+    WITH candidates AS (
+      SELECT id, max(file_similarity) AS file_similarity
+      FROM (
+        SELECT m.id, 0::real AS file_similarity
+        FROM "chat"."messages" m
+        WHERE m.search_vector @@ ${tsq}${trigramBranches}
+      ) branches
+      GROUP BY id
+    ),
+    hits AS (
       SELECT m.id, m.created_at,
              round((
                CASE WHEN m.search_vector @@ tsq THEN ts_rank_cd(m.search_vector, tsq, 32) ELSE 0 END
                + ${trigramScore}
              )::numeric, 2) AS relevance
-      FROM "chat"."messages" m
+      FROM candidates c
+      JOIN "chat"."messages" m ON m.id = c.id
       JOIN "chat"."sessions" s ON s.id = m.session_id
       LEFT JOIN "chat"."spaces" sp ON sp.id = s.space_id,
-      websearch_to_tsquery('english', ${q.text}) tsq
+      ${tsq} tsq
       WHERE m.deleted_at IS NULL AND m.created_at <= ${q.asOf}::timestamp(3)
         AND ${readableSessionSql(caller, grantedKinds, "s")}
-        AND (m.search_vector @@ tsq ${trigramMatch})
         ${filters.length > 0 ? Prisma.sql`AND ${Prisma.join(filters, " AND ")}` : Prisma.empty}
       ORDER BY relevance DESC, m.created_at DESC, m.id DESC
       OFFSET ${q.offset} LIMIT ${q.limit + 1}
@@ -124,7 +146,7 @@ export const messages = async (
            COALESCE(ts_headline('english', translate(m.body_text, ${MARKERS}, ''), tsq, ${HEADLINE_OPTIONS}), '') AS headline
     FROM hits h
     JOIN "chat"."messages" m ON m.id = h.id,
-    websearch_to_tsquery('english', ${q.text}) tsq
+    ${tsq} tsq
     ORDER BY h.relevance DESC, h.created_at DESC, h.id DESC`;
   const hasMore = rows.length > q.limit;
   const page = rows.slice(0, q.limit);
@@ -183,60 +205,67 @@ export const sessions = async (
   q: SessionSearch
 ): Promise<SessionSearchRow[]> => {
   const term = q.trigramTerm;
-  const arm = (alias: string, tsq: Prisma.Sql) => ({
-    relevance:
-      term === null
-        ? Prisma.sql`round(ts_rank_cd(to_tsvector('english', ${Prisma.raw(alias)}.search_text), ${tsq}, 32)::numeric, 2)`
-        : Prisma.sql`round((CASE WHEN to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq} THEN ts_rank_cd(to_tsvector('english', ${Prisma.raw(alias)}.search_text), ${tsq}, 32) ELSE 0 END + COALESCE(chat.word_similarity(${term}, ${Prisma.raw(alias)}.search_text), 0))::numeric, 2)`,
-    match:
-      term === null
-        ? Prisma.sql`to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq}`
-        : Prisma.sql`(to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq} OR ${term} OPERATOR(chat.<%) ${Prisma.raw(alias)}.search_text)`,
-  });
+  // The WHERE keeps `to_tsvector('english', <alias>.search_text)` as written: the FTS index is on
+  // exactly that expression.
+  const matchOf = (alias: string) => {
+    const text = Prisma.raw(`${alias}.search_text`);
+    return term === null
+      ? Prisma.sql`to_tsvector('english', ${text}) @@ q.tsq`
+      : Prisma.sql`(to_tsvector('english', ${text}) @@ q.tsq OR ${term} OPERATOR(chat.<%) ${text})`;
+  };
+  const trigramScore =
+    term === null
+      ? Prisma.sql`0`
+      : Prisma.sql`COALESCE(chat.word_similarity(${term}, h.search_text), 0)`;
   const metadataOf = (column: string) =>
     Object.entries(q.metadata).map(([key, value]) =>
       metadataFilterSql(Prisma.raw(column), key, value)
     );
   const where = (conditions: Prisma.Sql[]) => Prisma.join(conditions, " AND ");
-  const tsq = Prisma.sql`q.tsq`;
   const asOf = Prisma.sql`${q.asOf}::timestamp(3)`;
 
-  const spaceArm = arm("sp", tsq);
   const spaceArmSql =
     q.spaceId !== undefined
       ? Prisma.empty
       : Prisma.sql`
-        SELECT 'space'::text AS type, sp.id, ${spaceArm.relevance} AS relevance, sp.created_at AS recency
+        SELECT 'space'::text AS type, sp.id, sp.search_text, sp.created_at AS recency
         FROM "chat"."spaces" sp, q
         WHERE ${where([
           Prisma.sql`sp.created_at <= ${asOf}`,
           readableSpaceSql(caller, grantedKinds, "sp"),
-          spaceArm.match,
+          matchOf("sp"),
           ...(q.kind ? [Prisma.sql`sp.kind = ${q.kind}`] : []),
           ...metadataOf("sp.metadata"),
         ])}
         UNION ALL`;
 
-  const sessionArm = arm("s", tsq);
   const sessionArmSql = Prisma.sql`
-        SELECT 'session'::text AS type, s.id, ${sessionArm.relevance} AS relevance, COALESCE(s.last_message_at, s.created_at) AS recency
+        SELECT 'session'::text AS type, s.id, s.search_text, COALESCE(s.last_message_at, s.created_at) AS recency
         FROM "chat"."sessions" s
         LEFT JOIN "chat"."spaces" ssp ON ssp.id = s.space_id, q
         WHERE ${where([
           Prisma.sql`s.created_at <= ${asOf}`,
           readableSessionSql(caller, grantedKinds, "s"),
-          sessionArm.match,
+          matchOf("s"),
           ...(q.spaceId ? [Prisma.sql`s.space_id = ${q.spaceId}::uuid`] : []),
           ...(q.kind ? [Prisma.sql`ssp.kind = ${q.kind}`] : []),
           ...metadataOf("s.metadata"),
         ])}`;
 
+  // MATERIALIZED, so the tsvector is computed once per hit rather than once per use.
   return prisma.$queryRaw<SessionSearchRow[]>`
     WITH q AS (SELECT websearch_to_tsquery('english', ${q.text}) AS tsq),
-    hits AS (${spaceArmSql}${sessionArmSql}
+    hits AS MATERIALIZED (
+      SELECT h.type, h.id, h.search_text, h.recency, to_tsvector('english', h.search_text) AS tv
+      FROM (${spaceArmSql}${sessionArmSql}
+      ) h
     )
-    SELECT type, id FROM hits
-    ORDER BY relevance DESC, recency DESC, id DESC
+    SELECT h.type, h.id FROM hits h, q
+    ORDER BY round((
+               CASE WHEN h.tv @@ q.tsq THEN ts_rank_cd(h.tv, q.tsq, 32) ELSE 0 END
+               + ${trigramScore}
+             )::numeric, 2) DESC,
+             h.recency DESC, h.id DESC
     OFFSET ${q.offset} LIMIT ${q.limit + 1}`;
 };
 

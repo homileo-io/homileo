@@ -162,6 +162,15 @@ describe("GET /v1/search/messages ranking", () => {
 
     expect(await found(r.sender.token, "screw")).toEqual([thrice, once]);
   });
+
+  it("puts an older file named exactly the term above a newer fuzzy body match", async () => {
+    const r = await s.room();
+    const byFile = await s.insert(r.session, r.sender.principalId, null);
+    await s.attach(byFile, "quotation.pdf");
+    const fuzzy = await r.send("a quotaton was sent");
+
+    expect(await found(r.sender.token, "quotation")).toEqual([byFile, fuzzy]);
+  });
 });
 
 describe("GET /v1/search/messages filters", () => {

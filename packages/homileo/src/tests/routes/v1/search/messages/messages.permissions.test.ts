@@ -21,6 +21,9 @@ let sessionIds: Record<string, string>;
 /** Each session's one message, by session id. */
 let messageOf: Map<string, string>;
 let foreignMessage: string;
+/** Each session's message found only by its attachment's file name, by session id. */
+let fileMessageOf: Map<string, string>;
+let foreignFileMessage: string;
 let people: Record<string, { principal: Principal; perms: string[] }>;
 
 const tokenOf = (who: string) =>
@@ -98,14 +101,20 @@ beforeAll(async () => {
     Object.entries(sessions).map(([k, v]) => [k, v.id])
   );
   messageOf = new Map();
+  fileMessageOf = new Map();
   for (const id of Object.values(sessionIds)) {
     messageOf.set(id, await s.insert({ id }, dmA.id, "probe text"));
+    const fileOnly = await s.insert({ id }, dmA.id, null);
+    await s.attach(fileOnly, "zephyrledger.pdf");
+    fileMessageOf.set(id, fileOnly);
   }
 
   // The same text in another organization's public space.
   const elsewhere = await f.space({ visibility: "public" });
   const foreign = await f.session({ space: elsewhere, access: "space" });
   foreignMessage = await s.insert(foreign, dmA.id, "probe text");
+  foreignFileMessage = await s.insert(foreign, dmA.id, null);
+  await s.attach(foreignFileMessage, "zephyrledger.pdf");
 });
 
 afterAll(s.cleanup);
@@ -126,6 +135,24 @@ describe("GET /v1/search/messages permissions", () => {
 
       expect(expected.length).toBeGreaterThan(0);
       expect(sorted(await searchAs(who))).toEqual(expected);
+    }
+  );
+
+  it.each(["outsider", "member", "participant", "holder", "admin", "dm"])(
+    "finds for %s a message by its file name only in the sessions it can read",
+    async (who) => {
+      const readable = await readableSessions(
+        callerOf(who),
+        Object.values(sessionIds)
+      );
+      const expected = sorted(
+        [...readable.keys()].map((id) => fileMessageOf.get(id)!)
+      );
+
+      const found = await searchAs(who, "zephyrledger");
+      expect(expected.length).toBeGreaterThan(0);
+      expect(sorted(found)).toEqual(expected);
+      expect(found).not.toContain(foreignFileMessage);
     }
   );
 
@@ -168,5 +195,7 @@ describe("GET /v1/search/messages permissions", () => {
     const elsewhere = personToken({ org: uuidv7(), perms: [ADMIN] });
     const res = await s.search(elsewhere, { q: "probe" });
     expect(hitIds(res.body)).not.toContain(foreignMessage);
+    const byFile = await s.search(elsewhere, { q: "zephyrledger" });
+    expect(hitIds(byFile.body)).not.toContain(foreignFileMessage);
   });
 });
