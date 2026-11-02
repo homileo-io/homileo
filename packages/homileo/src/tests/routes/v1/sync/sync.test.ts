@@ -1,8 +1,9 @@
 // @module-tag int
 // @module-tag sync
+import { drainSync, sync, syncHead, syncTail } from "../../../support/sync.js";
 import { EventEnvelopeSchema, SyncResponseSchema } from "@homileo-io/sdk";
-import { drainSync, sync, syncHead } from "../../../support/sync.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { MAX_SCANNED_ROWS } from "../../../../utils/db/events.js";
 import { spaceApiFixtures } from "../../../support/spaceApi.js";
 import { sendMessage } from "../../../support/messageApi.js";
 import { prisma } from "../../../../utils/db/prisma.js";
@@ -174,6 +175,68 @@ describe("GET /v1/sync", () => {
 
     expect(status).toBe(200);
     expect(body.hasMore).toBe(false);
+  });
+
+  // The reconnect loop backs off only after a page whose next did not advance.
+  it("returns next equal to since, with hasMore, while a transaction older than until is open", async () => {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let began!: (txId: bigint) => void;
+    const holding = new Promise<bigint>((resolve) => (began = resolve));
+    const older = prisma.$transaction(
+      async (tx) => {
+        const [row] = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT pg_current_xact_id()::text AS id`;
+        began(BigInt(row.id));
+        await released;
+      },
+      { timeout: 30_000 }
+    );
+    try {
+      const held = await holding;
+      // The snapshot's xmax is one past the last completed id, so one must complete after held.
+      await prisma.$queryRaw`SELECT pg_current_xact_id()::text`;
+      const until = await syncTail();
+      // At the open transaction: the horizon cannot pass it, whatever else the cluster runs.
+      const since = encodeSyncCursor({
+        ...decodeSyncCursor(await syncHead(bob.token)),
+        txId: held,
+        id: 0n,
+      });
+
+      const { status, body } = await sync(bob.token, { since, until });
+
+      expect(status).toBe(200);
+      expect(body.events).toEqual([]);
+      expect(body.hasMore).toBe(true);
+      expect(body.next).toBe(since);
+    } finally {
+      release();
+      await older;
+    }
+  });
+
+  it("advances next past since on an empty page cut at the scan cap", async () => {
+    const otherOrg = api.organization();
+    const carol = await api.actor(otherOrg);
+    const since = await syncHead(carol.token);
+    // Rows of carol's organization in a session she is not in: scanned, never matched.
+    const session = await fixtures.session({ org: otherOrg });
+    await prisma.$executeRaw`
+      INSERT INTO "chat"."events" (type, organization_id, session_id, payload)
+      SELECT 'session.updated', ${otherOrg}::uuid, ${session.id}::uuid, '{}'::jsonb
+      FROM generate_series(1, ${MAX_SCANNED_ROWS + 1})`;
+
+    const { status, body } = await sync(carol.token, {
+      since,
+      until: await syncTail(),
+    });
+
+    expect(status).toBe(200);
+    expect(body.events).toEqual([]);
+    expect(body.hasMore).toBe(true);
+    expect(body.next).not.toBe(since);
+    expect(decodeSyncCursor(body.next).id).toBeGreaterThan(0n);
   });
 
   it("answers 400 invalid_request to a malformed cursor", async () => {
