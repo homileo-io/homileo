@@ -293,6 +293,24 @@ describe("startFanout mentions", () => {
       expect(events.map((e) => e.type)).not.toContain("message.edited");
     }
   );
+
+  it("does not send a mention to a participant who cannot read the members-only space, as /sync does", async () => {
+    const space = await fixtures.space({ org, visibility: "members" });
+    const session = await fixtures.session({ space, access: "members" });
+    await fixtures.member(space, owner.principal, "owner");
+    await fixtures.participant(session, owner.principal, "owner");
+    const alice = await api.actor(org);
+    await fixtures.participant(session, alice.principal);
+    const since = await syncHead(alice.token, app.url);
+    const socket = await connect(alice);
+    const silent = noEvent(socket, "message.created", 500);
+
+    await send(session.id, owner, `hi <@${alice.principal.id}>`);
+
+    await silent;
+    const { events } = await drainSync(alice.token, since, {}, app.url);
+    expect(events.map((e) => e.type)).not.toContain("message.created");
+  });
 });
 
 describe("startFanout join requests", () => {
