@@ -1,5 +1,5 @@
+import { assertNoTransaction, getTereo } from "../tereo.js";
 import type { AuthServiceUser } from "@tereo-io/sdk";
-import { getTereo } from "../tereo.js";
 import { logger } from "../logger.js";
 import { prisma } from "./prisma.js";
 import { v7 as uuidv7 } from "uuid";
@@ -81,6 +81,9 @@ export const isProfileStale = (principal: Principal, now = Date.now()) =>
  */
 export const refreshProfile = async (principal: Principal): Promise<void> => {
   if (!principal.tereoUserId) return;
+  // Outside the try, which would swallow it, and for a test's replacement
+  // lookup, which bypasses the guarded client.
+  assertNoTransaction("refreshProfile");
   let user: AuthServiceUser | null = null;
   try {
     user = await lookupProfile(principal.tereoUserId);
@@ -222,6 +225,8 @@ export const resolveOrCreateUsers = async (
 
   const missing: string[] = [];
   if (unseen.length > 0) {
+    // Here too, as a test's replacement lookup bypasses the guarded client.
+    assertNoTransaction("lookupUsers");
     const found = await lookupUsers(unseen);
     const toCreate: NewUserPrincipal[] = [];
     for (const id of unseen) {

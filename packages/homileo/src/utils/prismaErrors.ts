@@ -140,23 +140,29 @@ interface AdapterCause {
 }
 
 /**
- * Every Postgres SQLSTATE or Prisma code found on `err`, its cause chain and
- * the driver adapter error Prisma wraps, which nest differently by version.
+ * `err`, its cause chain and the driver adapter error Prisma wraps, which
+ * nest differently by version.
  */
-export const pgErrorCodes = (err: unknown): string[] => {
-  const codes: string[] = [];
+export const errorChain = (err: unknown): Record<string, unknown>[] => {
+  const chain: Record<string, unknown>[] = [];
   const seen = new Set<unknown>();
   const walk = (e: unknown) => {
     if (!e || typeof e !== "object" || seen.has(e)) return;
     seen.add(e);
     const o = e as Record<string, unknown>;
-    for (const key of ["code", "originalCode"]) {
-      if (typeof o[key] === "string") codes.push(o[key] as string);
-    }
+    chain.push(o);
     for (const key of ["cause", "meta", "driverAdapterError"]) {
       walk(o[key]);
     }
   };
   walk(err);
-  return codes;
+  return chain;
 };
+
+/** Every Postgres SQLSTATE or Prisma code found on `errorChain(err)`. */
+export const pgErrorCodes = (err: unknown): string[] =>
+  errorChain(err).flatMap((o) =>
+    ["code", "originalCode"]
+      .map((key) => o[key])
+      .filter((v): v is string => typeof v === "string")
+  );

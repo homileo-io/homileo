@@ -1,5 +1,6 @@
 import { recordChange, type ChangeEvent, type ChangeInput } from "./changes.js";
 import { setInTransaction, warmKinds } from "./kinds.js";
+import { runInTransactionScope } from "./tereo.js";
 import { publishCommitted } from "./changeBus.js";
 import type { Prisma } from "./db/prisma.js";
 import { prisma } from "./db/prisma.js";
@@ -29,11 +30,13 @@ export const withChanges = async <T>(
     );
     setInTransaction(1);
     try {
-      return await fn(tx, async (change) => {
-        const event = await recordChange(tx, change);
-        events.push(event);
-        return event;
-      });
+      return await runInTransactionScope(() =>
+        fn(tx, async (change) => {
+          const event = await recordChange(tx, change);
+          events.push(event);
+          return event;
+        })
+      );
     } finally {
       setInTransaction(-1);
     }
