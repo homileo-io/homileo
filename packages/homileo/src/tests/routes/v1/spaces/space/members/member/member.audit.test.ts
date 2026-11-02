@@ -142,4 +142,32 @@ describe("member events", () => {
     expect(await eventsOf(org)).toHaveLength(0);
     expect(await outbox(org)).toHaveLength(0);
   });
+
+  it("approves the target's pending join request when adding them, and records space.join_decided", async () => {
+    const { org, owner, space, target } = await setup();
+    const pending = await prisma.spaceJoinRequest.create({
+      data: { spaceId: space.id, userId: target.principal.id },
+    });
+
+    const res = await fetchJson(
+      "PUT",
+      `${url}/v1/spaces/${space.id}/members/${target.principal.id}`,
+      owner.token,
+      { role: "member" }
+    );
+
+    expect(res.status).toBe(201);
+    const events = await eventsOf(org);
+    expect(events.map((e) => e.type)).toEqual([
+      "space.member_added",
+      "space.join_decided",
+    ]);
+    expect(events[1].payload).toMatchObject({
+      request: {
+        id: pending.id,
+        status: "approved",
+        decidedBy: owner.principal.id,
+      },
+    });
+  });
 });

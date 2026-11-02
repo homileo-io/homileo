@@ -128,12 +128,17 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `GET /spaces/:spaceId` | `canReadSpace` | | |
 | `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
 | `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
-| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added`, or `space.join_requested` for `request` |
+| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added` (and `space.join_decided` for the caller's pending request), or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
-| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` or `space.member_role_changed` |
+| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` (and `space.join_decided` for a pending request) or `space.member_role_changed` |
 | `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
-| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409` already decided, `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409 conflict` (already decided), `409 already_member` (deny, for a member), `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+
+A principal who becomes a member any other way (joining once the space is `open`, being added, or
+joining a session of an `open` space) has their pending join request approved in the same
+transaction, as the actor of that change, so a request never stays pending for a member. Approving
+a member's request only closes it; denying it is `409 already_member`.
 
 `description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
 kind; `externalRef` is unique per kind within the organization.

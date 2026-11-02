@@ -105,4 +105,22 @@ describe("POST /v1/spaces/:spaceId/join-requests/:principalId/deny", () => {
       (await deny(moderator.token, space.id, member.principal.id)).status
     ).toBe(404);
   });
+
+  it("answers 409 already_member to a request whose principal is a member, and changes nothing", async () => {
+    const { org, moderator, space, applicant } = await setup();
+    await fixtures.member(space, applicant.principal, "member");
+
+    const res = await deny(moderator.token, space.id, applicant.principal.id);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("already_member");
+    expect(
+      await prisma.spaceJoinRequest.count({
+        where: { spaceId: space.id, status: "pending" },
+      })
+    ).toBe(1);
+    expect(await prisma.event.count({ where: { organizationId: org } })).toBe(
+      0
+    );
+  });
 });

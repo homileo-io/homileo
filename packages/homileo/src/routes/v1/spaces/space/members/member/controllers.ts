@@ -1,3 +1,4 @@
+import { approvePendingJoinRequest } from "../../../../../../utils/joinRequests.js";
 import type { SpaceFacts, SpaceRole } from "../../../../../../policy/index.js";
 import { callerOf, type Caller } from "../../../../../../middleware/auth.js";
 import { withChanges } from "../../../../../../utils/transaction.js";
@@ -93,6 +94,12 @@ export const putMember = async (req: Request, res: Response) => {
         payload: { spaceId, member: memberView(row) },
         audit: { action: "CREATE", userId: caller.tereoUserId },
       });
+      await approvePendingJoinRequest(
+        tx,
+        record,
+        { ...base, auditUserId: caller.tereoUserId },
+        principalId
+      );
       return { status: 201, member: row };
     }
     if (current.role === "owner") {

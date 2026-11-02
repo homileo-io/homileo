@@ -6,7 +6,8 @@
       Makes the principal a member with the given role. A new member is `201`; a role change is
       `200`, and so is a request for the role they already have, which records nothing. An
       addition records `space.member_added`, a change `space.member_role_changed` (with the
-      previous role); each emits its webhook and writes an audit entry.
+      previous role); each emits its webhook and writes an audit entry. Adding a principal with a
+      pending join request approves it as the caller (recording `space.join_decided`).
 
       **Required permissions:** none; the caller must be able to moderate the space to add a
       `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
