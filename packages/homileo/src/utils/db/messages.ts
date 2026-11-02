@@ -216,17 +216,16 @@ export const sessionIdOf = async (
     })
   )?.sessionId ?? null;
 
-/** The principals the message's stored `<@id>` mentions name. */
-export const mentionedUserIds = async (
+/** The distinct bodies of the message's revisions that hold a `<@` mention. */
+export const mentioningRevisionBodies = async (
   tx: Tx,
   messageId: string
 ): Promise<string[]> =>
   (
-    await tx.messageMention.findMany({
-      where: { messageId, kind: "user" },
-      select: { userId: true },
-    })
-  ).flatMap((m) => (m.userId === null ? [] : [m.userId]));
+    await tx.$queryRaw<Array<{ body: string }>>`
+      SELECT DISTINCT body FROM "chat"."message_revisions"
+      WHERE message_id = ${messageId}::uuid AND body LIKE '%<@%'`
+  ).map((r) => r.body);
 
 /** The principals each message's stored `<@id>` mentions name, by message id, in one query. */
 export const mentionedUserIdsOf = async (

@@ -95,7 +95,8 @@ the other answers `409 duplicate_client_message` without using a `seq`. `seq` co
 An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
 (`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
-on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
+on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
+a mention and adding it back sends nothing); a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
 (views show the last two as empty), and lowers a reply's root `reply_count`.

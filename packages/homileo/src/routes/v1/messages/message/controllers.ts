@@ -2,7 +2,6 @@ import { validateBody, validateParams } from "../../../../utils/validateReq.js";
 import { lockedMessage, messageFactsOf, refuseIfArchived } from "./utils.js";
 import { EditMessageBodySchema, MessageParamsSchema } from "../schemas.js";
 import { callerOf, principalOf } from "../../../../middleware/auth.js";
-import { resolveMentions } from "../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../utils/transaction.js";
@@ -11,6 +10,10 @@ import type { Prisma } from "../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
+import {
+  everMentionedIds,
+  resolveMentions,
+} from "../../../../utils/resolveMentions.js";
 import {
   canDeleteMessage,
   canEditMessage,
@@ -82,6 +85,10 @@ export const editMessage = async (req: Request, res: Response) => {
       data.editedAt = now;
       data.body = newBody;
       data.payload = (newPayload ?? undefined) as Prisma.InputJsonValue;
+      // Read before this edit's revision is stored, or its own mentions would count as earlier ones.
+      const before = bodyChanged
+        ? await everMentionedIds(tx, row.id)
+        : new Set<string>();
       await tx.messageRevision.create({
         data: {
           messageId: row.id,
@@ -97,7 +104,6 @@ export const editMessage = async (req: Request, res: Response) => {
         const mentions = await resolveMentions(tx, context, body.body);
         data.bodyText = mentions.bodyText;
 
-        const before = new Set(await db.messages.mentionedUserIds(tx, row.id));
         await db.messages.deleteMentions(tx, row.id);
         await db.messages.insertMentions(
           tx,
