@@ -1,6 +1,6 @@
 {
   "name": "homileo",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -30,7 +30,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
-    "@homileo-io/sdk": "*",
+    "@homileo-io/sdk": "0.1.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@socket.io/redis-adapter": "^8.3.0",

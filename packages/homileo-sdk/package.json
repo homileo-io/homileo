@@ -1,6 +1,6 @@
 {
   "name": "@homileo-io/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "The contract of Homileo: its event registry and provisioning document types",
   "main": "./dist/index.js",
