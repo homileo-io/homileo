@@ -13,7 +13,10 @@ them where a route is concerned.
   `homileo.chat.admin` include) and answers `403 forbidden` ("Requires the homileo.spaces.read
   permission") without it, before validation or any lookup. That is all that reads, leaving (a
   `DELETE` of the caller's own member or participant row) and the calls that touch only the
-  caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`) need.
+  caller's own state (`PUT …/read`, `PUT …/notify`, `PUT /threads/:rootId/follow`) need. Leaving
+  and `PUT /sessions/:id/notify` are open even to a token without it, so a principal whose read was
+  revoked can still mute and leave; it is still emailed its mentions until it does, or until its
+  memberships are removed (see [access.md](access.md#read-permission)).
 - Every route that changes shared chat state also needs `homileo.spaces.write` or
   `homileo.chat.admin`, and answers `403 forbidden` ("Requires the homileo.spaces.write
   permission") without it, before validation or any lookup: creating, changing and archiving
@@ -169,7 +172,7 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 |---|---|---|---|
 | `GET /me` | none | | |
 | `GET /me/unread` | readable sessions only: `sessions` for those the caller participates in, `threads` for followed threads in any session the caller can read now, participant or not | | |
-| `GET /me/mentions` | readable sessions only; `<!here>`/`<!session>` only where the caller participates | | |
+| `GET /me/mentions` | readable sessions only; a `<@id>` only while the caller is still a mention reader of the session (`currentMentionReaders`, as `/sync`); `<!here>`/`<!session>` only where the caller participates | | |
 | `GET /principals/:principalId` | none | | |
 | `POST /principals/resolve` | none; 1 to 100 unique tereo user ids | | |
 
@@ -263,8 +266,9 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 - **9. Read position on send.** Sending a top-level message moves the sender's `last_read_seq` to it;
   a reply moves the sender's thread `last_read_seq`. Your own messages are never unread. This
   records no `read.updated`.
-- **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session (see
-  [access.md](access.md)) and emailed through `core.outbox.notify` unless their `notify` is `none`
+- **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session
+  through their membership or participation (see [access.md](access.md)), so a grant moderator who
+  is not a space member is never mentioned; this is deliberate. They are emailed through `core.outbox.notify` unless their `notify` is `none`
   or they are the sender or a bot. A send or edit emails at most 25 readers, the first it mentions,
   and a sender's mention emails a reader at most once per `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis
   key per sender and reader; without Redis the cooldown is skipped, and a rolled-back send still

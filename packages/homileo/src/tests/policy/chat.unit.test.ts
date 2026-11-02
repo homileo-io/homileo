@@ -3,6 +3,7 @@
 import { caller } from "../support/pure/policyFacts.js";
 import { describe, expect, it } from "vitest";
 import {
+  canActOnOwnWithToken,
   canReadChat,
   canRemoveWithToken,
   canWriteChat,
@@ -60,5 +61,19 @@ describe("canRemoveWithToken", () => {
     ["no permissions, removing itself", {}, "p-caller", true],
   ])("%s -> %s", (_name, overrides, target, expected) => {
     expect(canRemoveWithToken(caller(overrides), target)).toBe(expected);
+  });
+});
+
+describe("canActOnOwnWithToken", () => {
+  const readOnly = { permissions: ["homileo.spaces.read"] };
+  const offLadder = { permissions: ["homileo.messages.read_private"] };
+
+  it.each([
+    ["no permissions, on itself", {}, "p-caller", true],
+    ["no permissions, on someone else", {}, "p-other", false],
+    ["off the ladder, on someone else", offLadder, "p-other", false],
+    ["read-only, on someone else", readOnly, "p-other", true],
+  ])("%s -> %s", (_name, overrides, target, expected) => {
+    expect(canActOnOwnWithToken(caller(overrides), target)).toBe(expected);
   });
 });

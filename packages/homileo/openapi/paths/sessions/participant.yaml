@@ -61,7 +61,7 @@
       joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
       removed principal can no longer read the session. Removing someone else is audited.
 
-      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; `homileo.spaces.read` to leave.
+      **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else (and `homileo.spaces.read`, `403 forbidden` without, as every route); leaving needs neither, so a principal whose read was revoked can still leave.
     operationId: deleteSessionParticipant
     parameters:
       - name: sessionId

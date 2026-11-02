@@ -25,33 +25,42 @@ export interface InsertEventInput {
 export type EventRow = ChangeEvent & { txId: bigint };
 
 /**
- * Appends `inputs` to the log in one statement inside the caller's
- * transaction, returning each row's id and time in the order of `inputs`.
+ * Appends `inputs` to the log inside the caller's transaction, returning each row's id and time
+ * in the order of `inputs`. Ids ascend in input order, which is the log's order within the
+ * transaction.
  */
 export const insertMany = async (
   tx: Prisma.TransactionClient,
   inputs: InsertEventInput[]
 ): Promise<Array<{ id: bigint; createdAt: Date }>> => {
   if (inputs.length === 0) return [];
+  // Drawn first and handed out here, so each row's id is chosen rather than inferred from
+  // the order rows come back in.
+  const drawn = await tx.$queryRaw<Array<{ id: bigint }>>`
+    SELECT nextval(pg_get_serial_sequence('"chat"."events"', 'id')) AS id
+    FROM generate_series(1, ${inputs.length}::int)`;
+  const ids = drawn
+    .map((row) => row.id)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const column = <K extends keyof InsertEventInput>(key: K) =>
     inputs.map((input) => input[key]);
   const rows = await tx.$queryRaw<Array<{ id: bigint; created_at: Date }>>`
     INSERT INTO "chat"."events"
-      (type, organization_id, space_id, session_id, actor_id, payload)
-    SELECT t.type, t.organization_id::uuid, t.space_id::uuid,
+      (id, type, organization_id, space_id, session_id, actor_id, payload)
+    SELECT t.id, t.type, t.organization_id::uuid, t.space_id::uuid,
            t.session_id::uuid, t.actor_id::uuid, t.payload::jsonb
-    FROM unnest(${column("type")}::text[], ${column("organizationId")}::text[],
-                ${column("spaceId")}::text[], ${column("sessionId")}::text[],
-                ${column("actorId")}::text[],
+    FROM unnest(${ids.map(String)}::bigint[], ${column("type")}::text[],
+                ${column("organizationId")}::text[], ${column("spaceId")}::text[],
+                ${column("sessionId")}::text[], ${column("actorId")}::text[],
                 ${inputs.map((input) => JSON.stringify(input.payload))}::text[])
-      WITH ORDINALITY AS t(type, organization_id, space_id, session_id, actor_id, payload, n)
-    ORDER BY t.n
+      AS t(id, type, organization_id, space_id, session_id, actor_id, payload)
     RETURNING id, created_at`;
-  // The identity is drawn as rows are inserted, in `n` order, so id order is
-  // input order; RETURNING's own order is not promised.
-  return rows
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .map((row) => ({ id: row.id, createdAt: row.created_at }));
+  const createdAt = new Map(rows.map((row) => [row.id, row.created_at]));
+  return ids.map((id) => {
+    const at = createdAt.get(id);
+    if (!at) throw new Error(`Event ${id} was not inserted`);
+    return { id, createdAt: at };
+  });
 };
 
 export const insert = async (

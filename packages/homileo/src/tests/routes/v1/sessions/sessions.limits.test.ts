@@ -3,6 +3,7 @@
 import { purgeOrganizations, signIn } from "../../../support/signedIn.js";
 import { fetchJson, type JsonResponse } from "../../../support/http.js";
 import { chatFixtures } from "../../../support/chatFixtures.js";
+import { byId, walkPages } from "../../../support/pages.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "../../../../utils/db/prisma.js";
 import env from "../../../../env.js";
@@ -58,6 +59,58 @@ describe("GET /v1/sessions pagination", () => {
     expect(seen).toEqual(expected);
     expect(pages).toBe(3);
   });
+
+  it.each([1, 2, 3, 4, 5])(
+    "walks a space's sessions once, in order, across ties and from dated to undated, %i a page",
+    async (limit) => {
+      const me = await signIn(org);
+      const space = await fixtures.space({ org, visibility: "public" });
+      const at = (t: number) => new Date(Date.UTC(2026, 0, 1) + t * 1000);
+      // [last_message_at, created_at]: ties in each key, and undated sessions sharing created_at.
+      const shapes: [number | null, number][] = [
+        [-1, -9],
+        [-2, -8],
+        [-2, -8],
+        [-2, -7],
+        [-3, -9],
+        [null, -5],
+        [null, -5],
+        [null, -6],
+      ];
+      for (const [last, created] of shapes) {
+        const s = await fixtures.session({ org, space, access: "space" });
+        await prisma.session.update({
+          where: { id: s.id },
+          data: {
+            lastMessageAt: last === null ? null : at(last),
+            createdAt: at(created),
+          },
+        });
+      }
+      const rows = await prisma.session.findMany({
+        where: { spaceId: space.id },
+      });
+      const time = (d: Date | null) => (d ? d.getTime() : -Infinity);
+      const expected = rows
+        .sort(
+          (a, b) =>
+            time(b.lastMessageAt) - time(a.lastMessageAt) ||
+            b.createdAt.getTime() - a.createdAt.getTime() ||
+            byId(b.id, a.id)
+        )
+        .map((s) => s.id);
+
+      const { ids, pages } = await walkPages(
+        me.token,
+        (cursor) =>
+          `${URL}?spaceId=${space.id}&limit=${limit}${cursor ? `&cursor=${cursor}` : ""}`,
+        (s) => String(s.id)
+      );
+
+      expect(ids).toEqual(expected);
+      expect(pages).toBe(Math.ceil(expected.length / limit));
+    }
+  );
 
   it("returns nextCursor null when the page is the last", async () => {
     const me = await signIn(uuidv7());

@@ -24,8 +24,7 @@
           application/json:
             schema:
               $ref: '../../components/sessions/schemas.yaml#/SessionResponse'
-      '204':
-        description: Archived by an admin or space moderator who cannot read the session
+      '204': { $ref: '../../components/responses.yaml#/NoContentResponse' }
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }

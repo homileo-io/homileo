@@ -1,4 +1,4 @@
-import { InvalidAuditEntryError, RequestError } from "@tereo-io/sdk";
+import { InvalidAuditEntryError, HttpError } from "@tereo-io/sdk";
 import { Response, Request, NextFunction } from "express";
 import { logger } from "./logger.js";
 import { ZodError } from "zod";
@@ -226,20 +226,13 @@ const LIBRARY_ERROR_STATUS: Record<string, number> = {
 };
 
 /**
- * A library error meant for the client. A tereo `RequestError` never is: it is
- * a failed call to tereo, and its code and message are the SDK's own.
+ * The SDK auth middleware's 401, 403 or 404 (`HttpError`), meant for the client. A tereo
+ * `RequestError` never is: it is a failed call to tereo, and its code and message are the SDK's.
  */
-const isClientFacingLibraryError = (
-  err: unknown
-): err is Error & { statusCode: number; code: string } => {
-  if (!(err instanceof Error) || err instanceof RequestError) return false;
-  const { statusCode, code } = err as { statusCode?: unknown; code?: unknown };
-  return (
-    typeof code === "string" &&
-    Object.hasOwn(LIBRARY_ERROR_STATUS, code) &&
-    LIBRARY_ERROR_STATUS[code] === statusCode
-  );
-};
+const isClientFacingLibraryError = (err: unknown): err is HttpError =>
+  err instanceof HttpError &&
+  Object.hasOwn(LIBRARY_ERROR_STATUS, err.code) &&
+  LIBRARY_ERROR_STATUS[err.code] === err.statusCode;
 
 /**
  * A body-parser (`express.json` / `express.urlencoded`) rejection: an

@@ -209,19 +209,25 @@ export interface ListSessionsInput {
   take: number;
 }
 
+/**
+ * The rest of a non-null `last_message_at` run after `a`, or the rest of the null run. Each is
+ * one range of the list index (`last_message_at <= a`, or `IS NULL` and `created_at <= a`), so a
+ * deep page seeks; the OR alone is only a filter.
+ */
 const afterCondition = (a: SessionPageStart): Prisma.SessionWhereInput => {
-  const tie: Prisma.SessionWhereInput[] = [
-    { createdAt: { lt: a.createdAt } },
-    { createdAt: a.createdAt, id: { lt: a.id } },
-  ];
-  if (a.lastMessageAt === null) {
-    return { lastMessageAt: null, OR: tie };
-  }
+  const tie: Prisma.SessionWhereInput = {
+    createdAt: { lte: a.createdAt },
+    OR: [
+      { createdAt: { lt: a.createdAt } },
+      { createdAt: a.createdAt, id: { lt: a.id } },
+    ],
+  };
+  if (a.lastMessageAt === null) return { lastMessageAt: null, ...tie };
   return {
+    lastMessageAt: { lte: a.lastMessageAt },
     OR: [
       { lastMessageAt: { lt: a.lastMessageAt } },
-      { lastMessageAt: null },
-      { lastMessageAt: a.lastMessageAt, OR: tie },
+      { lastMessageAt: a.lastMessageAt, AND: [tie] },
     ],
   };
 };
@@ -237,28 +243,43 @@ const scopeWhere = async (
   return readableSessionWhere(caller, await grantedKindsOf(caller));
 };
 
+const ORDER: Prisma.SessionOrderByWithRelationInput[] = [
+  { lastMessageAt: { sort: "desc", nulls: "last" } },
+  { createdAt: "desc" },
+  { id: "desc" },
+];
+
 export const list = async (
   client: Client,
   input: ListSessionsInput
 ): Promise<Session[]> => {
   const scope = await scopeWhere(input);
-  return client.session.findMany({
-    where: {
-      organizationId: input.caller.organizationId,
-      ...(input.type && { type: input.type }),
-      ...(input.externalRef !== undefined && {
-        externalRef: input.externalRef,
-      }),
-      ...(!input.includeArchived && { archivedAt: null }),
-      AND: [scope, ...(input.after ? [afterCondition(input.after)] : [])],
-    },
-    orderBy: [
-      { lastMessageAt: { sort: "desc", nulls: "last" } },
-      { createdAt: "desc" },
-      { id: "desc" },
-    ],
-    take: input.take,
-  });
+  const base: Prisma.SessionWhereInput = {
+    organizationId: input.caller.organizationId,
+    ...(input.type && { type: input.type }),
+    ...(input.externalRef !== undefined && {
+      externalRef: input.externalRef,
+    }),
+    ...(!input.includeArchived && { archivedAt: null }),
+  };
+  const page = (after: Prisma.SessionWhereInput[], take: number) =>
+    client.session.findMany({
+      where: { ...base, AND: [scope, ...after] },
+      orderBy: ORDER,
+      take,
+    });
+  const after = input.after;
+  if (!after || after.lastMessageAt === null) {
+    return page(after ? [afterCondition(after)] : [], input.take);
+  }
+  // Past a dated row, the dated rest and then the undated rows: one index range each.
+  const dated = await page([afterCondition(after)], input.take);
+  if (dated.length >= input.take) return dated;
+  const undated = await page(
+    [{ lastMessageAt: null }],
+    input.take - dated.length
+  );
+  return [...dated, ...undated];
 };
 
 /** The principal's current participant rows among `sessionIds`, by session id. */

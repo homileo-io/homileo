@@ -83,3 +83,40 @@ describe("readFrom's scan bound", () => {
     expect(seen).toEqual(ids);
   });
 });
+
+describe("db.events.insertMany", () => {
+  const org = uuidv7();
+
+  afterAll(async () => {
+    await prisma.event.deleteMany({ where: { organizationId: org } });
+  });
+
+  it("gives each input its own row, with ids ascending in input order", async () => {
+    const actorId = uuidv7();
+    const inputs = Array.from({ length: 40 }, (_, n) => ({
+      type: "message.created",
+      organizationId: org,
+      spaceId: null,
+      sessionId: null,
+      actorId,
+      payload: { n },
+    }));
+
+    const returned = await prisma.$transaction((tx) =>
+      db.events.insertMany(tx, inputs)
+    );
+
+    const ids = returned.map((r) => r.id);
+    expect(ids).toEqual([...ids].sort((a, b) => (a < b ? -1 : 1)));
+    const rows = await prisma.event.findMany({
+      where: { id: { in: ids } },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(returned.map((r) => byId.get(r.id)?.payload)).toEqual(
+      inputs.map((i) => i.payload)
+    );
+    expect(returned.map((r) => r.createdAt)).toEqual(
+      returned.map((r) => byId.get(r.id)?.createdAt)
+    );
+  });
+});

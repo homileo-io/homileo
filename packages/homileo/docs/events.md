@@ -101,7 +101,7 @@ It returns the event, with its `bigint` id, so the caller can publish it to sock
 fixed number of statements: every payload is parsed first, then one `INSERT … SELECT FROM unnest`
 writes the events (ids in the order given), the session access behind the private webhook names is
 read once, and the SDK's `emit` and `audit` rows go into the outbox in one more insert
-(`utils/db/outbox.ts` collects the rows the SDK builds). A change that records one event per
+(`utils/outboxCollector.ts` collects the rows the SDK builds; `utils/outboxCollector.unit.test.ts` runs the real SDK writers against it). A change that records one event per
 session, such as removing a space member, uses it, so thousands of sessions fit in
 `DB_TRANSACTION_TIMEOUT_MS`. `recordChange` is the one-change case.
 Everything commits or rolls back with the caller's transaction. Ids come from one sequence, so

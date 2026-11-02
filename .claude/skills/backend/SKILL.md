@@ -27,7 +27,7 @@ packages/homileo/
     ├── preload.ts                       # First import of every entry point (loads .env)
     ├── env.ts                           # The one Zod env schema — `import env from "./env.js"`
     ├── definitions/                     # tereoDeclaration.ts (what tereo is told), builtins.ts (the `default` kind)
-    ├── middleware/auth.ts               # authenticate, callerOf
+    ├── middleware/auth.ts               # authenticate, callerOf, the token gates
     ├── policy/                          # The only place access is decided: spaces, sessions, messages
     ├── routes/                          # Mirrors the URL (see below)
     │   └── v1/{area}/…/{resource}/
@@ -106,11 +106,14 @@ adding or moving a route.
   for "spaces / sessions the caller can read", the policy's rules in SQL form. A change to a read
   rule changes both the policy function and the condition, and the tests run the same cases
   through each.
-- **Token gates are route middleware** from `middleware/auth.ts`, after `authenticate`:
-  `requireChatWrite` (403 unless the token may write chat, `canWriteChat`: `homileo.spaces.write`
-  or `homileo.chat.admin`) on every mutating route, `requireChatWriteUnlessSelf` on removals a
-  read-only caller may do to itself, and the read gate (`homileo.spaces.read`) on every `/v1`
-  read. A new route takes the gate its siblings take; `routes.permissions.test.ts` checks it.
+- **Token gates** are middleware from `middleware/auth.ts`, deciding through `policy/chat.ts`. The
+  read gate, `requireChatReadUnlessSelf` (403 unless `canReadChat`: `homileo.spaces.read` or
+  `homileo.chat.admin`), is mounted **once on the `/v1` router**, after `authenticate`, so every
+  route is read-gated without naming it; its only exceptions are its own table of leave and mute
+  routes (`canActOnOwnWithToken`), so a route never opts out by itself. Per route:
+  `requireChatWrite` (403 unless `canWriteChat`: `homileo.spaces.write` or `homileo.chat.admin`)
+  on every mutating route, `requireChatWriteUnlessSelf` on removals a read-only caller may do to
+  itself. A new route takes the gate its siblings take; `routes.permissions.test.ts` checks it.
 - Permissions are tereo's dotted, hierarchical form (`utils/permissions.ts`, `hasPermission`):
   `x.admin` includes `x.write` includes `x.read`; the bare `admin` covers everything.
 

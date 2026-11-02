@@ -16,9 +16,10 @@ import {
   UnauthorizedError,
 } from "../utils/errors.js";
 import {
-  canReadChat,
+  canActOnOwnWithToken,
   canRemoveWithToken,
   canWriteChat,
+  canReadChat,
 } from "../policy/chat.js";
 
 export interface Caller {
@@ -133,10 +134,62 @@ export const principalOf = (req: Request): Principal => {
   return req.principal;
 };
 
-/** Refuses (403) a caller whose token may not use chat (`canReadChat`); needs `authenticate` before it. */
-export const requireChatRead: RequestHandler = (req, _res, next) => {
+const GUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * The `/v1` routes that act only on one principal's own membership or participation, and where
+ * that principal is: a path segment, or the caller itself. Case-insensitive with an optional
+ * trailing slash, as Express routes; any other spelling of the path stays read-gated.
+ */
+const OWN_ONLY_ROUTES: readonly {
+  method: string;
+  path: RegExp;
+  target: "caller" | number;
+}[] = [
+  {
+    method: "DELETE",
+    path: new RegExp(`^/spaces/${GUID}/members/(${GUID})/?$`, "i"),
+    target: 1,
+  },
+  {
+    method: "DELETE",
+    path: new RegExp(`^/sessions/${GUID}/participants/(${GUID})/?$`, "i"),
+    target: 1,
+  },
+  {
+    method: "PUT",
+    path: new RegExp(`^/sessions/${GUID}/notify/?$`, "i"),
+    target: "caller",
+  },
+];
+
+/** The principal an own-only route acts on, or null when the request is not one. */
+const ownOnlyTarget = (req: Request, caller: Caller): string | null => {
+  for (const route of OWN_ONLY_ROUTES) {
+    if (req.method !== route.method) continue;
+    const match = route.path.exec(req.path);
+    if (!match) continue;
+    return route.target === "caller"
+      ? caller.principalId
+      : match[route.target]!.toLowerCase();
+  }
+  return null;
+};
+
+/**
+ * Refuses (403) a caller whose token may not use chat (`canReadChat`), except on a route that
+ * leaves or mutes the caller's own membership (`canActOnOwnWithToken`). Mounted once on `/v1`,
+ * where `req.path` is relative to it; needs `authenticate` before it.
+ */
+export const requireChatReadUnlessSelf: RequestHandler = (req, _res, next) => {
   try {
-    if (!canReadChat(callerOf(req))) {
+    const caller = callerOf(req);
+    const target = ownOnlyTarget(req, caller);
+    const allowed =
+      target === null
+        ? canReadChat(caller)
+        : canActOnOwnWithToken(caller, target);
+    if (!allowed) {
       throw new ForbiddenError(
         `Requires the ${SPACES_READ_PERMISSION} permission`
       );

@@ -8,8 +8,11 @@ EventEnvelope:
     From `GET /v1/sync`, an event whose payload holds a message view (`message.created`,
     `message.edited`, `message.deleted`) carries the message's current view in place of the one
     stored at commit, built as `GET /v1/messages/{messageId}` builds it, so every event of one
-    message agrees with the others; a socket event carries the view as of its commit. Every other
-    payload is as it was at commit. See docs/realtime.md, *GET /v1/sync*.
+    message agrees with the others; a socket event carries the view as of its commit. The view's
+    `reactions` is the exception: it keeps the summary stored at commit, since the
+    `reaction.added` and `reaction.removed` events after it are deltas from that summary, so a
+    client applying the events in order ends at the count REST returns. Every other payload is as
+    it was at commit. See docs/realtime.md, *GET /v1/sync*.
   required: [id, type, createdAt, organizationId, spaceId, sessionId, actorId, payload]
   additionalProperties: false
   properties:

@@ -26,6 +26,11 @@ info:
     `403 forbidden` ("Requires the homileo.spaces.read permission"), before the body is validated
     or any resource is looked up. That covers the reads, leaving a space or session, and the
     calls that touch only the caller's own state (read markers, notify settings, thread follows).
+    Leaving (`DELETE` of the caller's own member or participant row) and
+    `PUT /v1/sessions/{sessionId}/notify` are the exceptions: a token without it may still call
+    them, so a principal whose read was revoked can mute and leave. Homileo cannot see a
+    mentioned principal's permissions, so it still emails such a principal its mentions until it
+    mutes or leaves, or its memberships are removed.
 
     Every route that changes shared chat state also needs `homileo.spaces.write` or
     `homileo.chat.admin`: creating, changing and archiving spaces and sessions, joining,
@@ -165,7 +170,9 @@ paths:
         Messages and replies that mention the caller, plus `here` and `session` mentions in sessions
         the caller currently participates in, newest first. Deleted messages, the caller's own
         messages, other organizations' messages and sessions the caller can no longer read are left
-        out. A message mentioning the caller more than once appears once. The cursor is the id of the
+        out, and so is a stored user mention whose principal is no longer a mention reader of the
+        session (for example removed from the space since), as `GET /v1/sync` judges it. A message
+        mentioning the caller more than once appears once. The cursor is the id of the
         last message returned. A page can hold fewer than `limit` items when some are dropped.
 
         **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
@@ -501,7 +508,7 @@ paths:
         this is judged from membership and visibility alone; their kind grants are not known.
         Records `space.member_removed`, emits its webhook and writes an audit entry.
 
-        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; `homileo.spaces.read` to leave. Anyone may leave, even an archived space. A moderator
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else (and `homileo.spaces.read`, `403 forbidden` without, as every route); leaving needs neither, so a principal whose read was revoked can still leave. Anyone may leave, even an archived space. A moderator
         removes `member`s; removing a moderator or owner needs the `owner` or a
         `homileo.chat.admin`. A caller who can read the space but not remove the member gets 403;
         one who cannot read it, 404.
@@ -1054,7 +1061,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
         '204':
-          description: Archived by an admin or space moderator who cannot read the session
+          $ref: '#/components/responses/NoContentResponse'
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':
@@ -1184,7 +1191,7 @@ paths:
         joined first. Records `session.participant_removed`, plus `session.access_revoked` when the
         removed principal can no longer read the session. Removing someone else is audited.
 
-        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else; `homileo.spaces.read` to leave.
+        **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without) to remove someone else (and `homileo.spaces.read`, `403 forbidden` without, as every route); leaving needs neither, so a principal whose read was revoked can still leave.
       operationId: deleteSessionParticipant
       parameters:
         - name: sessionId
@@ -1272,7 +1279,9 @@ paths:
         caller who can read the session but is not a participant gets `403 not_a_participant`. A
         current participant may set it even when they can no longer read the session.
 
-        **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+        **Required permissions:** none beyond a token with an organization: unlike other routes it
+        is open to a token without `homileo.spaces.read`, so a principal whose read was revoked can
+        still mute the session.
       operationId: putSessionNotify
       parameters:
         - name: sessionId
@@ -1546,7 +1555,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
         '204':
-          description: Deleted by a space moderator who cannot read the session
+          $ref: '#/components/responses/NoContentResponse'
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':
@@ -2992,7 +3001,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ConflictResponse:
-      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, or `version_conflict` (a concurrent write or deadlock; re-read and retry)
+      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `too_many_pending_attachments` (the caller holds `ATTACHMENT_MAX_PENDING` unclaimed placeholders), or `version_conflict` (a concurrent write or deadlock; re-read and retry)
       content:
         application/json:
           schema:
@@ -4678,8 +4687,11 @@ components:
         From `GET /v1/sync`, an event whose payload holds a message view (`message.created`,
         `message.edited`, `message.deleted`) carries the message's current view in place of the one
         stored at commit, built as `GET /v1/messages/{messageId}` builds it, so every event of one
-        message agrees with the others; a socket event carries the view as of its commit. Every other
-        payload is as it was at commit. See docs/realtime.md, *GET /v1/sync*.
+        message agrees with the others; a socket event carries the view as of its commit. The view's
+        `reactions` is the exception: it keeps the summary stored at commit, since the
+        `reaction.added` and `reaction.removed` events after it are deltas from that summary, so a
+        client applying the events in order ends at the count REST returns. Every other payload is as
+        it was at commit. See docs/realtime.md, *GET /v1/sync*.
       required:
         - id
         - type

@@ -306,7 +306,7 @@ describe("recordChange", () => {
     });
   });
 
-  it("writes nothing from a batch when one payload is invalid", async () => {
+  it("validates every payload of a batch before it sends any statement", async () => {
     const actor = await fixtures.principal();
     const organizationId = orgId();
     const valid = {
@@ -316,13 +316,31 @@ describe("recordChange", () => {
       entity: { type: "Session", id: uuidv7() },
       payload: readPayload(),
     };
+    const sent: string[] = [];
+    // Records every raw statement the batch reaches for, so a write before the bad payload shows.
+    const watch = (tx: Parameters<typeof recordChanges>[0]) =>
+      new Proxy(tx, {
+        get(target, prop, receiver) {
+          if (typeof prop === "string" && prop.startsWith("$")) sent.push(prop);
+          return Reflect.get(target, prop, receiver);
+        },
+      });
 
     await expect(
       prisma.$transaction((tx) =>
-        recordChanges(tx, [valid, { ...valid, payload: "not an object" }])
+        recordChanges(watch(tx), [
+          valid,
+          valid,
+          { ...valid, payload: "not an object" },
+        ])
       )
     ).rejects.toThrow(/read\.updated/);
 
+    expect(sent).toEqual([]);
     expect(await prisma.event.count({ where: { organizationId } })).toBe(0);
+    expect(await outboxRows(organizationId)).toEqual([]);
+    // The watch does see a batch's statements.
+    await prisma.$transaction((tx) => recordChanges(watch(tx), [valid]));
+    expect(sent).toContain("$queryRaw");
   });
 });

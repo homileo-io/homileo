@@ -1,6 +1,6 @@
 // @module-tag unit
 // @module-tag platform
-import { InvalidAuditEntryError, RequestError } from "@tereo-io/sdk";
+import { InvalidAuditEntryError, RequestError, HttpError } from "@tereo-io/sdk";
 import type { NextFunction, Request, Response } from "express";
 import { errorHandler } from "../../utils/errors.js";
 import { describe, expect, it, vi } from "vitest";
@@ -213,8 +213,13 @@ describe("errorHandler: library errors", () => {
     ],
     [
       "a documented code under another status",
+      new HttpError(400, "unauthorized", "internal detail"),
+    ],
+    [
+      "an error shaped like the auth middleware's but not an HttpError",
       Object.assign(new Error("internal detail"), {
-        statusCode: 400,
+        name: "HttpError",
+        statusCode: 401,
         code: "unauthorized",
       }),
     ],
@@ -233,21 +238,20 @@ describe("errorHandler: library errors", () => {
     [401, "unauthorized"],
     [403, "forbidden"],
     [404, "not_found"],
-  ])("passes the auth middleware's %i %s through", (statusCode, code) => {
-    const res = handle(
-      Object.assign(new Error("Invalid or expired token"), {
-        name: "HttpError",
-        statusCode,
-        code,
-      })
-    );
+  ])(
+    "passes the auth middleware's %i %s HttpError through",
+    (statusCode, code) => {
+      const res = handle(
+        new HttpError(statusCode, code, "Invalid or expired token")
+      );
 
-    expect(res.status).toHaveBeenCalledWith(statusCode);
-    expect(res.json).toHaveBeenCalledWith({
-      error: code,
-      error_description: "Invalid or expired token",
-    });
-  });
+      expect(res.status).toHaveBeenCalledWith(statusCode);
+      expect(res.json).toHaveBeenCalledWith({
+        error: code,
+        error_description: "Invalid or expired token",
+      });
+    }
+  );
 });
 
 describe("errorHandler: body-parser rejections", () => {

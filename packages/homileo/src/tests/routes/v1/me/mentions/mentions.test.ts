@@ -194,6 +194,34 @@ describe("GET /v1/me/mentions", () => {
     expect((await get(me.token)).body.data).toEqual([]);
   });
 
+  it("drops a user mention in a public space's session once the caller leaves the space, though it can still read it", async () => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const other = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    await fixtures.member(space, { id: me.principalId }, "member");
+    const s = await fixtures.session({ org, space, access: "space" });
+    await seed.add(s.id, other.id, {
+      mentions: [{ kind: "user", userId: me.principalId }],
+    });
+    expect((await get(me.token)).body.data).toHaveLength(1);
+
+    await prisma.spaceMember.delete({
+      where: {
+        spaceId_userId: { spaceId: space.id, userId: me.principalId },
+      },
+    });
+
+    const session = await fetchJson(
+      "GET",
+      `${env.PUBLIC_URL}/v1/sessions/${s.id}`,
+      me.token
+    );
+    expect(session.status).toBe(200);
+    expect((await get(me.token)).body.data).toEqual([]);
+  });
+
   it("never returns another organization's mentions", async () => {
     const { me, other } = await setup();
     const foreign = await fixtures.session({ org: uuidv7() });

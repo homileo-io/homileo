@@ -7,7 +7,9 @@
       caller who can read the session but is not a participant gets `403 not_a_participant`. A
       current participant may set it even when they can no longer read the session.
 
-      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+      **Required permissions:** none beyond a token with an organization: unlike other routes it
+      is open to a token without `homileo.spaces.read`, so a principal whose read was revoked can
+      still mute the session.
     operationId: putSessionNotify
     parameters:
       - name: sessionId

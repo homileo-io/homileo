@@ -6,7 +6,9 @@
       Messages and replies that mention the caller, plus `here` and `session` mentions in sessions
       the caller currently participates in, newest first. Deleted messages, the caller's own
       messages, other organizations' messages and sessions the caller can no longer read are left
-      out. A message mentioning the caller more than once appears once. The cursor is the id of the
+      out, and so is a stored user mention whose principal is no longer a mention reader of the
+      session (for example removed from the space since), as `GET /v1/sync` judges it. A message
+      mentioning the caller more than once appears once. The cursor is the id of the
       last message returned. A page can hold fewer than `limit` items when some are dropped.
 
       **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
