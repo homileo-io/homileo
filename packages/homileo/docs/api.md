@@ -58,6 +58,7 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) and 100 block-quote and list markers on one line; past any of these it is read as plain text |
 | message `payload` | 64 KiB serialized |
 | `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON |
 | `clientMessageId` | 1 to 128 characters |
@@ -101,6 +102,13 @@ nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, rea
 (views show the last two as empty), and lowers a reply's root `reply_count`.
 `GET /v1/messages/:id/revisions` is for the sender and for whoever can moderate the message's space: any other reader gets `403`, so a
 deleted message's text does not reach everyone in the session.
+
+A message body is parsed once, before the transaction, for its mentions and its `body_text`
+(`utils/markdown.ts`, `utils/mentions.ts`). Only a body within all three parse limits (see
+[Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
+while past them micromark can take minutes or overflow the stack. Any other body is accepted and
+read as plain text: mentions count everywhere outside fenced code blocks and single-line code
+spans, and `body_text` is the body as written with mentions replaced by names. Neither is refused.
 
 ## Routes
 
