@@ -1,4 +1,5 @@
 import { validateBody, validateParams } from "../../../../utils/validateReq.js";
+import { searchKeysFor, searchTextOf } from "../../../../utils/searchText.js";
 import { ArchivedError, ForbiddenError } from "../../../../utils/errors.js";
 import { mapUniqueViolation } from "../../../../utils/prismaErrors.js";
 import { SpaceParamsSchema, UpdateSpaceSchema } from "./schemas.js";
@@ -44,6 +45,15 @@ export const updateSpace = async (req: Request, res: Response) => {
     );
     if (changed.length === 0) return current;
 
+    const searchText =
+      changed.includes("name") || changed.includes("metadata")
+        ? searchTextOf(
+            body.name ?? current.name,
+            (body.metadata ?? current.metadata) as Record<string, unknown>,
+            await searchKeysFor(tx, current.kind)
+          )
+        : undefined;
+
     const row = await mapUniqueViolation(
       () =>
         tx.space.update({
@@ -51,6 +61,7 @@ export const updateSpace = async (req: Request, res: Response) => {
           data: {
             ...body,
             metadata: body.metadata as Prisma.InputJsonObject | undefined,
+            searchText,
           },
         }),
       "A space of this kind with this externalRef already exists",

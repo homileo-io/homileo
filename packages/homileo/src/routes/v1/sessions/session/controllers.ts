@@ -1,4 +1,5 @@
 import { validateBody, validateParams } from "../../../../utils/validateReq.js";
+import { searchKeysFor, searchTextOf } from "../../../../utils/searchText.js";
 import { SessionParamsSchema, UpdateSessionBodySchema } from "./schemas.js";
 import { participantView, sessionView } from "../../../../views/session.js";
 import { ArchivedError, ForbiddenError } from "../../../../utils/errors.js";
@@ -64,6 +65,13 @@ export const updateSession = async (req: Request, res: Response) => {
       data.metadata = body.metadata as Prisma.InputJsonValue;
     }
     if (Object.keys(data).length === 0) return current;
+    if (data.name !== undefined || data.metadata !== undefined) {
+      data.searchText = searchTextOf(
+        body.name !== undefined ? body.name : current.name,
+        (body.metadata ?? current.metadata) as Record<string, unknown>,
+        await searchKeysFor(tx, facts.space?.kind.name ?? null)
+      );
+    }
 
     const row = await tx.session.update({ where: { id: sessionId }, data });
     await record({
