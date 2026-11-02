@@ -22,11 +22,15 @@ afterAll(async () => {
   await fixtures.cleanup();
 });
 
-const waitForLockWait = async (): Promise<void> => {
+// A backend blocked by `blocker` itself, on a space_members statement: the
+// join, waiting on the uncommitted insert, and not some other lock wait.
+const waitForBlockedBy = async (blocker: number): Promise<void> => {
   for (let i = 0; i < 200; i++) {
     const [{ waiting }] = await prisma.$queryRaw<Array<{ waiting: number }>>`
       SELECT count(*)::int AS waiting FROM pg_stat_activity
-      WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      WHERE datname = current_database()
+        AND ${blocker}::int = ANY (pg_blocking_pids(pid))
+        AND query LIKE '%space_members%'`;
     if (waiting > 0) return;
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -50,8 +54,10 @@ describe("PUT /v1/sessions/:sessionId/participants/:principalId races", () => {
         await tx.spaceMember.create({
           data: { spaceId: space.id, userId: me.principalId, role: "member" },
         });
+        const [{ pid }] = await tx.$queryRaw<Array<{ pid: number }>>`
+          SELECT pg_backend_pid() AS pid`;
         join = fetchJson("PUT", url(s.id, me.principalId), me.token);
-        await waitForLockWait();
+        await waitForBlockedBy(pid);
       },
       { timeout: 20_000 }
     );

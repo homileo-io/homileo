@@ -4,12 +4,6 @@ import { processEventRetention } from "./jobs/eventRetention.js";
 import { logger } from "./utils/logger.js";
 import env from "./env.js";
 
-// Background work: daily event partitions and their retention, and keeping
-// attachments whose send did not clear their expiry. Runs in
-// processes started with ROLE=worker or ROLE=all. The tereo client, whose
-// outbox reaper is gated by ROLE, starts and stops in createAppServer for
-// every role.
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KEEP_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -78,7 +72,9 @@ export async function startWorker(): Promise<void> {
 
 /**
  * Stops the schedule and waits up to `waitMs` for the runs in flight; past
- * that it returns while they run on, and the database closing under them fails them.
+ * that it returns while they run on. Closing the database does not fail them:
+ * `disconnectDatabase` waits a bounded time for their connections, then leaves
+ * them to the process exit.
  */
 export async function stopWorker(
   waitMs: number = env.SHUTDOWN_TIMEOUT_SECONDS * 1000

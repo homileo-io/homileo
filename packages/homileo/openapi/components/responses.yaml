@@ -77,7 +77,8 @@ ServerErrorResponse:
 ServiceUnavailableResponse:
   description: |
     Service unavailable - `temporarily_unavailable`: tereo's file storage did not answer, or the
-    database was too busy (a transaction or a lock wait ran out of time, or no connection was free).
+    database was too busy (a transaction or a lock wait ran out of time, no connection was free or
+    could be opened in time, Postgres refused one for too many connections, or it is starting up).
     Nothing was changed; retry, after `Retry-After` when it is given.
   headers:
     Retry-After:

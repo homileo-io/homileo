@@ -1,10 +1,10 @@
+import { assertNoTransaction, getTereo, guardTereoCalls } from "./tereo.js";
 import { getOriginalStatus, type FileServiceObject } from "@tereo-io/sdk";
 import { ATTACHMENTS_BUCKET } from "../definitions/tereoDeclaration.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import { isUniqueConstraintError } from "./prismaErrors.js";
 import type { CoreClient } from "@tereo-io/sdk";
 import type { Prisma } from "./db/prisma.js";
-import { getTereo } from "./tereo.js";
 import { logger } from "./logger.js";
 import env from "../env.js";
 
@@ -24,7 +24,8 @@ export const setFilesClient = (client: FilesClient | null): void => {
   override = client;
 };
 
-export const filesClient = (): FilesClient => override ?? getTereo().files;
+export const filesClient = (): FilesClient =>
+  override ? guardTereoCalls("files", override) : getTereo().files;
 
 /** True when tereo answered 404 (`RequestError.statusCode` is the app-facing status; core's is `httpStatus`). */
 export const isTereoNotFound = (err: unknown): boolean =>
@@ -150,6 +151,8 @@ export const attachMessageFiles = async (
 export const keepAttachments = async (
   attachments: AttachmentRef[]
 ): Promise<void> => {
+  // Outside the try below, which would swallow it.
+  assertNoTransaction("keepAttachments");
   await Promise.all(
     attachments.map(async ({ objectId }) => {
       try {

@@ -1,8 +1,16 @@
 # Events
 
-Every change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
+A change in Homileo is an **event**: a row in `chat.events`, written in the same transaction as
 the change by `recordChange` (`src/utils/changes.ts`). Realtime pushes, `GET /v1/sync` and webhooks
 all carry these events, with the same ids.
+
+A few changes record no event, as no client needs to follow them:
+
+- a session's notification setting (`PUT /v1/sessions/:id/notify`);
+- following or unfollowing a thread (`PUT /v1/threads/:id/follow`);
+- the owner promotion when the last owner of a space-less group leaves or is removed (the
+  `session.participant_removed` is recorded; the promoted participant's new role is not);
+- the sender's read position moving on send (no `read.updated`).
 
 ## Registry
 
@@ -10,32 +18,32 @@ The event types live in `@homileo-io/sdk` (`EVENT_TYPES`, `packages/homileo-sdk/
 each with a `channel`, a `webhook` flag and a Zod `payload` schema. A type is named `<area>.<verb>`
 in Homileo and `homileo.<area>.<verb>` in tereo.
 
-| Channel | Types | Webhook |
-|---|---|---|
-| `space` | `space.created`, `space.updated`, `space.archived`, `space.member_added`, `space.member_removed`, `space.member_role_changed`, `space.join_requested`, `space.join_decided` | yes |
-| `session` | `session.created`, `session.updated`, `session.archived`, `session.participant_added`, `session.participant_removed`, `message.created`, `message.edited`, `message.deleted`, `reaction.added`, `reaction.removed`, `thread.updated` | yes |
-| `user` | `read.updated`, `space.access_revoked`, `session.access_revoked` | no |
+| Channel   | Types                                                                                                                                                                                                                                | Webhook |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `space`   | `space.created`, `space.updated`, `space.archived`, `space.member_added`, `space.member_removed`, `space.member_role_changed`, `space.join_requested`, `space.join_decided`                                                          | yes     |
+| `session` | `session.created`, `session.updated`, `session.archived`, `session.participant_added`, `session.participant_removed`, `message.created`, `message.edited`, `message.deleted`, `reaction.added`, `reaction.removed`, `thread.updated` | yes     |
+| `user`    | `read.updated`, `space.access_revoked`, `session.access_revoked`                                                                                                                                                                     | no      |
 
 Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionSchema`,
 `MessageSchema`, `SpaceMemberSchema`, `ParticipantSchema` and `JoinRequestSchema`):
 
-| Type | Payload |
-|---|---|
-| `space.created`, `space.archived` | `{ space }` |
-| `space.updated` | `{ space, previousVisibility }`: the new space, and its `visibility` before the update |
-| `space.member_added` | `{ spaceId, member }` |
-| `space.member_removed` | `{ spaceId, principalId }` |
-| `space.member_role_changed` | `{ spaceId, member, previousRole }` |
-| `space.join_requested`, `space.join_decided` | `{ request }` |
-| `session.created`, `session.updated`, `session.archived` | `{ session }` |
-| `session.participant_added` | `{ sessionId, participant }` |
-| `session.participant_removed` | `{ sessionId, principalId }` |
-| `message.created`, `message.edited`, `message.deleted` | `{ message }` |
-| `reaction.added`, `reaction.removed` | `{ sessionId, messageId, principalId, emoji }` |
-| `thread.updated` | `{ sessionId, rootId, replyCount, lastReplyAt }` |
-| `read.updated` | `{ principalId, sessionId, threadRootId, lastReadSeq }` |
-| `space.access_revoked` | `{ principalId, spaceId }` |
-| `session.access_revoked` | `{ principalId, sessionId }` |
+| Type                                                     | Payload                                                                                |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `space.created`, `space.archived`                        | `{ space }`                                                                            |
+| `space.updated`                                          | `{ space, previousVisibility }`: the new space, and its `visibility` before the update |
+| `space.member_added`                                     | `{ spaceId, member }`                                                                  |
+| `space.member_removed`                                   | `{ spaceId, principalId }`                                                             |
+| `space.member_role_changed`                              | `{ spaceId, member, previousRole }`                                                    |
+| `space.join_requested`, `space.join_decided`             | `{ request }`                                                                          |
+| `session.created`, `session.updated`, `session.archived` | `{ session }`                                                                          |
+| `session.participant_added`                              | `{ sessionId, participant }`                                                           |
+| `session.participant_removed`                            | `{ sessionId, principalId }`                                                           |
+| `message.created`, `message.edited`, `message.deleted`   | `{ message }`                                                                          |
+| `reaction.added`, `reaction.removed`                     | `{ sessionId, messageId, principalId, emoji }`                                         |
+| `thread.updated`                                         | `{ sessionId, rootId, replyCount, lastReplyAt }`                                       |
+| `read.updated`                                           | `{ principalId, sessionId, threadRootId, lastReadSeq }`                                |
+| `space.access_revoked`                                   | `{ principalId, spaceId }`                                                             |
+| `session.access_revoked`                                 | `{ principalId, sessionId }`                                                           |
 
 The stored `{ message }` is the view at commit, and sockets and webhooks deliver it as stored.
 `/sync` instead returns each message event with the message's current view, as REST shows it now
@@ -77,8 +85,9 @@ await withChanges(async (tx, record) => {
 
 `recordChange(tx, change)`:
 
-1. Parses `payload` with the type's schema. The server built it, so a rejected payload throws a
-   plain `Error` (a 500) and nothing is written.
+1. Parses `payload` with the type's schema. The payload is built by Homileo, not taken from the
+   request, so a rejected one is a bug: it throws a plain `Error`, the request answers
+   `500 server_error`, and nothing is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
    `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from
