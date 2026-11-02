@@ -1,4 +1,3 @@
-import { authenticate, requireChatRead } from "../../middleware/auth.js";
 import principalsRouter from "./principals/index.js";
 import messagesRouter from "./messages/index.js";
 import sessionsRouter from "./sessions/index.js";
@@ -7,6 +6,10 @@ import spacesRouter from "./spaces/index.js";
 import express, { Router } from "express";
 import syncRouter from "./sync/index.js";
 import meRouter from "./me/index.js";
+import {
+  authenticate,
+  requireChatReadUnlessSelf,
+} from "../../middleware/auth.js";
 
 const v1Router = Router();
 
@@ -14,7 +17,7 @@ const v1Router = Router();
 const json64k = express.json({ limit: "64kb" });
 
 v1Router.use(authenticate);
-v1Router.use(requireChatRead);
+v1Router.use(requireChatReadUnlessSelf);
 v1Router.use("/me", meRouter);
 v1Router.use("/principals", json64k, principalsRouter);
 v1Router.use("/spaces", json64k, spacesRouter);

@@ -21,11 +21,27 @@ or `homileo.chat.admin`, named for the same reason as below. `homileo.chat.admin
 gate as it passes the write gate; it still reads no DM or space-less session, which the rules below
 decide.
 
-Every `/v1` route asks it through `requireChatRead` (`middleware/auth.ts`), mounted once on the
-`/v1` router after `authenticate`, so a token without it gets `403 forbidden` ("Requires the
+Every `/v1` route asks it through `requireChatReadUnlessSelf` (`middleware/auth.ts`), mounted once
+on the `/v1` router after `authenticate`, so a token without it gets `403 forbidden` ("Requires the
 homileo.spaces.read permission") before validation or any lookup: every GET, `/v1/sync`,
-`/v1/me/*`, the principal lookups, the calls on the caller's own state, and leaving. A permission
-off the ladder (`homileo.messages.read_private`, a kind's grant) does not pass it. The socket
+`/v1/me/*`, the principal lookups and the calls on the caller's own state. A permission off the
+ladder (`homileo.messages.read_private`, a kind's grant) does not pass it.
+
+Three routes act only on the caller's own membership or participation, and a token without read
+may still call them, so a principal whose read was revoked can step out of what it was in:
+`DELETE /spaces/:id/members/:principalId` and `DELETE /sessions/:id/participants/:principalId`
+with the caller's own id (leaving), and `PUT /sessions/:id/notify` (muting).
+`canActOnOwnWithToken(caller, targetId)` (`policy/chat.ts`) decides it; the gate matches those
+three method and path pairs exactly (a UUID in each id segment, any case, an optional trailing
+slash), reads `:principalId` lower-cased as the params schema does, and keeps every other request,
+and those routes with someone else's id, behind `canReadChat`. The routes' own rules then apply as
+for anyone (`canChangeMember`, `canLeaveSession`, a current participant for `notify`).
+
+Homileo cannot see a mentioned principal's permissions, only the token of the request in front of
+it, so revoking `homileo.spaces.read` alone does not stop mention emails: a member or participant
+who lost it is still a mention reader (see *Mentions* below) and is still emailed. Revoke read
+together with removing the principal's memberships and participation; until then the principal can
+mute (`notify: none`) or leave through the routes above. The socket
 handshake refuses such a token with the connect error `forbidden`, and the periodic token
 re-check closes the sockets of a token that no longer holds it, so every socket action runs for a
 caller with read ([realtime.md](realtime.md)).
@@ -64,9 +80,9 @@ case is still the caller; removing anyone else still needs `canWriteChat`. The l
 judged by the usual rules (`canChangeMember`, `canLeaveSession`: a DM still cannot be left).
 
 A token with only `homileo.spaces.read` can therefore read, keep its own read state and leave, and
-change nothing else others see; a token without it can do nothing. `routes/routes.permissions.test.ts`
-checks the read gate on every `/v1` route, lists every route that is not a GET as write-gated or
-open to readers, and checks the self-removal exception.
+change nothing else others see; a token without it can only mute and leave. `routes/routes.permissions.test.ts`
+checks the read gate on every `/v1` route and its own-only exceptions (`READ_EXEMPT`), lists every
+route that is not a GET as write-gated or open to readers, and checks the self-removal exception.
 
 ## Read a space
 
@@ -261,10 +277,15 @@ The design does not state these.
   organization-scoped, so it would admit any id, even one from another organization. Permissions
   are not known to the sender's request, so a reader only through a kind grant or
   `homileo.chat.admin` is not mentioned, and a participant who lost read on a members-only space
-  gets no mention email. Sockets and `/sync` judge stored mentions again with the same function and
+  gets no mention email. That includes a grant moderator who is not a member of the space, even one
+  who created the session or takes part in an `access: space` session: this is a deliberate
+  trade-off, since judging grants would need the mentioned principal's token, and enrolling such
+  moderators in the space would widen what membership means. A moderator who wants mentions joins
+  the space. The converse also holds: a member or participant whose token lost
+  `homileo.spaces.read` is still a mention reader (see [Read permission](#read-permission)). Sockets and `/sync` judge stored mentions again with the same function and
   the principal's current participation, membership and the space's visibility
-  (`currentMentionReaders`), and `/me/mentions` and `/me/unread` keep only sessions the caller can
-  read now. A token that is not a UUID stays
+  (`currentMentionReaders`); `/me/mentions` does too, and it and `/me/unread` keep only sessions the
+  caller can read now. A token that is not a UUID stays
   text, and only the first 100 distinct ids of a message count (later ones are still rendered by
   name in `body_text`). Each stored reader is emailed
   through `core.outbox.notify` (recipient `userId` = their tereo user id) unless their `notify` is

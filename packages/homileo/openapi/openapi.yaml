@@ -26,6 +26,11 @@ info:
     `403 forbidden` ("Requires the homileo.spaces.read permission"), before the body is validated
     or any resource is looked up. That covers the reads, leaving a space or session, and the
     calls that touch only the caller's own state (read markers, notify settings, thread follows).
+    Leaving (`DELETE` of the caller's own member or participant row) and
+    `PUT /v1/sessions/{sessionId}/notify` are the exceptions: a token without it may still call
+    them, so a principal whose read was revoked can mute and leave. Homileo cannot see a
+    mentioned principal's permissions, so it still emails such a principal its mentions until it
+    mutes or leaves, or its memberships are removed.
 
     Every route that changes shared chat state also needs `homileo.spaces.write` or
     `homileo.chat.admin`: creating, changing and archiving spaces and sessions, joining,

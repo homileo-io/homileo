@@ -54,7 +54,7 @@ NotFoundResponse:
         $ref: '#/Error'
 
 ConflictResponse:
-  description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, or `version_conflict` (a concurrent write or deadlock; re-read and retry)
+  description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `too_many_pending_attachments` (the caller holds `ATTACHMENT_MAX_PENDING` unclaimed placeholders), or `version_conflict` (a concurrent write or deadlock; re-read and retry)
   content:
     application/json:
       schema:

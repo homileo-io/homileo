@@ -1,6 +1,5 @@
 import { decodeCursor, encodeCursor } from "../../../../utils/cursor.js";
 import { validateQuery } from "../../../../utils/validateReq.js";
-import { readableSessions } from "../../../../utils/access.js";
 import { ValidationError } from "../../../../utils/errors.js";
 import { sessionView } from "../../../../views/session.js";
 import { callerOf } from "../../../../middleware/auth.js";
@@ -9,6 +8,10 @@ import { prisma } from "../../../../utils/db/prisma.js";
 import { ListMentionsQuerySchema } from "./schemas.js";
 import { db } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
+import {
+  currentMentionReaders,
+  readableSessions,
+} from "../../../../utils/access.js";
 
 const parseCursor = (cursor: string): string => {
   const [id] = decodeCursor(cursor, 1);
@@ -25,8 +28,8 @@ export const listMentions = async (req: Request, res: Response) => {
   const before = cursor ? parseCursor(cursor) : null;
   const me = caller.principalId;
 
-  // The session is re-checked below, so user mentions need no participation;
-  // here/session mentions come only from sessions the caller currently is in.
+  // Here/session mentions come only from sessions the caller currently is in; user mentions
+  // are judged again below.
   const found = await db.mentions.listIds(prisma, {
     organizationId: caller.organizationId,
     userId: me,
@@ -39,13 +42,21 @@ export const listMentions = async (req: Request, res: Response) => {
     where: { id: { in: pageIds } },
   });
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const readable = await readableSessions(caller, [
-    ...new Set(rows.map((r) => r.sessionId)),
+  const [readable, stored, broadcast] = await Promise.all([
+    readableSessions(caller, [...new Set(rows.map((r) => r.sessionId))]),
+    db.messages.storedMentionsOf(prisma, pageIds, me),
+    db.mentions.broadcastIdsFor(prisma, pageIds, me),
   ]);
+  // As /sync judges them: a stored user mention counts only while the caller is still a
+  // mention reader of the session (a space member removed since is not).
+  const mentioned = currentMentionReaders(stored);
   const kept = pageIds
     .map((id) => byId.get(id))
     .filter(
-      (r): r is NonNullable<typeof r> => !!r && readable.has(r.sessionId)
+      (r): r is NonNullable<typeof r> =>
+        !!r &&
+        readable.has(r.sessionId) &&
+        (mentioned.has(r.id) || broadcast.has(r.id))
     );
   const views = await db.messages.loadViews(prisma, kept);
 

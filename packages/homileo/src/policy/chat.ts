@@ -23,3 +23,10 @@ export const canWriteChat = (c: OrgCaller): boolean =>
 /** Removing someone from a space or session needs `canWriteChat`; leaving (`targetId` is the caller) does not. */
 export const canRemoveWithToken = (c: OrgCaller, targetId: string): boolean =>
   targetId === c.principalId || canWriteChat(c);
+
+/**
+ * The read gate for a request that acts only on `targetId`'s own membership or participation
+ * (leaving, muting): a caller whose read was revoked can still step out of what it was in.
+ */
+export const canActOnOwnWithToken = (c: OrgCaller, targetId: string): boolean =>
+  targetId === c.principalId || canReadChat(c);
