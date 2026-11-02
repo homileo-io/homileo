@@ -123,6 +123,48 @@ describe("POST /v1/sessions/:sessionId/messages", () => {
     expect(mentions).toBe(readers.length);
   });
 
+  it("emails the first MENTION_EMAILS_MAX readers in mention order, not creation order", async () => {
+    const { me, session } = await room();
+    const readers = [];
+    for (let i = 0; i < MENTION_EMAILS_MAX + 5; i++) {
+      const p = await fixtures.principal();
+      await fixtures.participant(session, p);
+      readers.push(p);
+    }
+    const mentioned = [...readers].reverse();
+
+    const sent = await sendMessage(session.id, me.token, {
+      body: mentioned.map((p) => `<@${p.id}>`).join(" "),
+    });
+
+    expect(sent.status).toBe(201);
+    const emailed = await Promise.all(
+      mentioned.map(async (p) => (await notificationsTo(p.tereoUserId!)).length)
+    );
+    expect(emailed).toEqual(
+      mentioned.map((_, i) => (i < MENTION_EMAILS_MAX ? 1 : 0))
+    );
+  });
+
+  it.each([
+    ["'>' nesting", "\ufeff" + ">".repeat(3000) + " a"],
+    ["'- ' nesting", "\ufeff" + "- ".repeat(2000) + "a"],
+    ["a quote followed by lazy lines", "\ufeff> a\n" + "b\n".repeat(4990)],
+  ])(
+    "sends a body of %s after a leading BOM as plain text",
+    async (_name, body) => {
+      const { me, session } = await room();
+
+      const sent = await sendMessage(session.id, me.token, { body });
+
+      expect(sent.status).toBe(201);
+      const row = await prisma.message.findUniqueOrThrow({
+        where: { id: sent.body.message.id },
+      });
+      expect(row.bodyText).toBe(body.trim());
+    }
+  );
+
   it("emails a reader once for a sender's mentions within the cooldown", async () => {
     const { org, me, session } = await room();
     const other = await signIn(org);

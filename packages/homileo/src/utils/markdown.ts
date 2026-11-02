@@ -114,7 +114,8 @@ export const measureMarkup = (markdown: string): Markup => {
   let mayBeDefinition = false;
   // The opening run of the top-level fenced code block the line is in.
   let fence: string | null = null;
-  let i = 0;
+  // micromark drops a leading byte order mark before it reads line 1.
+  let i = markdown.charCodeAt(0) === 0xfeff ? 1 : 0;
   while (i < markdown.length) {
     const [markers, columns, end] = lineMarkers(markdown, i);
     const stop = lineEnd(markdown, end);
@@ -204,11 +205,20 @@ const parseMarkdown = (markdown: string): Root =>
 export const parseBody = (markdown: string): Root | null => {
   if (markdown.length > PARSE_MAX_LENGTH) return null;
   const { count, depth, work } = measureMarkup(markdown);
-  return count > PARSE_MAX_MARKUP ||
+  if (
+    count > PARSE_MAX_MARKUP ||
     depth > PARSE_MAX_DEPTH ||
     work > PARSE_MAX_WORK
-    ? null
-    : parseMarkdown(markdown);
+  ) {
+    return null;
+  }
+  try {
+    return parseMarkdown(markdown);
+  } catch (err) {
+    // A stack overflow the limits did not foresee: the body is read as plain text.
+    if (err instanceof RangeError) return null;
+    throw err;
+  }
 };
 
 const nameMentions = (text: string, names: Map<string, string | null>) =>

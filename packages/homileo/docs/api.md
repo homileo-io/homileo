@@ -272,8 +272,8 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   or they are the sender or a bot. A sender's mention emails a reader at most once per
   `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis key per sender and reader), and a send or edit emails at
   most 25 readers: the first it mentions, in body order, that are out of cooldown. When Redis is not
-  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies; a rolled-back
-  send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
+  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies, and the
+  skipped command is not run later on its own connection; a rolled-back send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
   for the root's sender if none exists; an existing row (an unfollow) is left alone.
   `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
   no email.

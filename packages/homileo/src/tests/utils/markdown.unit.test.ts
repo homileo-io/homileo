@@ -104,6 +104,8 @@ describe("measureMarkup", () => {
       6,
     ],
     ["a fence whose info holds U+2028", "```a\u2028b\n> *x*\n```", 2, 0, 3],
+    ["a leading BOM is not text", "\ufeff> > *x*", 5, 2, 3],
+    ["a BOM after the start is text", "a\n\ufeff> x", 0, 0, 2],
   ])("%s", (_name, markdown, count, depth, work) => {
     expect(measureMarkup(markdown)).toEqual({ count, depth, work });
   });
@@ -194,6 +196,28 @@ describe("parseBody", () => {
     expect(measureMarkup(markdown).work).toBeGreaterThan(PARSE_MAX_WORK);
     expect(parseBody(markdown)).toBeNull();
   });
+
+  it.each([
+    ["'>' nesting", "\ufeff" + ">".repeat(3000) + " a", "depth"],
+    ["'- ' nesting", "\ufeff" + "- ".repeat(2000) + "a", "depth"],
+    [
+      "a quote followed by lazy lines",
+      "\ufeff> a\n" + "b\n".repeat(4990),
+      "work",
+    ],
+  ] as const)(
+    "reads %s after a leading BOM as plain text",
+    (_name, markdown, limit) => {
+      expect(markdown.length).toBeLessThanOrEqual(PARSE_MAX_LENGTH);
+      const markup = measureMarkup(markdown);
+      if (limit === "depth") {
+        expect(markup.depth).toBeGreaterThan(PARSE_MAX_DEPTH);
+      } else {
+        expect(markup.work).toBeGreaterThan(PARSE_MAX_WORK);
+      }
+      expect(parseBody(markdown)).toBeNull();
+    }
+  );
 
   it.each([
     [
