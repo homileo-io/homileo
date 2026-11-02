@@ -1,19 +1,19 @@
 // @module-tag int
 // @module-tag search
-import { removeKinds, provisionKind } from "../../../../support/v1App.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { searchFixtures } from "../../../../support/searchApi.js";
+import { provisionKind } from "../../../../support/v1App.js";
 import { prisma } from "../../../../../utils/db/prisma.js";
 import { signIn } from "../../../../support/signedIn.js";
 import { fetchJson } from "../../../../support/http.js";
+import {
+  searchFixtures,
+  sessionHitIds,
+} from "../../../../support/searchApi.js";
 
 const s = searchFixtures();
 
 beforeAll(s.start);
-afterAll(async () => {
-  await s.cleanup();
-  await removeKinds();
-});
+afterAll(s.cleanup);
 
 const setup = async () => {
   const org = s.organization();
@@ -48,9 +48,7 @@ const setup = async () => {
   const found = async (q: string, params: Record<string, string> = {}) => {
     const res = await s.searchSessions(user.token, { q, ...params });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    return (res.body.data as Array<Record<string, { id: string }>>).map(
-      (h) => `${h.type}:${(h.space ?? h.session).id}`
-    );
+    return sessionHitIds(res.body);
   };
   return { org, kind, user, post, space, session, found };
 };

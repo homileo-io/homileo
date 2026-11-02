@@ -2,11 +2,13 @@
 // @module-tag search
 // @module-tag access
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { searchFixtures } from "../../../../support/searchApi.js";
 import { provisionKind } from "../../../../support/v1App.js";
 import { personToken } from "../../../../support/tokens.js";
 import { prisma } from "../../../../../utils/db/prisma.js";
-import { v7 as uuidv7 } from "uuid";
+import {
+  searchFixtures,
+  sessionHitIds,
+} from "../../../../support/searchApi.js";
 
 const s = searchFixtures();
 const GRANT = "search-sess-perms.cases.read";
@@ -26,8 +28,8 @@ const found = async (who: string) => {
   });
   const res = await s.searchSessions(token, { q: "probe", limit: "50" });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
-  return (res.body.data as Array<Record<string, { id: string }>>)
-    .map((h) => (h.space ?? h.session).id)
+  return sessionHitIds(res.body)
+    .map((hit) => hit.split(":")[1])
     .sort();
 };
 
@@ -83,7 +85,6 @@ beforeAll(async () => {
     data: { searchText: "probe" },
   });
   foreign = other.id;
-  void uuidv7;
 });
 
 afterAll(s.cleanup);
