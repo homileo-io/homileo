@@ -21,26 +21,34 @@ export interface SpacePage {
   roles: Map<string, SpaceRole>;
 }
 
-/** Whose spaces `membership` lists: the caller's own, or everything they may read. */
-const readableBy = async (
-  caller: Caller,
-  membership: SpaceListFilter["membership"]
+const memberOf = (caller: Caller): Prisma.SpaceWhereInput => ({
+  members: { some: { userId: caller.principalId } },
+});
+
+/**
+ * `canReadSpace` as a condition, for a query the caller's organization already limits:
+ * an admin reads every space of it.
+ */
+export const readableSpaceWhere = async (
+  caller: Caller
 ): Promise<Prisma.SpaceWhereInput> => {
-  const member: Prisma.SpaceWhereInput = {
-    members: { some: { userId: caller.principalId } },
-  };
-  if (membership === "member") return member;
-  // An admin reads every space of the organization, which the where already limits to.
   if (caller.isAdmin) return {};
   const granted = await kindsGrantingRead(caller.permissions);
   return {
     OR: [
-      member,
+      memberOf(caller),
       { visibility: "public" },
       ...(granted.length > 0 ? [{ kind: { in: granted } }] : []),
     ],
   };
 };
+
+/** Whose spaces `membership` lists: the caller's own, or everything they may read. */
+const readableBy = async (
+  caller: Caller,
+  membership: SpaceListFilter["membership"]
+): Promise<Prisma.SpaceWhereInput> =>
+  membership === "member" ? memberOf(caller) : readableSpaceWhere(caller);
 
 /** The caller's organization's spaces they asked for, newest first, with one extra row's worth of `hasMore`. */
 export const listPage = async (

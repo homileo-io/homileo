@@ -23,8 +23,24 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 | Session | Readable by |
 |---|---|
 | In a space, `access: space` | anyone who can read the space |
-| In a space, `access: members` | participants, holders of a kind grant, `homileo.chat.admin` |
+| In a space, `access: members` | among those who can read the space: participants, holders of a kind grant, `homileo.chat.admin` |
 | No space | participants only (`homileo.chat.admin` cannot read) |
+
+Session access only ever narrows the space's: a session in a space is readable only by someone who
+can read the space, participants included. A participant who loses read on the space (a removed
+member of a `members` space, a grant holder whose grant is gone) loses every session in it, and
+with it posting, reacting and its socket rooms. `readsEverySessionOf` is the `access: members`
+branch for non-participants (a kind grant, or admin); the session list's `spaceId` filter uses it
+to skip the participation test.
+
+A moderator who is not a space member (a kind grant `moderate`, or `homileo.chat.admin`) can create
+a session in the space and becomes its participant without becoming a member. That is deliberate:
+the creator is not enrolled in the space, because the read rule above already ends their access
+when the grant goes.
+
+The listing `GET /sessions?externalRef=` without `spaceId` applies the same table in SQL
+(`readableSessionWhere` in `utils/db/sessions.ts`, beside `readableSpaceWhere` in `spaces.ts`), so
+sessions the caller cannot read never take a page's places; the policy then checks each row again.
 
 ## Webhooks
 
@@ -96,7 +112,15 @@ The design does not state these.
 
 - **Archive a session** (`canArchiveSession`): in a space, `canModerateSpace`; in a space-less group,
   its participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`. The admin need
-  not be a participant.
+  not be a participant. A caller who can read the session gets `200` with its view; an admin who
+  archives one it cannot read (a DM, a space-less group) gets `204` and no body, as removing a
+  participant answers `204`.
+- **`409 external_ref_taken` is a known oracle.** Creating or editing a space with an `externalRef`
+  that another space of the kind in the organization already has answers `409 external_ref_taken`,
+  even when the caller cannot read that space. It is accepted: the uniqueness is the point of the
+  reference, the answer reveals only that some space of the kind carries it (not its id or
+  content), and only to a caller of the same organization who may create or edit spaces of that
+  kind.
 - **Create a session in a space** (`canCreateSessionIn`): space membership or `canModerateSpace`, an
   unarchived space, and `canModerateSpace` when `postPolicy` is `moderators`. Space-less groups and
   DMs are open to any caller (no function; routes need no check).
@@ -133,7 +157,8 @@ The design does not state these.
   after the change and a stand-in caller, `judgedAs` in `utils/access.ts` (the caller themselves
   when they leave; otherwise the principal with no permissions and no admin role).
 - **React** (`canReact`): participation and an unarchived session and space; the post policy does
-  not apply.
+  not apply. `reactRefusal` names why it is false, as `postRefusal` does for posting:
+  `not_found`, `archived`, `not_a_participant`.
 - **Session settings** (`canEditSessionSettings`: rename, `metadata`, `externalRef`, `state`): in a
   space, `canModerateSpace` while neither the session nor the space is archived; in a space-less
   group, its `owner`; never a DM. An admin does not touch space-less content.
@@ -180,8 +205,12 @@ then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
 needs both. A route that changes a session's participants or settings, archives it, or edits,
 deletes or reacts to a message starts from a session id and locks its space first
-(`db.sessions.lockSpaceOf(tx, sessionId)`): `FOR SHARE`, since it needs the space to stay
-as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
+(`db.sessions.lockSpaceOf(tx, organizationId, sessionId)`): `FOR SHARE`, since it needs the space
+to stay as it is, not to change it. Every locking `SELECT` names the caller's organization, so a
+leaked id of another organization's row locks nothing before the `404`. Because the space is only
+shared, a self-join that makes the caller a space member inserts the membership with
+`ON CONFLICT DO NOTHING`: the caller's parallel join of another session of the space may have
+inserted it first, and then this join records no `space.member_added`. Space changes (`PATCH`, archive, member changes, join) take the space
 `FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
 only the caller's participant row; an attachment upload takes no lock. Removing a member locks the
 space, then the owner rows, then the member's active sessions in id order, and only then changes

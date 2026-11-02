@@ -7,13 +7,20 @@ const sameOrganization = (c: OrgCaller, ss: SessionFacts): boolean =>
   c.organizationId === ss.organizationId &&
   (ss.space === null || ss.space.organizationId === ss.organizationId);
 
+/**
+ * Whether a caller who can read the space reads every session in it, `access: members` ones
+ * included, without being their participant.
+ */
+export const readsEverySessionOf = (c: OrgCaller, s: SpaceFacts): boolean =>
+  holdsKindGrant(c, s) || c.isAdmin;
+
+/** Session access only narrows the space's: a session in a space needs read on the space. */
 export const canReadSession = (c: OrgCaller, ss: SessionFacts): boolean => {
   if (!sameOrganization(c, ss)) return false;
   if (ss.space === null) return ss.participantRole !== null;
-  if (ss.access === "space") return canReadSpace(c, ss.space);
-  return (
-    ss.participantRole !== null || holdsKindGrant(c, ss.space) || c.isAdmin
-  );
+  if (!canReadSpace(c, ss.space)) return false;
+  if (ss.access === "space") return true;
+  return ss.participantRole !== null || readsEverySessionOf(c, ss.space);
 };
 
 /**
@@ -89,11 +96,7 @@ export const canLeaveSession = (c: OrgCaller, ss: SessionFacts): boolean =>
 
 /** Reacting needs participation and a writable session, but not the space's post policy. */
 export const canReact = (c: OrgCaller, ss: SessionFacts): boolean =>
-  sameOrganization(c, ss) &&
-  ss.participantRole !== null &&
-  !ss.archived &&
-  !(ss.space?.archived ?? false) &&
-  canReadSession(c, ss);
+  reactRefusal(c, ss) === null;
 
 /** Rename, metadata, `externalRef` and `state`. A DM has nothing to edit. */
 export const canEditSessionSettings = (
@@ -129,5 +132,18 @@ export const postRefusal = (
   if (ss.space?.postPolicy === "moderators" && !canModerateSpace(c, ss.space)) {
     return "posting_restricted";
   }
+  return null;
+};
+
+export type ReactRefusal = Exclude<PostRefusal, "posting_restricted">;
+
+/** The first reason `canReact` would be false, or `null` when it is true. */
+export const reactRefusal = (
+  c: OrgCaller,
+  ss: SessionFacts
+): ReactRefusal | null => {
+  if (!canReadSession(c, ss)) return "not_found";
+  if (ss.archived || (ss.space?.archived ?? false)) return "archived";
+  if (ss.participantRole === null) return "not_a_participant";
   return null;
 };

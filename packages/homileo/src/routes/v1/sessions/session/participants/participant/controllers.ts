@@ -39,13 +39,23 @@ export const putParticipant = async (req: Request, res: Response) => {
   );
 
   const { row, created } = await withChanges(async (tx, record) => {
-    await db.sessions.lockSpaceOf(tx, sessionId);
+    await db.sessions.lockSpaceOf(tx, caller.organizationId, sessionId);
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
     });
     const joining = principalId === caller.principalId;
     refuseIfArchived(facts);
+    if (!(await db.sessions.principalExists(tx, principalId))) {
+      throw new NotFoundError("Principal not found");
+    }
+    const current = await db.participants.findCurrent(
+      tx,
+      sessionId,
+      principalId
+    );
+    // Already so: nothing to change, whoever asks, as long as they can read the session.
+    if (current) return { row: current, created: false };
     if (
       joining
         ? !canJoinSession(caller, facts)
@@ -57,24 +67,25 @@ export const putParticipant = async (req: Request, res: Response) => {
           : "You may not add participants to this session"
       );
     }
-    if (!(await db.sessions.principalExists(tx, principalId))) {
-      throw new NotFoundError("Principal not found");
-    }
-
-    const current = await db.participants.findCurrent(
-      tx,
-      sessionId,
-      principalId
-    );
-    if (current) return { row: current, created: false };
 
     if (session.spaceId && facts.space) {
-      if (joining && facts.space.role === null) {
-        const member = await tx.spaceMember.create({
-          data: {
-            spaceId: session.spaceId,
-            userId: principalId,
-            role: "member",
+      // The space is only locked FOR SHARE, so the caller's join of another of its sessions
+      // can insert the same membership first.
+      const { count } =
+        joining && facts.space.role === null
+          ? await tx.spaceMember.createMany({
+              data: {
+                spaceId: session.spaceId,
+                userId: principalId,
+                role: "member",
+              },
+              skipDuplicates: true,
+            })
+          : { count: 0 };
+      if (count > 0) {
+        const member = await tx.spaceMember.findUniqueOrThrow({
+          where: {
+            spaceId_userId: { spaceId: session.spaceId, userId: principalId },
           },
         });
         await record({
@@ -139,7 +150,7 @@ export const removeParticipant = async (req: Request, res: Response) => {
   );
 
   await withChanges(async (tx, record) => {
-    await db.sessions.lockSpaceOf(tx, sessionId);
+    await db.sessions.lockSpaceOf(tx, caller.organizationId, sessionId);
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,

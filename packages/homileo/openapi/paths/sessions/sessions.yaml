@@ -8,8 +8,8 @@
       participate in (a holder of one of the space's kind grants, or `homileo.chat.admin`, sees
       every one). The space itself must be readable, else `404`.
 
-      With `externalRef` and no `spaceId`, up to `limit` sessions of the organization carrying that
-      reference, filtered to those the caller can read; `nextCursor` is then always `null`.
+      With `externalRef` and no `spaceId`, every session of the organization carrying that
+      reference that the caller can read, in any space or none, paged like any other list.
 
       Ordered by `lastMessageAt` (sessions with messages first), then `createdAt`, then `id`, newest
       first. Archived sessions are left out unless `includeArchived=true`. Each item carries the

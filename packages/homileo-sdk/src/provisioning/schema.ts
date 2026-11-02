@@ -38,7 +38,7 @@ const SpaceKindDeclarationSchema = z.strictObject({
       })
     )
     .optional(),
-  bots: z.array(z.uuid()).optional(),
+  bots: z.array(z.uuid().toLowerCase()).optional(),
   editWindowSeconds: z.number().int().min(0).nullable().optional(),
   search: z
     .strictObject({ metadata: z.array(z.string().min(1).max(64)) })

@@ -4,6 +4,7 @@
 import { purgeOrganizations, signIn } from "../../../../support/signedIn.js";
 import { chatFixtures } from "../../../../support/chatFixtures.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { personToken } from "../../../../support/tokens.js";
 import { fetchJson } from "../../../../support/http.js";
 import env from "../../../../../env.js";
 import { v7 as uuidv7 } from "uuid";
@@ -58,6 +59,36 @@ describe("reading a members-only session in a public space", () => {
     expect(await status(participant)).toBe(200);
     expect(await status(holder)).toBe(200);
     expect(await status(admin)).toBe(200);
+  });
+
+  it("answers 404 to a moderator who created a members-only session without being a space member, once the grant is gone", async () => {
+    const org = newOrg();
+    const kind = await provisionKind({
+      grants: [{ permission: "sessions-perm.moderate", access: "moderate" }],
+    });
+    const space = await fixtures.space({ org, kind, visibility: "members" });
+    const holder = await signIn(org, ["sessions-perm.moderate"]);
+    const created = await fetchJson(
+      "POST",
+      `${app.url}/v1/sessions`,
+      holder.token,
+      { spaceId: space.id, access: "members" }
+    );
+    expect(created.status).toBe(201);
+    const id = created.body.session.id;
+
+    const withoutGrant = personToken({ userId: holder.tereoUserId, org });
+    const get = (path: string) =>
+      fetchJson("GET", `${app.url}/v1/sessions/${id}${path}`, withoutGrant);
+    expect((await get("")).status).toBe(404);
+    expect((await get("/messages")).status).toBe(404);
+    const post = await fetchJson(
+      "POST",
+      `${app.url}/v1/sessions/${id}/messages`,
+      withoutGrant,
+      { clientMessageId: "c1", body: "still here?" }
+    );
+    expect(post.status).toBe(404);
   });
 });
 

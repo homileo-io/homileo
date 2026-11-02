@@ -7,6 +7,7 @@ import { invalidateKinds } from "../../utils/kinds.js";
 import type { Caller } from "../../middleware/auth.js";
 import { NotFoundError } from "../../utils/errors.js";
 import { prisma } from "../../utils/db/prisma.js";
+import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import {
   readableMessage,
@@ -250,6 +251,41 @@ describe("access loading", () => {
     });
 
     expect(blocked).toBe(true);
+  });
+
+  it("locks no row of another organization before its 404", async () => {
+    const space = await fixtures.space({ visibility: "public" });
+    const session = await fixtures.session({ space, access: "space" });
+    const who = await fixtures.principal();
+    const caller = callerOf(who, uuidv7(), ["homileo.chat.admin"]);
+    const lockedElsewhere = async (sql: "session" | "space") =>
+      prisma
+        .$transaction(async (tx2) => {
+          if (sql === "session") {
+            await tx2.$queryRaw`SELECT id FROM "chat"."sessions" WHERE id = ${session.id}::uuid FOR UPDATE NOWAIT`;
+          } else {
+            await tx2.$queryRaw`SELECT id FROM "chat"."spaces" WHERE id = ${space.id}::uuid FOR UPDATE NOWAIT`;
+          }
+        })
+        .then(
+          () => false,
+          () => true
+        );
+
+    const locked = await prisma.$transaction(async (tx) => {
+      await caught(
+        readableSession(caller, session.id, {
+          tx,
+          lock: true,
+          adminManage: true,
+        })
+      );
+      await caught(readableSpace(caller, space.id, { tx, lock: true }));
+      await db.sessions.lockSpaceOf(tx, caller.organizationId, session.id);
+      return [await lockedElsewhere("session"), await lockedElsewhere("space")];
+    });
+
+    expect(locked).toEqual([false, false]);
   });
 
   it("requires a transaction to lock", async () => {
