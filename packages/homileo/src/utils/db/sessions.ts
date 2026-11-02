@@ -74,6 +74,16 @@ export const lockSpaceOf = async (tx: Tx, sessionId: string): Promise<void> => {
     FOR SHARE OF sp`;
 };
 
+/** The session's space and access, or `null` when there is no such session. */
+export const accessOf = (
+  tx: Tx,
+  sessionId: string
+): Promise<{ spaceId: string | null; access: "space" | "members" } | null> =>
+  tx.session.findUnique({
+    where: { id: sessionId },
+    select: { spaceId: true, access: true },
+  });
+
 /** The indexes in `ids` that name no principal. */
 export const unknownPrincipalIndexes = async (
   tx: Tx,

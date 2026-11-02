@@ -66,6 +66,13 @@ jobs:
           npm run openapi:build -w homileo
           git diff --exit-code packages/homileo/openapi/bundled-openapi.yaml
 
+      # The editors' provisioning.schema.json is generated from the SDK's Zod
+      # schema; the committed copy must match it.
+      - name: Check provisioning JSON Schema
+        run: |
+          npm run provisioning:schema -w @homileo-io/sdk
+          git diff --exit-code packages/homileo-sdk/provisioning.schema.json
+
       - name: Type check
         run: npx nx $NX_SCOPE -t check --parallel=4
 

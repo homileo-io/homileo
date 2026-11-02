@@ -97,6 +97,43 @@ describe("dropExpiredPartitions", () => {
   });
 });
 
+describe("partition DDL against chat.principals", () => {
+  const d = day(-38);
+  const name = partitionName(d);
+  afterAll(async () => {
+    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "chat"."${name}"`);
+  });
+
+  it("creates and drops a partition while a transaction writes chat.principals", async () => {
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+
+    // What any principal insert or update holds until it commits.
+    const writer = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`LOCK TABLE "chat"."principals" IN ROW EXCLUSIVE MODE`;
+      locked();
+      await hold;
+    });
+    await holding;
+
+    try {
+      expect(
+        await createPartition(
+          name,
+          iso(d),
+          iso(new Date(d.getTime() + MS_PER_DAY))
+        )
+      ).toBe(true);
+      expect(await db.events.dropPartition(name)).toBe(true);
+    } finally {
+      release();
+      await writer;
+    }
+  });
+});
+
 describe("processEventRetention", () => {
   it("expires partitions older than EVENT_RETENTION_DAYS and keeps today's", async () => {
     const old = new Date(

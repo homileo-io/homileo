@@ -67,8 +67,8 @@ describe("reaction events", () => {
     });
     const rows = await outbox(org, id);
     expect(rows.map((r) => r.payload.eventType)).toEqual([
-      "homileo.message.created",
-      "homileo.reaction.added",
+      "homileo.private_message.created",
+      "homileo.private_reaction.added",
     ]);
     expect(rows.every((r) => r.destination === "webhook")).toBe(true);
   });

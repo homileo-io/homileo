@@ -58,4 +58,17 @@ describe("env schema", () => {
       parseEnv({ ...base, ...rest, TEREO_TEST_MODE: "true" })
     ).not.toThrow();
   });
+
+  it("refuses a TEREO_SERVICE_SLUG other than the declaration's", () => {
+    expect(() =>
+      parseEnv({ ...base, TEREO_TEST_MODE: "true", TEREO_SERVICE_SLUG: "chat" })
+    ).toThrow(/TEREO_SERVICE_SLUG/);
+    expect(
+      parseEnv({
+        ...base,
+        TEREO_TEST_MODE: "true",
+        TEREO_SERVICE_SLUG: "homileo",
+      }).TEREO_SERVICE_SLUG
+    ).toBe("homileo");
+  });
 });

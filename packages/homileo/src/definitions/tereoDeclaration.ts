@@ -1,8 +1,19 @@
+import { privateWebhookEventTypes, webhookEventTypes } from "@homileo-io/sdk";
 import type { ProvisioningDocument } from "@tereo-io/sdk";
-import { webhookEventTypes } from "@homileo-io/sdk";
+
+/**
+ * Homileo's service slug in tereo. Its permissions and event types are named
+ * under it, and tereo refuses an audit entry from any other source.
+ */
+export const SERVICE_SLUG = "homileo";
 
 /** The tereo bucket that holds message attachments. */
 export const ATTACHMENTS_BUCKET = "homileo-attachments";
+
+/** Receives the webhook events of private sessions (`isPrivateSession`). */
+export const READ_PRIVATE_PERMISSION = "homileo.messages.read_private";
+
+const privateTypes = new Set(privateWebhookEventTypes());
 
 /**
  * What Homileo declares to tereo as an app service. Core applies the
@@ -11,7 +22,7 @@ export const ATTACHMENTS_BUCKET = "homileo-attachments";
 export const buildTereoDocument = (version: string): ProvisioningDocument => ({
   version,
   service: {
-    slug: "homileo",
+    slug: SERVICE_SLUG,
     name: "Homileo",
     secretFrom: "TEREO_CLIENT_SECRET",
     // Audit entries, webhook events and notifications leave through the
@@ -30,6 +41,15 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
         name: "homileo.spaces.write",
         displayName: "Use spaces",
         description: "Create spaces and sessions, and post messages",
+        orgAssignable: true,
+      },
+      {
+        // Off the read/write ladder and outside homileo.chat, so neither
+        // homileo.spaces.read nor homileo.chat.admin implies it.
+        name: READ_PRIVATE_PERMISSION,
+        displayName: "Receive private messages",
+        description:
+          "Receive webhook events of DMs, space-less groups and members-only sessions, message bodies included",
         orgAssignable: true,
       },
       {
@@ -57,7 +77,9 @@ export const buildTereoDocument = (version: string): ProvisioningDocument => ({
     eventTypes: webhookEventTypes().map((eventType) => ({
       eventType,
       description: eventType,
-      readPermission: "homileo.spaces.read",
+      readPermission: privateTypes.has(eventType)
+        ? READ_PRIVATE_PERMISSION
+        : "homileo.spaces.read",
     })),
   },
 });

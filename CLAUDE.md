@@ -47,7 +47,7 @@ The plans are beside it in `docs/superpowers/plans/`.
   a whole set and applied in one transaction. Provisioned rows are read-only through the API
   (`409 managed_by_provisioning`); removed ones retire.
 - **Homileo's own tereo declaration** (permissions `homileo.chat.admin`, `homileo.spaces.read`,
-  `homileo.spaces.write`; bucket `homileo-attachments`; the webhook event types) is generated from
+  `homileo.spaces.write`, `homileo.messages.read_private` for private sessions' webhooks; bucket `homileo-attachments`; the webhook event types) is generated from
   `src/definitions/tereoDeclaration.ts` into `packages/homileo/tereo-provisioning.json`.
 
 ## Layout of `packages/homileo`
@@ -65,7 +65,7 @@ One ordinary package, shared by every area:
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
 | `src/websocket/` | socket.io on `/ws` (Redis adapter): `auth.ts` handshake, `rooms.ts` joins and re-checks, `subscriptions.ts`, `fanout.ts` (pushes `changeBus` batches), `ephemeral.ts` (typing, presence), `limits.ts` |
 | `src/realtime/` | Shared by sockets and `/sync`: `audience.ts` (who gets an event), `rooms.ts` (room names), `syncCursor.ts` |
-| `src/cli/` | Operator commands, `npm run cli -- <command>` |
+| `src/cli/` | Operator commands, `npm run cli -- <command>` (`npm run cli:prod -- <command>` in the image) |
 | `src/tests/` | Mirrors `src/`: `<base>[.<aspect>][.unit].test.ts`, `flows/`, `conventions/`; `setup/`, `support/`, `fixtures/` are not tests. Two projects, `unit` (no server) and `int` (one real server). Rules: [src/tests/README.md](packages/homileo/src/tests/README.md) |
 | `prisma/` | The one schema and migrations |
 | `docs/` | Per-area reference notes (`api`, `provisioning`, `events`, `access`, `realtime`) |

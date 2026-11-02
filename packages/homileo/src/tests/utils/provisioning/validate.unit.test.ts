@@ -90,6 +90,24 @@ describe("validateSet", () => {
     });
   });
 
+  it("compiles each payloadSchema on its own, so two may share a $id", () => {
+    const card = (required: string[]) => ({
+      $id: "https://example.com/card.json",
+      type: "object",
+      required,
+    });
+    const problems = validateSet([
+      doc("a.json", "a", {
+        messageTypes: [{ name: "a:card", payloadSchema: card(["title"]) }],
+      }),
+      doc("b.json", "b", {
+        messageTypes: [{ name: "b:card", payloadSchema: card(["amount"]) }],
+      }),
+    ]);
+
+    expect(problems).toEqual([]);
+  });
+
   it("returns every problem, not the first", () => {
     const problems = validateSet([
       doc("a.json", "a", { spaceKinds: [kind("default")] }),

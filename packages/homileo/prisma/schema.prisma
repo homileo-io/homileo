@@ -143,7 +143,6 @@ model Principal {
   mentions              MessageMention[]
   reactions             Reaction[]
   threadFollows         ThreadFollower[]
-  events                Event[]
 
   @@unique([app, externalId])
   @@map("principals")
@@ -307,6 +306,8 @@ model Message {
   @@unique([sessionId, seq])
   @@unique([sessionId, senderId, clientMessageId])
   @@index([threadRootId, seq])
+  // Raw SQL in 20261102125915_partial_indexes:
+  // messages_type_idx (type) WHERE type <> 'text'.
   @@map("messages")
   @@schema("chat")
 }
@@ -399,19 +400,19 @@ model ThreadFollower {
 
 // Range-partitioned by day on created_at (raw SQL in the baseline migration).
 // A partitioned table's primary key must include the partition column.
+// actor_id has no foreign key: one would lock chat.principals whenever a
+// partition is created, detached or dropped.
 model Event {
-  id             BigInt   @default(autoincrement())
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(3)
-  type           String   @db.VarChar(100)
-  organizationId String   @map("organization_id") @db.Uuid
-  spaceId        String?  @map("space_id") @db.Uuid
-  sessionId      String?  @map("session_id") @db.Uuid
-  actorId        String?  @map("actor_id") @db.Uuid
+  id             BigInt              @default(autoincrement())
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamp(3)
+  type           String              @db.VarChar(100)
+  organizationId String              @map("organization_id") @db.Uuid
+  spaceId        String?             @map("space_id") @db.Uuid
+  sessionId      String?             @map("session_id") @db.Uuid
+  actorId        String?             @map("actor_id") @db.Uuid
   payload        Json
   // The writing transaction's id: /sync reads in commit order, by (tx_id, id).
   txId           Unsupported("xid8") @default(dbgenerated("pg_current_xact_id()")) @map("tx_id")
-
-  actor Principal? @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@id([id, createdAt])
   @@index([organizationId, txId, id])
@@ -472,7 +473,8 @@ model CoreOutbox {
   lastError      String?   @map("last_error") @db.VarChar(1000)
   deadLetteredAt DateTime? @map("dead_lettered_at")
 
-  @@index([nextAttemptAt])
+  // Raw SQL in 20261102125915_partial_indexes, as @tereo-io/sdk's outboxTableSql:
+  // core_outbox_pending_idx (next_attempt_at) WHERE dead_lettered_at IS NULL.
   @@map("core_outbox")
   @@schema("core")
 }
