@@ -2,6 +2,8 @@ import { EVENT_EXAMPLES } from "./resourceFixtures.js";
 import { describe, expect, it } from "vitest";
 import {
   EVENT_TYPES,
+  privateWebhookEventTypes,
+  webhookEventName,
   webhookEventTypes,
   type EventType,
 } from "../events/registry.js";
@@ -65,6 +67,26 @@ describe("event registry", () => {
     expect(types).toContain("homileo.message.created");
     expect(types).not.toContain("homileo.read.updated");
     expect(types.every((t) => t.startsWith("homileo."))).toBe(true);
+  });
+
+  it("names a private session's session events homileo.private_<type>, and only those", () => {
+    expect(webhookEventName("message.created", { privateSession: true })).toBe(
+      "homileo.private_message.created"
+    );
+    expect(webhookEventName("message.created", { privateSession: false })).toBe(
+      "homileo.message.created"
+    );
+    expect(webhookEventName("space.created", { privateSession: true })).toBe(
+      "homileo.space.created"
+    );
+
+    const sessionWebhooks = Object.entries(EVENT_TYPES)
+      .filter(([, def]) => def.webhook && def.channel === "session")
+      .map(([name]) => `homileo.private_${name}`);
+    expect(privateWebhookEventTypes().sort()).toEqual(sessionWebhooks.sort());
+    expect(webhookEventTypes()).toEqual(
+      expect.arrayContaining(privateWebhookEventTypes())
+    );
   });
 
   it("every event type has its own payload schema", () => {

@@ -1,4 +1,9 @@
-export { EVENT_TYPES, webhookEventTypes } from "./events/registry.js";
+export {
+  EVENT_TYPES,
+  privateWebhookEventTypes,
+  webhookEventName,
+  webhookEventTypes,
+} from "./events/registry.js";
 export {
   EventEnvelopeSchema,
   SocketReadySchema,
