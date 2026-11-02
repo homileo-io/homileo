@@ -3,14 +3,16 @@
 // @module-tag access
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { sessionRoom, spaceOfRoom, spaceRoom } from "../../realtime/rooms.js";
+import { editMessage, sendMessage } from "../support/messageApi.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
-import { sendMessage } from "../support/messageApi.js";
+import { drainSync, syncHead } from "../support/sync.js";
 import { startV1App } from "../support/v1App.js";
 import { v7 as uuidv7 } from "uuid";
 import {
   collect,
   eventually,
+  nextEvent,
   noEvent,
   openLocalSocket,
   request,
@@ -47,6 +49,7 @@ const serverSocket = (socket: ClientSocket, node: LocalSocketServer) => {
 const send = async (sessionId: string, who: Actor, body: string) => {
   const res = await sendMessage(sessionId, who.token, { body }, app.url);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
+  return res.body.message as { id: string };
 };
 
 /** Each `types` event `socket` receives from now on, as `[type, principalId]`, in arrival order. */
@@ -245,5 +248,120 @@ describe("startFanout losing access", () => {
     const silent = noEvent(socket, "message.created", 500);
     await send(session.id, owner, "after the removal");
     await silent;
+  });
+});
+
+describe("startFanout mentions", () => {
+  it.each([
+    ["participant of a members-only session", "members"],
+    ["member of the space of a space-access session", "space"],
+  ] as const)(
+    "stops sending message.edited to a mentioned %s who was removed, as /sync does",
+    async (_who, access) => {
+      const space = await fixtures.space({ org, visibility: "members" });
+      const session = await fixtures.session({ space, access });
+      await fixtures.member(space, owner.principal, "owner");
+      await fixtures.participant(session, owner.principal, "owner");
+      const alice = await api.actor(org);
+      await fixtures.member(space, alice.principal);
+      if (access === "members") {
+        await fixtures.participant(session, alice.principal);
+      }
+      const sent = await send(session.id, owner, `hi <@${alice.principal.id}>`);
+      const removed = await fetchJson(
+        "DELETE",
+        access === "members"
+          ? `${app.url}/v1/sessions/${session.id}/participants/${alice.principal.id}`
+          : `${app.url}/v1/spaces/${space.id}/members/${alice.principal.id}`,
+        owner.token
+      );
+      expect(removed.status, JSON.stringify(removed.body)).toBe(204);
+      const since = await syncHead(alice.token, app.url);
+      const socket = await connect(alice);
+      const silent = noEvent(socket, "message.edited", 500);
+
+      const edited = await editMessage(
+        sent.id,
+        owner.token,
+        { metadata: { tag: "after the removal" } },
+        app.url
+      );
+      expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+
+      await silent;
+      const { events } = await drainSync(alice.token, since, {}, app.url);
+      expect(events.map((e) => e.type)).not.toContain("message.edited");
+    }
+  );
+});
+
+describe("startFanout join requests", () => {
+  it("sends join_requested and join_decided to the requester and moderators, not to members or subscribers, as /sync does", async () => {
+    const space = await fixtures.space({
+      org,
+      visibility: "public",
+      joinPolicy: "request",
+    });
+    await fixtures.member(space, owner.principal, "owner");
+    const moderator = await api.actor(org);
+    const member = await api.actor(org);
+    const watcher = await api.actor(org);
+    const applicant = await api.actor(org);
+    await fixtures.member(space, moderator.principal, "moderator");
+    await fixtures.member(space, member.principal);
+    const since = await syncHead(member.token, app.url);
+    const sockets = {
+      moderator: await connect(moderator, other),
+      member: await connect(member),
+      watcher: await connect(watcher),
+      applicant: await connect(applicant, other),
+    };
+    expect(
+      await request(sockets.watcher, "subscribe", { spaceId: space.id })
+    ).toEqual(SUBSCRIBED);
+    const types = ["space.join_requested", "space.join_decided"];
+    const received = Object.fromEntries(
+      Object.entries(sockets).map(([who, socket]) => [
+        who,
+        record(socket, types),
+      ])
+    );
+    const decided = nextEvent(sockets.applicant, "space.join_decided");
+
+    const asked = await fetchJson(
+      "POST",
+      `${app.url}/v1/spaces/${space.id}/join`,
+      applicant.token
+    );
+    expect(asked.status, JSON.stringify(asked.body)).toBe(202);
+    const denied = await fetchJson(
+      "POST",
+      `${app.url}/v1/spaces/${space.id}/join-requests/${applicant.principal.id}/deny`,
+      moderator.token
+    );
+    expect(denied.status, JSON.stringify(denied.body)).toBe(200);
+
+    await decided;
+    await eventually(() => received.moderator.length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    for (const who of ["moderator", "applicant"]) {
+      expect(received[who]).toEqual([
+        ["space.join_requested", undefined],
+        ["space.join_decided", undefined],
+      ]);
+    }
+    expect(received.member).toEqual([]);
+    expect(received.watcher).toEqual([]);
+    for (const [reader, query, expected] of [
+      [member, {}, false],
+      [watcher, { spaceIds: space.id }, false],
+      [moderator, {}, true],
+    ] as const) {
+      const { events } = await drainSync(reader.token, since, query, app.url);
+      expect(
+        events.some((e) => e.type === "space.join_requested"),
+        reader.principal.id
+      ).toBe(expected);
+    }
   });
 });

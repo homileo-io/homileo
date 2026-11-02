@@ -98,7 +98,10 @@ sessions the principal participated in).
 
 On a socket and in `/sync`, an event is `{ id, type, createdAt, organizationId, spaceId,
 sessionId, actorId, payload }`, with `id` a decimal string (`src/views/event.ts`). The channel
-and the payload decide who receives it ([realtime.md](realtime.md)). Revocations are re-checked
+and the payload decide who receives it ([realtime.md](realtime.md)): `space.join_requested` and
+`space.join_decided` are channel `space` but reach only the requester and the space's moderators,
+and `session.created` and `space.created` also reach the participants or members their transaction
+adds. Revocations are re-checked
 before delivery: a socket gets one only if it really lost the resource, and `/sync` drops one when
 the reader can still read it.
 

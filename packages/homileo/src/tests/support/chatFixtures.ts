@@ -145,10 +145,16 @@ export const chatFixtures = () => {
         })
       ).map((s) => s.id)
     );
-    // Sessions a test made through the API in a fixture space count too.
+    // Sessions a test made through the API in a fixture space or organization count too.
     const owned = (
       await prisma.session.findMany({
-        where: { OR: [{ id: { in: sessions } }, { spaceId: { in: spaces } }] },
+        where: {
+          OR: [
+            { id: { in: sessions } },
+            { spaceId: { in: spaces } },
+            { organizationId: { in: organizations } },
+          ],
+        },
         select: { id: true },
       })
     ).map((s) => s.id);

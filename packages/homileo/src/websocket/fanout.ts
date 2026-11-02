@@ -1,6 +1,5 @@
 import { leaveRooms, leaveSpaceOfIfUnused, recheckSockets } from "./rooms.js";
 import type { AppRemoteSocket, AppSocket, IOServer } from "./types.js";
-import { readableSession, readableSpace } from "../utils/access.js";
 import type { ChangeEvent } from "../utils/changes.js";
 import type { Caller } from "../middleware/auth.js";
 import { NotFoundError } from "../utils/errors.js";
@@ -11,6 +10,7 @@ import { logger } from "../utils/logger.js";
 import { db } from "../utils/db/index.js";
 import {
   eventAudience,
+  foundersOf,
   mentionedMessageOf,
   targetOf,
 } from "../realtime/audience.js";
@@ -20,6 +20,12 @@ import {
   spaceRoom,
   userRoom,
 } from "../realtime/rooms.js";
+import {
+  currentMentionReaders,
+  moderatingCallers,
+  readableSession,
+  readableSpace,
+} from "../utils/access.js";
 
 /** The backstop re-check of every local socket, for access lost without an event. */
 export const SWEEP_INTERVAL_MS = 300_000;
@@ -110,14 +116,16 @@ const step = async (
   }
 };
 
-/** Stored mentions name only principals who could read the session when it was written. */
+/** The mentioned principals each message event still reaches, by message id. */
 const loadMentions = async (
   events: ChangeEvent[]
 ): Promise<Map<string, string[]>> => {
   try {
-    return await db.messages.mentionedUserIdsOf(
-      prisma,
-      events.flatMap((e) => mentionedMessageOf(e) ?? [])
+    return currentMentionReaders(
+      await db.messages.storedMentionsOf(
+        prisma,
+        events.flatMap((e) => mentionedMessageOf(e) ?? [])
+      )
     );
   } catch (err) {
     // The messages still reach their sessions' rooms; mentioned readers outside them
@@ -127,6 +135,21 @@ const loadMentions = async (
   }
 };
 
+/** The sockets in the space's room whose own caller can moderate it. */
+const moderatorSockets = async (
+  io: IOServer,
+  spaceId: string
+): Promise<string[]> => {
+  const sockets = (await socketsIn(io, [spaceRoom(spaceId)])).filter(
+    (s) => s.data?.caller
+  );
+  const can = await moderatingCallers(
+    sockets.map((s) => s.data.caller),
+    spaceId
+  );
+  return sockets.flatMap((s, i) => (can[i] ? [s.id] : []));
+};
+
 const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
   const mentions = await loadMentions(events);
 
@@ -134,7 +157,8 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
     const messageId = mentionedMessageOf(e);
     const audience = eventAudience(
       e,
-      messageId ? (mentions.get(messageId) ?? []) : []
+      messageId ? (mentions.get(messageId) ?? []) : [],
+      foundersOf(e, events)
     );
     const view = eventView(e);
 
@@ -159,8 +183,16 @@ const fanOut = async (io: IOServer, events: ChangeEvent[]): Promise<void> => {
       });
     }
 
-    // socket.io sends once per socket across the union of the rooms.
-    if (audience.rooms.length > 0) io.to(audience.rooms).emit(e.type, view);
+    let moderators: string[] = [];
+    const moderated = audience.moderators;
+    if (moderated) {
+      await step(e, "moderators", async () => {
+        moderators = await moderatorSockets(io, moderated);
+      });
+    }
+    // socket.io sends once per socket across the union of the rooms; a socket id is a room.
+    const to = [...audience.rooms, ...moderators];
+    if (to.length > 0) io.to(to).emit(e.type, view);
 
     const removed = removedFrom(e);
     const target = targetOf(e);

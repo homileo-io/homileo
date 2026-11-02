@@ -228,22 +228,39 @@ export const mentionedUserIds = async (
     })
   ).flatMap((m) => (m.userId === null ? [] : [m.userId]));
 
-/** The principals each message's stored `<@id>` mentions name, by message id, in one query. */
-export const mentionedUserIdsOf = async (
+/** A stored `<@id>` mention with what `isMentionReader` needs to judge its principal now. */
+export interface StoredMention {
+  messageId: string;
+  userId: string;
+  access: "space" | "members";
+  spaceId: string | null;
+  /** `null` when not a current participant. */
+  participantRole: ParticipantRole | null;
+  /** `null` when not a member of the session's space (or it has none). */
+  spaceRole: SpaceRole | null;
+}
+
+/** The stored `<@id>` mentions of the messages, those naming `userId` only when given, in one query. */
+export const storedMentionsOf = async (
   client: Client,
-  messageIds: string[]
-): Promise<Map<string, string[]>> => {
-  const byMessage = new Map<string, string[]>();
-  if (messageIds.length === 0) return byMessage;
-  const rows = await client.messageMention.findMany({
-    where: { messageId: { in: messageIds }, kind: "user" },
-    select: { messageId: true, userId: true },
-  });
-  for (const { messageId, userId } of rows) {
-    if (userId === null) continue;
-    byMessage.set(messageId, [...(byMessage.get(messageId) ?? []), userId]);
-  }
-  return byMessage;
+  messageIds: string[],
+  userId: string | null = null
+): Promise<StoredMention[]> => {
+  if (messageIds.length === 0) return [];
+  return client.$queryRaw<StoredMention[]>`
+    SELECT mm.message_id::text AS "messageId", mm.user_id::text AS "userId",
+      s.access::text AS access, s.space_id::text AS "spaceId",
+      sp.role::text AS "participantRole", sm.role::text AS "spaceRole"
+    FROM "chat"."message_mentions" mm
+    JOIN "chat"."sessions" s ON s.id = mm.session_id
+    LEFT JOIN "chat"."session_participants" sp
+      ON sp.session_id = mm.session_id AND sp.user_id = mm.user_id
+      AND sp.left_at IS NULL
+    LEFT JOIN "chat"."space_members" sm
+      ON sm.space_id = s.space_id AND sm.user_id = mm.user_id
+    WHERE mm.kind = 'user'
+      AND mm.message_id = ANY(${messageIds}::uuid[])
+      AND (${userId}::uuid IS NULL OR mm.user_id = ${userId}::uuid)`;
 };
 
 /** Clears the content; revisions, reactions and attachments stay. */

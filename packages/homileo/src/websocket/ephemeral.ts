@@ -142,6 +142,8 @@ const logFailure = (socket: AppSocket, event: string) => (err: unknown) => {
 /** Typing and presence: ephemeral signals that are never stored. */
 export const handleEphemeral = (socket: AppSocket): void => {
   const lastStart = new Map<string, number>();
+  // One watch at a time: each computes what to leave from the rooms the one before joined.
+  let watching: Promise<unknown> = Promise.resolve();
   const answer =
     (event: string, handler: (payload: unknown) => Promise<Ack>) =>
     (payload: unknown, ack?: unknown) => {
@@ -173,7 +175,11 @@ export const handleEphemeral = (socket: AppSocket): void => {
   );
   socket.on(
     "presence.watch",
-    answer("presence.watch", (payload) => watch(socket, payload))
+    answer("presence.watch", (payload) => {
+      const run = watching.then(() => watch(socket, payload));
+      watching = run.catch(() => undefined);
+      return run;
+    })
   );
   socket.on("disconnect", () => {
     leave(socket).catch(logFailure(socket, "disconnect"));

@@ -4,8 +4,9 @@ SyncSinceParam:
   required: false
   description: |
     The `next` of the previous `/v1/sync` response, as it was returned: an opaque cursor. Omit it
-    to get the head, the position a reader starting now begins from. A malformed cursor is
-    `400 invalid_request`.
+    to get the head, the position a reader starting now begins from. A malformed cursor, one from
+    the future, or one past what this database has issued (as after a restore onto a new cluster)
+    is `400 invalid_request`.
   schema:
     type: string
     minLength: 1

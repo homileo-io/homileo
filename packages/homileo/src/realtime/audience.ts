@@ -9,6 +9,8 @@ export interface Audience {
   recheck: string[];
   /** Sockets of these principals join `room` before the emit. */
   join: Array<{ principalId: string; room: string }>;
+  /** The space whose moderators, among the sockets in its room, also get the event. */
+  moderators: string | null;
 }
 
 /** What `isRelevantTo` knows of one reader, loaded in bulk by its caller. */
@@ -21,10 +23,11 @@ export interface ReaderFacts {
   memberOf: Set<string>;
   watchedSessions: Set<string>;
   watchedSpaces: Set<string>;
-  /** Message ids whose mentions name the reader. */
+  /** Message ids whose mentions name the reader while it is still their mention reader. */
   mentionedIn: Set<string>;
   canReadSession(id: string): boolean;
   canReadSpace(id: string): boolean;
+  canModerateSpace(id: string): boolean;
 }
 
 /**
@@ -55,6 +58,13 @@ export const SPACE_SESSION_EVENTS: readonly EventType[] = [
 export const MENTION_EVENTS: readonly EventType[] = [
   "message.created",
   "message.edited",
+  "message.deleted",
+];
+
+/** Space events only the principal they name and the space's moderators get, as over REST. */
+export const MODERATOR_EVENTS: readonly EventType[] = [
+  "space.join_requested",
+  "space.join_decided",
 ];
 
 const REVOCATIONS: readonly EventType[] = [
@@ -89,22 +99,57 @@ const audienceSpaceOf = (e: ChangeEvent): string | null =>
     : null;
 
 /**
+ * The principals the same transaction adds to the space or session a created event is
+ * about. That event is emitted before their joins, so it goes to their personal rooms.
+ */
+export const foundersOf = (e: ChangeEvent, batch: ChangeEvent[]): string[] => {
+  const added =
+    e.type === "session.created" && e.sessionId
+      ? (o: ChangeEvent) =>
+          o.type === "session.participant_added" && o.sessionId === e.sessionId
+      : e.type === "space.created" && e.spaceId
+        ? (o: ChangeEvent) =>
+            o.type === "space.member_added" && o.spaceId === e.spaceId
+        : null;
+  if (!added) return [];
+  return batch.flatMap((o) => {
+    const target = added(o) ? targetOf(o) : null;
+    return target ? [target] : [];
+  });
+};
+
+/**
  * Who receives a committed event, as rooms. `mentioned` are the principals a
- * message event mentions who may read its session. Revocations go to no room:
- * each target's sockets are re-checked and told one by one.
+ * message event mentions who are still its mention readers; `founders` those
+ * `foundersOf` finds for a created event. Revocations go to no room: each
+ * target's sockets are re-checked and told one by one.
  */
 export const eventAudience = (
   e: ChangeEvent,
-  mentioned: string[]
+  mentioned: string[],
+  founders: string[] = []
 ): Audience => {
   const target = targetOf(e);
   if (REVOCATIONS.includes(e.type)) {
-    return { rooms: [], recheck: target ? [target] : [], join: [] };
+    return {
+      rooms: [],
+      recheck: target ? [target] : [],
+      join: [],
+      moderators: null,
+    };
+  }
+  if (MODERATOR_EVENTS.includes(e.type)) {
+    return {
+      rooms: target ? [userRoom(e.organizationId, target)] : [],
+      recheck: [],
+      join: [],
+      moderators: e.spaceId,
+    };
   }
   const rooms: string[] = [];
   const join: Audience["join"] = [];
   const { channel } = EVENT_TYPES[e.type];
-
+  for (const p of founders) rooms.push(userRoom(e.organizationId, p));
   if (channel === "space" && e.spaceId) {
     rooms.push(spaceRoom(e.spaceId));
     if (e.type === "space.member_added" && target) {
@@ -126,7 +171,7 @@ export const eventAudience = (
     }
   }
   if (target) rooms.push(userRoom(e.organizationId, target));
-  return { rooms: [...new Set(rooms)], recheck: [], join };
+  return { rooms: [...new Set(rooms)], recheck: [], join, moderators: null };
 };
 
 /**
@@ -161,6 +206,9 @@ export const isRelevantTo = (e: ChangeEvent, r: ReaderFacts): boolean => {
   if (channel === "space") {
     const spaceId = e.spaceId;
     if (!spaceId || !r.canReadSpace(spaceId)) return false;
+    if (MODERATOR_EVENTS.includes(e.type) && !r.canModerateSpace(spaceId)) {
+      return false;
+    }
     return r.memberOf.has(spaceId) || r.watchedSpaces.has(spaceId);
   }
 

@@ -100,7 +100,9 @@ An edit or delete takes the message's space row, then its session row, `FOR UPDA
 on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
-(views show the last two as empty), and lowers a reply's root `reply_count`.
+(views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
+readers the message reached through a mention; `/me/mentions` and unread counts skip deleted
+messages), and lowers a reply's root `reply_count`.
 `GET /v1/messages/:id/revisions` is for the sender and for whoever can moderate the message's space: any other reader gets `403`, so a
 deleted message's text does not reach everyone in the session.
 
