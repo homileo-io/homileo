@@ -17,6 +17,8 @@ import {
   UPLOAD_URL_SECONDS,
   filesClient,
   keyPrefix,
+  releasePlaceholders,
+  reservePlaceholder,
   tereoUnavailable,
 } from "../../../../../utils/attachments.js";
 
@@ -32,6 +34,7 @@ export const createAttachment = async (req: Request, res: Response) => {
 
   const files = filesClient();
   const key = `${keyPrefix(sessionId, caller.principalId)}${uuidv7()}`;
+  await reservePlaceholder(caller.principalId, key);
   let placeholderId: string | null = null;
   try {
     const placeholder = await files.uploadObject(ATTACHMENTS_BUCKET, key, {
@@ -55,6 +58,7 @@ export const createAttachment = async (req: Request, res: Response) => {
       expiresAt: upload.expiresAt,
     });
   } catch (err) {
+    await releasePlaceholders(caller.principalId, [key]);
     if (placeholderId) {
       const objectId = placeholderId;
       await files.deleteObject(ATTACHMENTS_BUCKET, objectId).catch((e) => {

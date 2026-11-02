@@ -14,9 +14,35 @@ describe("POST /v1/sessions/:sessionId/attachments body", () => {
     ["a control character", { filename: "a\nb", contentType: "t/p" }],
     ["no contentType", { filename: "a.txt" }],
     ["an empty contentType", { filename: "a.txt", contentType: "" }],
+    ...[
+      "text",
+      "text/",
+      "/html",
+      "text/html/x",
+      "text/html\r\nX-Evil: 1",
+      "text/html; charset",
+      "<script>/x",
+      "text /html",
+    ].map((contentType): [string, Record<string, unknown>] => [
+      `the contentType ${JSON.stringify(contentType)}`,
+      { filename: "a.txt", contentType },
+    ]),
     ["an unknown key", { filename: "a", contentType: "t/p", x: 1 }],
   ])("rejects %s", (_name, body) => {
     expect(CreateAttachmentBodySchema.safeParse(body).success).toBe(false);
+  });
+
+  it.each([
+    "application/pdf",
+    "image/svg+xml",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain; charset=utf-8",
+    'multipart/mixed; boundary="a b"',
+  ])("accepts the content type %s", (contentType) => {
+    expect(
+      CreateAttachmentBodySchema.safeParse({ filename: "a", contentType })
+        .success
+    ).toBe(true);
   });
 
   it("accepts a filename and content type", () => {

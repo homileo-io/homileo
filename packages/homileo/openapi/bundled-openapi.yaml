@@ -1570,7 +1570,15 @@ paths:
         Creates an empty placeholder object in tereo's `homileo-attachments` bucket, under
         `sessions/<sessionId>/<principalId>/<id>`, and returns a presigned URL to `PUT` the file
         to (valid 15 minutes). Name the returned `objectId` in `attachments` when sending a
-        message. A placeholder no message claims is removed by tereo after 24 hours.
+        message. A placeholder no message claims is removed by tereo after 24 hours. A caller may
+        hold `ATTACHMENT_MAX_PENDING` (50 by default) placeholders that no message has claimed;
+        one more is `409 too_many_pending_attachments`.
+
+        `contentType` must be a media type (`type/subtype`, optional `; name=value` parameters).
+        tereo's storage serves the file with it as given, unchecked against the bytes, so do not
+        render an attachment inline as HTML or script from its download URL. The worker removes a
+        file the upload URL refilled past `ATTACHMENT_MAX_BYTES` after the send; its download is
+        then `404`.
 
         Checked as sending is: the caller must be a participant (`403 not_a_participant`) and,
         where posting is restricted to moderators, able to moderate (`403 posting_restricted`); an
@@ -4198,6 +4206,8 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: ^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}(?:[ \t]*;[ \t]*[A-Za-z0-9!#$&^_.+-]+=(?:[A-Za-z0-9!#$&^_.+-]+|"[^"\\\r\n]*"))*$
+          description: A media type, as `image/png` or `text/plain; charset=utf-8`
     CreateAttachmentResponse:
       type: object
       required:

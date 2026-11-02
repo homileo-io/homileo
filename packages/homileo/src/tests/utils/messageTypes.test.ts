@@ -3,6 +3,7 @@
 // @module-tag messages
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { provision } from "../../utils/provisioning/index.js";
+import { MAX_ISSUE_CHARS } from "../../utils/validateReq.js";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { prisma } from "../../utils/db/prisma.js";
 import { tmpdir } from "os";
@@ -131,6 +132,27 @@ describe("validatePayload", () => {
       expect(issues.length).toBeLessThanOrEqual(MAX_PAYLOAD_ISSUES);
     }
   );
+
+  it("truncates each issue's path, which holds the payload's own keys", async () => {
+    await provisionWith({
+      type: "object",
+      additionalProperties: { type: "number" },
+    });
+    const payload = Object.fromEntries(
+      Array.from({ length: 30 }, (_, i) => [`${i}${"k".repeat(60_000)}`, "x"])
+    );
+
+    const failure = await prisma
+      .$transaction((tx) => validatePayload(TYPE, payload, tx))
+      .catch((err: unknown) => err as { details: { issues: unknown[] } });
+
+    expect(failure).toMatchObject({ code: "invalid_payload" });
+    const { issues } = (failure as { details: { issues: unknown[] } }).details;
+    expect(issues.length).toBeLessThanOrEqual(MAX_PAYLOAD_ISSUES);
+    expect(JSON.stringify(issues).length).toBeLessThan(
+      MAX_PAYLOAD_ISSUES * 2 * (MAX_ISSUE_CHARS + 50)
+    );
+  });
 
   it("refuses a payload on the built-in text type", async () => {
     await expect(

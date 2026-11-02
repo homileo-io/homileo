@@ -18,6 +18,7 @@ import {
 import {
   attachMessageFiles,
   keepAttachments,
+  releasePlaceholders,
   resolveAttachments,
   type AttachmentRef,
 } from "../../../../../utils/attachments.js";
@@ -161,6 +162,7 @@ export const sendMessage = async (req: Request, res: Response) => {
         mentions.readers.map((p) => p.id),
         mentions
       );
+      await db.messages.recordEverMentioned(tx, row.id, mentions.mentionedIds);
       await notifyMentioned(tx, {
         organizationId: session.organizationId,
         senderId: caller.principalId,
@@ -214,6 +216,12 @@ export const sendMessage = async (req: Request, res: Response) => {
 
   // Again on a repeat: the first send's keep may have failed, or never run.
   await keepAttachments(outcome.keep);
+  if (outcome.created) {
+    await releasePlaceholders(
+      caller.principalId,
+      attachments.map((a) => a.object!.key)
+    );
+  }
   if (!outcome.created) {
     throw new AppError(
       409,

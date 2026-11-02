@@ -40,7 +40,9 @@ treated as the built-in kind, and a warning is logged. A retired kind stays read
 ## Errors
 
 The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. Validation is
-`400 invalid_request` with `issues: [{ path, message }]`. Codes:
+`400 invalid_request` with `issues: [{ path, message }]`: at most 20 issues, each path and message
+cut to 256 characters, and `error_description` lists those and how many more there were
+(`utils/validateReq.ts`). `400 invalid_payload` lists at most 20, cut the same way. Codes:
 
 | Status | Code |
 |---|---|
@@ -48,7 +50,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `version_conflict` (a concurrent write conflict, deadlock or serialization failure; re-read and retry) |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`, `too_many_pending_attachments` (the caller holds `ATTACHMENT_MAX_PENDING` placeholders no message has claimed), `version_conflict` (a concurrent write conflict, deadlock or serialization failure; re-read and retry) |
 | 410 | `resync_required` |
 | 413 | `payload_too_large` (the body is over the route's size limit) |
 | 500 | `server_error` |
@@ -80,13 +82,16 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
-| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the most block quotes and list items any line so far could have opened, from its markers and two columns of indent per level, since blank and lazy lines keep them open); past any of these it is read as plain text |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the block quotes and list items that may be open after it: a blank line keeps them all, a line after a blank one keeps only those its markers and indent can continue (two columns per list level), and any other line may continue them lazily; a line that may be lazy also counts its paragraph's lines so far over 10, since micromark walks back over the paragraph on each one; the lines inside a fenced code block at the top level count 1 each and no markup; `\r\n` is one line ending); past any of these it is read as plain text |
 | message `payload` | 64 KiB serialized, nested at most 32 arrays and objects deep |
 | `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON nested at most 32 arrays and objects deep |
 | `clientMessageId` | 1 to 128 characters |
 | `emoji` | 1 to 64 characters |
 | attachments per message | 10 |
-| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`); tereo's own upload limit is not checked |
+| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`) and again by the keep run once the write URL has expired (see decision 11); tereo's own upload limit is not checked |
+| pending attachments | `ATTACHMENT_MAX_PENDING` (50 by default) placeholders per principal that no message has claimed and that have not expired (`409 too_many_pending_attachments`) |
+| attachment `contentType` | a media type, `type/subtype` with optional `; name=value` parameters, at most 255 characters |
+| mention emails | 25 per send or edit, to the first readers mentioned; and one per sender and reader per `MENTION_EMAIL_COOLDOWN_SECONDS` (60 by default) |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
 
 ## JSON shapes
@@ -130,7 +135,9 @@ An edit or delete takes the message's space row `FOR SHARE`, then its session ro
 the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
 on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
-a mention and adding it back sends nothing); a `metadata`-only
+a mention and adding it back sends nothing). Every principal a revision mentions, reader or not, is
+added to `message_ever_mentions` when the revision is written, so an edit looks them up there and
+never reads or parses the earlier revisions; its cost does not grow with their number; a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, empties `metadata` (to `{}`), keeps revisions, reactions and attachments
 (views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
@@ -143,9 +150,7 @@ A message body is parsed once, before the transaction, for its mentions and its 
 (`utils/markdown.ts`, `utils/mentions.ts`). A send first checks, without a lock, that the caller
 reads the session and may post in it, and an edit that the caller may edit the message, so a
 caller refused either way costs no parse and no tereo call; the transaction checks both again under
-its locks. An edit also parses the earlier revisions that hold a mention before the transaction,
-for the same Markdown-aware mentions the send stored (only a revision stored meanwhile is parsed
-under the lock). Only a body within all four parse limits (see
+its locks. Only a body within all four parse limits (see
 [Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
 while past them micromark can take minutes or overflow the stack. Any other body is accepted and
 read as plain text: mentions count everywhere outside fenced code blocks and single-line code
@@ -209,7 +214,7 @@ documented oracle (see [access.md](access.md)).
 | `DELETE /sessions/:sessionId/participants/:principalId` | `canLeaveSession` (self, even when archived or no longer readable) or `canRemoveParticipant` (a space moderator need not read the session) | `403`, `404`, `409 resource_archived` (someone else, in an archived session or space) | `session.participant_removed`, `session.access_revoked` |
 | `PUT /sessions/:sessionId/read` | participant | `403 not_a_participant` | `read.updated` |
 | `PUT /sessions/:sessionId/notify` | participant, even one who can no longer read the session | `403 not_a_participant` (also when a leave commits first) | |
-| `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
+| `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `409 too_many_pending_attachments`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
 
@@ -260,7 +265,10 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   records no `read.updated`.
 - **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session (see
   [access.md](access.md)) and emailed through `core.outbox.notify` unless their `notify` is `none`
-  or they are the sender or a bot. A reply makes its sender a follower and creates a following row
+  or they are the sender or a bot. A send or edit emails at most 25 readers, the first it mentions,
+  and a sender's mention emails a reader at most once per `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis
+  key per sender and reader; without Redis the cooldown is skipped, and a rolled-back send still
+  starts it). The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
   for the root's sender if none exists; an existing row (an unfollow) is left alone.
   `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
   no email.
@@ -272,8 +280,16 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   fails or never runs, a repeat of the send with the same `clientMessageId` (`409
   duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
   every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
-  Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
-  returns a presigned read URL. A tereo failure on these routes, other than a 404, is
+  Unreferenced placeholders expire by themselves. A principal may hold `ATTACHMENT_MAX_PENDING`
+  placeholders that no message has claimed (counted in Redis until a send claims one or it
+  expires); past that the request is `409 too_many_pending_attachments`, and without Redis `503`.
+  The write URL stays valid for 15 minutes, so the bytes can change after the send: the keep run
+  looks at an attachment only once that URL has expired (16 minutes after it was stored), and
+  deletes the tereo object if it is now larger than `ATTACHMENT_MAX_BYTES`. The message keeps
+  listing the attachment as sent; its read URL answers `404`. `GET /v1/messages/:messageId/attachments/:attachmentId`
+  returns a presigned read URL. tereo's storage serves the object with the content type the
+  placeholder was made with (the uploader's claim: nothing checks it against the bytes), so a client
+  should not render an attachment inline as HTML or script from that URL. A tereo failure on these routes, other than a 404, is
   `503 temporarily_unavailable`.
 - **12. Unknown resources.** An id that does not parse as a UUID is `400 invalid_request`; a
   well-formed id the caller cannot read is `404`. Ids from a request are lower-cased at parse time.

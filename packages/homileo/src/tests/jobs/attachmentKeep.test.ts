@@ -2,15 +2,19 @@
 // @module-tag messages
 // @module-tag job
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PLACEHOLDER_TTL_MS } from "../../utils/attachments.js";
 import { setFilesClient } from "../../utils/attachments.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { fakeFiles } from "../support/fakeFiles.js";
 import { prisma } from "../../utils/db/prisma.js";
+import env from "../../env.js";
 import {
   KEEP_GRACE_MS,
   processAttachmentKeeps,
 } from "../../jobs/attachmentKeep.js";
+import {
+  PLACEHOLDER_TTL_MS,
+  UPLOAD_URL_SECONDS,
+} from "../../utils/attachments.js";
 
 const fixtures = chatFixtures();
 const files = fakeFiles();
@@ -23,9 +27,12 @@ afterEach(() => {
 afterAll(() => fixtures.cleanup());
 
 /** An attachment row whose object still expires, as a send whose keep failed leaves it. */
-const expiring = async () => {
+const expiring = async (sizeBytes?: string) => {
   const message = await fixtures.message("text");
-  const object = files.put(`sessions/${message.sessionId}/x/${message.id}`);
+  const object = files.put(
+    `sessions/${message.sessionId}/x/${message.id}`,
+    sizeBytes
+  );
   await prisma.attachment.create({
     data: {
       messageId: message.id,
@@ -87,6 +94,21 @@ describe("processAttachmentKeeps", () => {
     await processAttachmentKeeps(from, later());
 
     expect(files.objects.get(kept.object.id)!.deleteAfter).toBeNull();
+  });
+
+  it("removes an object refilled past ATTACHMENT_MAX_BYTES after its send", async () => {
+    const from = new Date(Date.now() - 1);
+    const big = await expiring(String(env.ATTACHMENT_MAX_BYTES + 1));
+    const fits = await expiring(String(env.ATTACHMENT_MAX_BYTES));
+
+    await processAttachmentKeeps(from, later());
+
+    expect(files.objects.has(big.object.id)).toBe(false);
+    expect(files.objects.get(fits.object.id)!.deleteAfter).toBeNull();
+  });
+
+  it("waits until the placeholder's write URL has expired", () => {
+    expect(KEEP_GRACE_MS).toBeGreaterThan(UPLOAD_URL_SECONDS * 1000);
   });
 
   it("looks back no further than a placeholder lives", async () => {

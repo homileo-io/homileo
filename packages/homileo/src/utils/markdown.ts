@@ -19,8 +19,15 @@ export const PARSE_MAX_MARKUP = 500;
 export const PARSE_MAX_DEPTH = 100;
 export const PARSE_MAX_WORK = 50_000;
 
+/**
+ * Lines of paragraph per unit of work a lazy line costs: micromark walks back
+ * over the whole paragraph on each one, so a run of them costs its square.
+ */
+export const LAZY_LINES_PER_WORK = 10;
+
 const INLINE_MARKUP = new Set(["*", "_", "~", "[", "]"]);
 const BLOCK_START = new Set(["#", "=", "-", "`", "~", "*", "_", "<"]);
+const FENCE = /^(`{3,}|~{3,})(.*)$/;
 
 const isDigit = (code: number) => code >= 48 && code <= 57;
 const endsMarker = (s: string, i: number) =>
@@ -31,20 +38,19 @@ const endsMarker = (s: string, i: number) =>
   s[i] === "\r";
 
 /**
- * Block-quote and list markers opening the line at `i`, the columns of its
- * leading indent (tabs to stops of 4), and where the markers end.
+ * Block-quote and list markers opening the line at `i`, the columns of
+ * whitespace before and between them (a tab as 4), and where they end.
  */
 const lineMarkers = (
   s: string,
   i: number
-): [count: number, indent: number, end: number] => {
+): [count: number, columns: number, end: number] => {
   let count = 0;
-  let indent = 0;
-  for (; s[i] === " " || s[i] === "\t"; i++) {
-    indent = s[i] === "\t" ? indent + 4 - (indent % 4) : indent + 1;
-  }
+  let columns = 0;
   for (;;) {
-    while (s[i] === " " || s[i] === "\t") i++;
+    for (; s[i] === " " || s[i] === "\t"; i++) {
+      columns += s[i] === "\t" ? 4 : 1;
+    }
     if (s[i] === ">") {
       count++;
       i++;
@@ -65,23 +71,30 @@ const lineMarkers = (
       i = j + 1;
       continue;
     }
-    return [count, indent, i];
+    return [count, columns, i];
   }
+};
+
+const lineEnd = (s: string, i: number): number => {
+  while (i < s.length && s[i] !== "\n" && s[i] !== "\r") i++;
+  return i;
 };
 
 export interface Markup {
   /**
    * An upper bound on the constructs that make micromark slow: container
    * markers, lines that may start a heading, fence, thematic break or HTML
-   * block, and emphasis, strikethrough, link and image delimiters.
+   * block, and emphasis, strikethrough, link and image delimiters. The lines
+   * of a top-level fenced code block count none.
    */
   count: number;
   /** The most block-quote and list markers opening one line. */
   depth: number;
   /**
-   * An upper bound on micromark's container checks. Every line re-checks each
-   * container still open, and blank and lazy lines keep them open, so each
-   * line counts the most containers any line so far could have opened.
+   * An upper bound on micromark's container checks and lazy-line walks. Each
+   * line counts 1 plus the containers that may be open after it, and a line
+   * that may continue a paragraph lazily also counts the paragraph's lines
+   * over `LAZY_LINES_PER_WORK`.
    */
   work: number;
 }
@@ -89,26 +102,85 @@ export interface Markup {
 export const measureMarkup = (markdown: string): Markup => {
   const markup: Markup = { count: 0, depth: 0, work: 0 };
   let open = 0;
+  // Non-blank lines since the last blank one: what a lazy line walks back over.
+  let paragraph = 0;
+  // No paragraph is open: the line cannot be lazy, so it closes any container it does not continue.
+  let afterBlank = true;
+  // An HTML block can hide a fence line and span blank lines; a definition's title can span lines.
+  let mayBeHtml = false;
+  let mayBeDefinition = false;
+  // The opening run of the top-level fenced code block the line is in.
+  let fence: string | null = null;
   let i = 0;
   while (i < markdown.length) {
-    const [markers, indent, end] = lineMarkers(markdown, i);
+    const [markers, columns, end] = lineMarkers(markdown, i);
+    const stop = lineEnd(markdown, end);
+    const text = markdown.slice(end, stop);
+    i =
+      markdown[stop] === "\r" && markdown[stop + 1] === "\n"
+        ? stop + 2
+        : stop + 1;
+    markup.work += 1;
+
+    if (fence !== null) {
+      // At the top level only the closing line ends the block.
+      const close = markers === 0 && columns <= 3 ? FENCE.exec(text) : null;
+      if (
+        close &&
+        close[1]![0] === fence[0] &&
+        close[1]!.length >= fence.length &&
+        close[2]!.trim() === ""
+      ) {
+        fence = null;
+        afterBlank = true;
+        markup.count++;
+      }
+      continue;
+    }
+
     markup.count += markers;
     markup.depth = Math.max(markup.depth, markers);
-    // A nested list item needs at least two columns of indent per level.
-    open = Math.max(open, markers + Math.floor(indent / 2));
-    markup.work += 1 + open;
-    i = end;
-    if (i < markdown.length && BLOCK_START.has(markdown[i]!)) markup.count++;
-    while (
-      i < markdown.length &&
-      markdown[i] !== "\n" &&
-      markdown[i] !== "\r"
-    ) {
-      if (INLINE_MARKUP.has(markdown[i]!)) markup.count++;
-      else if (markdown[i] === "!" && markdown[i + 1] === "[") markup.count++;
-      i++;
+    if (markers === 0 && text.trim() === "") {
+      markup.work += open;
+      paragraph = 0;
+      afterBlank = true;
+      continue;
     }
-    i++;
+
+    // New containers need markers; a continued list item needs two columns of indent.
+    const reach = Math.min(open + markers, markers + Math.floor(columns / 2));
+    if (afterBlank) {
+      open = reach;
+    } else {
+      // A line of markers is lazy too when they cannot interrupt a paragraph ("2. b").
+      if (open > 0 || markers > 0) {
+        markup.work += Math.ceil(paragraph / LAZY_LINES_PER_WORK);
+      }
+      open = Math.max(open, reach);
+    }
+    markup.work += open;
+    paragraph++;
+
+    if (text[0] === "<") mayBeHtml = true;
+    if (text[0] === "[") mayBeDefinition = true;
+    const opening =
+      open === 0 &&
+      columns <= 3 &&
+      !mayBeHtml &&
+      (afterBlank || !mayBeDefinition)
+        ? FENCE.exec(text)
+        : null;
+    if (opening && !(opening[1]![0] === "`" && opening[2]!.includes("`"))) {
+      fence = opening[1]!;
+      paragraph = 0;
+    }
+    afterBlank = false;
+
+    if (BLOCK_START.has(text[0]!)) markup.count++;
+    for (let k = 0; k < text.length; k++) {
+      if (INLINE_MARKUP.has(text[k]!)) markup.count++;
+      else if (text[k] === "!" && text[k + 1] === "[") markup.count++;
+    }
   }
   return markup;
 };

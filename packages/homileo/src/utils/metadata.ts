@@ -24,12 +24,20 @@ export const boundedJson = () =>
     })
     .pipe(z.json());
 
-/** A flat object of at most 50 keys and 16 KiB serialized; values may be any JSON. */
+/**
+ * A flat object of at most 50 keys and 16 KiB serialized; values may be any
+ * JSON. The keys are counted first, so a body of thousands of bad keys gets
+ * one issue, not one per key.
+ */
 export const metadataSchema: z.ZodType<Record<string, unknown>> = z
-  .record(z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/), boundedJson())
+  .record(z.string(), z.unknown())
   .refine((m) => Object.keys(m).length <= METADATA_MAX_KEYS, {
     message: `At most ${METADATA_MAX_KEYS} keys`,
+    abort: true,
   })
+  .pipe(
+    z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/), boundedJson())
+  )
   .refine((m) => Buffer.byteLength(JSON.stringify(m)) <= METADATA_MAX_BYTES, {
     message: "At most 16 KiB serialized",
   });
