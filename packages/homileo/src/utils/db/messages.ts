@@ -296,6 +296,8 @@ export const markDeleted = (
       metadata: {},
       deletedAt: at,
       deletedBy: by,
+      // The view drops the reactions, so their version moves on.
+      reactionSeq: { increment: 1 },
     },
   });
 

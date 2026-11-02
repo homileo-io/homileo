@@ -3,9 +3,9 @@
 // @module-tag events
 import { deleteMessage, sendMessage } from "../support/messageApi.js";
 import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
+import { drainSync, syncHead, syncTail } from "../support/sync.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
-import { drainSync, syncHead } from "../support/sync.js";
 import { startV1App } from "../support/v1App.js";
 import {
   collect,
@@ -183,7 +183,12 @@ describe("startFanout", () => {
         id: sent.id,
         body: null,
       });
-      const { events } = await drainSync(mentioned.token, since, {}, app.url);
+      const { events } = await drainSync(
+        mentioned.token,
+        since,
+        { until: await syncTail() },
+        app.url
+      );
       expect(events.map((e) => e.type)).toEqual([
         "message.created",
         "message.deleted",

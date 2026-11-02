@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   JoinRequestSchema,
   MessageSchema,
+  ReactionSummarySchema,
   ParticipantSchema,
   SessionSchema,
   SpaceMemberSchema,
@@ -35,6 +36,9 @@ const Reaction = z.strictObject({
   messageId: Id,
   principalId: Id,
   emoji: z.string(),
+  /** The message's whole summary after this change, as REST answers it. */
+  reactions: z.array(ReactionSummarySchema),
+  reactionSeq: MessageSchema.shape.reactionSeq,
 });
 
 export const EVENT_TYPES = {

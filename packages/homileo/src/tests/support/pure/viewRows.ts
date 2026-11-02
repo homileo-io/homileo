@@ -68,6 +68,7 @@ export const messageRow = {
   replyCount: 0,
   lastReplyAt: null,
   revision: 1,
+  reactionSeq: 3n,
   createdAt: at,
   editedAt: null,
   deletedAt: null,

@@ -140,7 +140,27 @@ have no id (they are not part of `/sync`):
   `subscribe` other than by `unsubscribe`: a re-check found it can no longer read the resource,
   or a removal left the room (see [Losing access](#losing-access)). The subscription is gone; to
   follow the resource again the client subscribes again. A `subscribe` whose own re-check drops
-  the room answers `not_found` instead.
+  the room answers `not_found` instead. `@homileo-io/sdk` exports its schema as
+  `SocketUnsubscribedSchema` (and `ready`'s as `SocketReadySchema`).
+
+## Reactions
+
+A message's reactions have a version, `reactionSeq`: every reaction added or removed, and the
+message's delete, raises it by one under the session lock. Each message view carries `reactions`
+with its `reactionSeq`, and each `reaction.added` and `reaction.removed` carries the message's
+whole summary after the change (`reactions`) with its `reactionSeq`, as the reaction routes answer
+it. **A client keeps, per message, the summary with the highest `reactionSeq` it has seen**, from
+a REST view, a reaction route's answer, a message event or a reaction event, and ignores one whose
+`reactionSeq` is not above the one it holds. The message's other fields come from its latest view
+as usual.
+
+The rule is needed because no order of delivery is promised to agree with the lock order the
+summaries were built in. `/sync` returns events in transaction-id order, and a transaction takes
+its id when it first locks the space, before it waits for the session lock: an edit may hold the
+lower id while a reaction gets the session lock first, so the edit's view, which already counts
+the reaction, comes before the reaction's event. Two reactions can cross the same way. Each
+summary is exact for its `reactionSeq`, so keeping the highest ends at the state REST shows,
+whatever order the events arrive in. Applying reaction events as deltas would not.
 
 ## The audience rule
 
@@ -297,11 +317,10 @@ the catch-up must reach). It answers
   body, payload, revision and attachments as they stand when the page is read. A deleted
   message's events all carry its deleted view (no body, payload or attachments); an edited
   message's events all carry the latest revision, never an earlier one, so earlier text stays
-  limited to `/revisions`. **`reactions` is the exception:** it keeps the summary stored with the
-  event, because the `reaction.added` and `reaction.removed` events after it in the log are deltas
-  from that summary. A client that applies the events in order (a message event setting the
-  summary, each reaction event adding or removing one) ends at the count REST returns; an
-  overlaid current summary would count each later reaction twice. Ids, order, types and the
+  limited to `/revisions`. **`reactions` and `reactionSeq` are the exception:** they keep the pair
+  stored with the event, exact for each other, except that a deleted message's events carry its
+  view's (no reactions, its final `reactionSeq`). A client applies them by the rule in
+  [Reactions](#reactions). Ids, order, types and the
   cursor are unchanged. The current rows are loaded once per page. A message row that no longer
   exists drops its events from the page (Homileo never removes message rows, so this is defensive).
   Live socket events keep the view as of their commit, which is current when they are sent.
@@ -341,9 +360,11 @@ socket.on("ready", async ({ until }) => {
     for (;;) {
       const page = await sync({ since: cursor, until, sessionIds, spaceIds });
       page.events.forEach(apply);
+      const advanced = page.next !== cursor;
       cursor = page.next;
       if (!page.hasMore) break;
-      if (page.events.length === 0) await sleep(100 + Math.random() * 150);
+      // An empty page that advanced is a scan cut short: go on at once.
+      if (!advanced) await sleep(100 + Math.random() * 150);
     }
   } catch (e) {
     if (e.status === 410) return reloadEverything(); // resync_required
@@ -360,7 +381,8 @@ const apply = (e) => {
 ```
 
 Pass the subscribed resources in `sessionIds`/`spaceIds` so `/sync` covers what they missed. An
-empty page with `hasMore` means an older transaction is still open: back off briefly and call
-again. After a long gap, or on `410`,
+empty page with `hasMore` is normal: a page stops after scanning 5000 rows, matching or not.
+Only a page whose `next` is the cursor sent made no progress (an older transaction is still
+open, or `until` is not reached yet): back off briefly then, and call again at once otherwise. After a long gap, or on `410`,
 reload state from the REST routes instead. Events pushed on the socket carry no cursor; keep the
 `next` from `/sync`, since socket events do not advance it.

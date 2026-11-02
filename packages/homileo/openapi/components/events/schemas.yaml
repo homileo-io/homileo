@@ -8,7 +8,8 @@ EventEnvelope:
     From `GET /v1/sync`, an event whose payload holds a message view (`message.created`,
     `message.edited`, `message.deleted`) carries the message's current view in place of the one
     stored at commit, built as `GET /v1/messages/{messageId}` builds it, so every event of one
-    message agrees with the others; a socket event carries the view as of its commit. Every other
+    message agrees with the others, except for `reactions` and `reactionSeq`, which stay as stored
+    (see `ReactionSeq`); a socket event carries the view as of its commit. Every other
     payload is as it was at commit. See docs/realtime.md, *GET /v1/sync*.
   required: [id, type, createdAt, organizationId, spaceId, sessionId, actorId, payload]
   additionalProperties: false
@@ -75,4 +76,5 @@ SyncResponse:
       type: boolean
       description: |
         Whether events remain past `next`, or, with `until`, transactions older than it are still
-        running; call again with it until this is false
+        running; call again with it until this is false. An empty page with `hasMore` is normal
+        (a page stops after scanning 5000 rows); back off only when `next` equals the `since` sent

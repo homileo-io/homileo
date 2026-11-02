@@ -6,7 +6,8 @@
       The events the caller would have received on the socket after `since`, with the same ids, in
       commit order. A client calls it on reconnect, with the socket already connected and
       buffering, passing as `until` the position the socket's `ready` event (and its `subscribe`
-      acks) gave, until `hasMore` is false; then it applies the buffered socket events, skipping
+      acks) gave, until `hasMore` is false, backing off briefly only after a page whose `next` is
+      the cursor it sent (an empty page that advanced is normal: go on at once); then it applies the buffered socket events, skipping
       ids it has seen. Without `since` it returns no events and the head as `next`.
 
       Events are read only from transactions older than every one still running on the database
@@ -34,9 +35,10 @@
       `message.created`, `message.edited` and `message.deleted` carry the message's **current**
       view, as `GET /v1/messages/{messageId}` returns it when the page is read, not the view stored
       at the event: every event of a deleted message carries its deleted view, and every event of
-      an edited one its latest revision. The exception is `reactions`, which keeps the summary
-      stored with the event: the page's later `reaction.added` and `reaction.removed` events are
-      deltas from it, so applying the events in order ends at the REST count. The cursor is not
+      an edited one its latest revision. The exception is `reactions` with `reactionSeq`, which keep
+      the pair stored with the event (a deleted message's are its view's: none). Every reaction
+      event carries the message's whole summary and `reactionSeq` too; a client keeps the summary
+      with the highest `reactionSeq`, so it converges whatever order the events arrive in. The cursor is not
       signed; because of this and the rule above, a made-up cursor reveals nothing the REST
       routes do not.
 

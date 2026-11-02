@@ -58,8 +58,9 @@ const messageIdOf = (e: EventRow): string | null => {
 /**
  * Replaces each message event's stored view with the message's view now, as
  * REST builds it, so the log never replays text a delete or edit replaced.
- * The stored reaction summaries stay: the page's later `reaction.*` events are
- * deltas from them. An event whose message row is gone is dropped.
+ * The stored `reactions` and `reactionSeq` stay, as the exact pair read under
+ * the session lock, unless the message is deleted: its view's empty summary is
+ * final. An event whose message row is gone is dropped.
  */
 const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
   const ids = unique(rows.flatMap((r) => messageIdOf(r) ?? []));
@@ -73,12 +74,21 @@ const withCurrentMessages = async (rows: EventRow[]): Promise<EventRow[]> => {
     const id = messageIdOf(r);
     const view = id ? views.get(id) : undefined;
     if (!view) return [];
-    const stored = (r.payload as { message?: { reactions?: unknown } }).message
-      ?.reactions;
-    const message = {
-      ...view,
-      reactions: Array.isArray(stored) ? stored : view.reactions,
-    };
+    const stored = (
+      r.payload as {
+        message?: { reactions?: unknown; reactionSeq?: unknown };
+      }
+    ).message;
+    const message =
+      view.deletedAt === null &&
+      Array.isArray(stored?.reactions) &&
+      typeof stored.reactionSeq === "number"
+        ? {
+            ...view,
+            reactions: stored.reactions,
+            reactionSeq: stored.reactionSeq,
+          }
+        : view;
     return [{ ...r, payload: { ...(r.payload as object), message } }];
   });
 };

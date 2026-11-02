@@ -36,6 +36,11 @@ export const MessageSchema = z.strictObject({
   deletedBy: Id.nullable(),
   attachments: z.array(AttachmentSchema),
   reactions: z.array(ReactionSummarySchema),
+  /**
+   * The reactions' version: every change to them, delete included, raises it by one. Of two
+   * summaries of a message, from views or reaction events, the higher `reactionSeq` is newer.
+   */
+  reactionSeq: z.number().int().nonnegative(),
 });
 
 export const MessageRevisionSchema = z.strictObject({

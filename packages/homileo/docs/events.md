@@ -39,7 +39,7 @@ Payloads (strict objects; resource shapes are the SDK's `SpaceSchema`, `SessionS
 | `session.participant_added`                              | `{ sessionId, participant }`                                                           |
 | `session.participant_removed`                            | `{ sessionId, principalId }`                                                           |
 | `message.created`, `message.edited`, `message.deleted`   | `{ message }`                                                                          |
-| `reaction.added`, `reaction.removed`                     | `{ sessionId, messageId, principalId, emoji }`                                         |
+| `reaction.added`, `reaction.removed`                     | `{ sessionId, messageId, principalId, emoji, reactions, reactionSeq }`: the message's whole summary after the change, and its version |
 | `thread.updated`                                         | `{ sessionId, rootId, replyCount, lastReplyAt }`                                       |
 | `read.updated`                                           | `{ principalId, sessionId, threadRootId, lastReadSeq }`                                |
 | `space.access_revoked`                                   | `{ principalId, spaceId }`                                                             |
@@ -49,6 +49,11 @@ The stored `{ message }` is the view at commit, and sockets and webhooks deliver
 `/sync` instead returns each message event with the message's current view, as REST shows it now
 (a deleted message's deleted view, an edited one's latest revision): see
 [realtime.md](realtime.md#get-v1sync).
+
+Reaction state converges by `reactionSeq`, not by applying reaction events as deltas: a client
+keeps the summary with the highest `reactionSeq`, from any message view or reaction event (see
+[realtime.md](realtime.md#reactions)). A webhook consumer does the same, since deliveries are not
+ordered either.
 
 `message.created` and `message.deleted` of a reply are recorded before the reply's `thread.updated`,
 so a consumer never sees a `replyCount` for a reply it has not received.
