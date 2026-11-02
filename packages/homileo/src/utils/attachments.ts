@@ -6,6 +6,7 @@ import type { CoreClient } from "@tereo-io/sdk";
 import type { Prisma } from "./db/prisma.js";
 import { getTereo } from "./tereo.js";
 import { logger } from "./logger.js";
+import env from "../env.js";
 
 export type FilesClient = Pick<
   CoreClient["files"],
@@ -79,7 +80,8 @@ const notFound = () =>
 
 /**
  * Inserts the message's attachment rows. Each object must live under this
- * session and sender's key prefix, be uploaded, and not be on another message.
+ * session and sender's key prefix, be uploaded, be at most
+ * `ATTACHMENT_MAX_BYTES`, and not be on another message.
  */
 export const attachMessageFiles = async (
   tx: Prisma.TransactionClient,
@@ -112,6 +114,12 @@ export const attachMessageFiles = async (
       throw new BadRequestError(
         "attachment_not_uploaded",
         "An attachment has no content yet; upload it before sending"
+      );
+    }
+    if (BigInt(object.sizeBytes) > BigInt(env.ATTACHMENT_MAX_BYTES)) {
+      throw new BadRequestError(
+        "attachment_too_large",
+        `An attachment is larger than ${env.ATTACHMENT_MAX_BYTES} bytes`
       );
     }
     const named = object.metadata?.filename;

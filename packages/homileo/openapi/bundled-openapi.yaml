@@ -1248,8 +1248,8 @@ paths:
           session or space is `409 resource_archived`.
         - A provisioned `type` must be declared and not retired (`400 message_type_not_found`), and
           its `payload` must match the type's schema (`400 invalid_payload`, with `issues`).
-        - `attachments` name up to 10 uploaded files (`400 attachment_not_found`,
-          `400 attachment_not_uploaded`); they are kept once the message is sent.
+        - `attachments` name up to 10 uploaded files of at most `ATTACHMENT_MAX_BYTES` each
+          (`400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`); they are kept once the message is sent.
         - A reply's root must be a top-level, undeleted message of the same session:
           `400 reply_to_reply` for a reply, `400 invalid_request` at `threadRootId` otherwise.
           The root's `replyCount` and `lastReplyAt` move; its sender and the replier follow the
@@ -1314,7 +1314,7 @@ paths:
       summary: Get a message
       description: |
         A message the caller can read. A deleted message is returned with `body`, `payload`,
-        `attachments` and `reactions` cleared and `deletedAt` set.
+        `metadata` (as `{}`), `attachments` and `reactions` cleared and `deletedAt` set.
 
         **Required permissions:** none; the caller must be able to read the message's session.
         Anything else is `404`.
@@ -1391,9 +1391,9 @@ paths:
         - Messages
       summary: Delete a message
       description: |
-        Clears the message's `body` and `payload` and sets `deletedAt` and `deletedBy`; the row, its
-        revisions, reactions and attachments stay (reads show reactions and attachments as empty).
-        Its mentions are removed. Deleting a reply lowers the root's `replyCount`.
+        Clears the message's `body` and `payload`, empties its `metadata` and sets `deletedAt` and
+        `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
+        reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
         The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
         already deleted message is `409 resource_archived`; any other refusal is `403`.
@@ -3404,7 +3404,8 @@ components:
       type: object
       description: |
         A flat object of the caller's choosing, scoped by the app. At most 50 keys matching
-        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized. `PATCH` replaces it whole.
+        `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized, each value nested at most 32 arrays and objects deep. `PATCH`
+        replaces it whole.
       additionalProperties: true
       propertyNames:
         pattern: ^[A-Za-z][A-Za-z0-9_.-]{0,63}$
@@ -4097,7 +4098,7 @@ components:
           type:
             - string
             - 'null'
-          description: Markdown (CommonMark with GFM strikethrough and task lists; clients may also render bare URLs as links, which the server does not parse), with mentions as `<@principal-id>`, `<!here>` and `<!session>`. A body past the parse limits (over 10,000 characters, 500 markup marks or 100 nested block quotes and list items on one line) is accepted and read as plain text for mentions
+          description: Markdown (CommonMark with GFM strikethrough and task lists; clients may also render bare URLs as links, which the server does not parse), with mentions as `<@principal-id>`, `<!here>` and `<!session>`. A body past the parse limits (over 10,000 characters, 500 markup marks, 100 nested block quotes and list items on one line, or a work bound of 50,000 that counts every line once plus once for each block quote and list item that may still be open on it) is accepted and read as plain text for mentions
         payload:
           description: A provisioned type's data, valid against its schema; `null` for `text`
         metadata:
@@ -4169,7 +4170,7 @@ components:
           minLength: 1
           maxLength: 40000
         payload:
-          description: Any JSON value except `null`, at most 64 KiB serialized
+          description: Any JSON value except `null`, at most 64 KiB serialized and nested at most 32 arrays and objects deep
         metadata:
           $ref: '#/components/schemas/Metadata'
         threadRootId:
@@ -4182,7 +4183,8 @@ components:
           description: |
             Files uploaded through `POST /v1/sessions/{sessionId}/attachments` by this sender for
             this session, in display order. Each `objectId` must be unique, uploaded (not empty) and
-            not on another message, else `400 attachment_not_uploaded` or `400 attachment_not_found`.
+            not on another message, and at most `ATTACHMENT_MAX_BYTES` (100 MiB by default), else
+            `400 attachment_not_uploaded`, `400 attachment_not_found` or `400 attachment_too_large`.
           items:
             type: object
             additionalProperties: false
@@ -4255,7 +4257,7 @@ components:
           minLength: 1
           maxLength: 40000
         payload:
-          description: Any JSON value except `null`, at most 64 KiB serialized
+          description: Any JSON value except `null`, at most 64 KiB serialized and nested at most 32 arrays and objects deep
         metadata:
           $ref: '#/components/schemas/Metadata'
       examples:

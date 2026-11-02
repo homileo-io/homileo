@@ -99,6 +99,8 @@ const EnvFields = z
     PARTITION_DDL_LOCK_TIMEOUT_MS: int(100, 60_000, 5_000),
     // How long a cached principal profile lives.
     PRINCIPAL_PROFILE_TTL_SECONDS: int(1, 86_400, 3600),
+    // The largest file a message may attach; tereo's own upload limit is not checked.
+    ATTACHMENT_MAX_BYTES: int(1, Number.MAX_SAFE_INTEGER, 100 * 1024 * 1024),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && val.TEREO_TEST_MODE) {

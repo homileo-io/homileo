@@ -3,8 +3,8 @@ import { mentionReaders, type SessionContext } from "./access.js";
 import type { MentionedPrincipal } from "./db/messages.js";
 import { parseBody, plainText } from "./markdown.js";
 import type { Prisma } from "./db/prisma.js";
+import { db, prisma } from "./db/index.js";
 import { IdSchema } from "./idSchema.js";
-import { db } from "./db/index.js";
 import type { Root } from "mdast";
 
 /** Distinct user mentions per message, in order of appearance; later ones stay text. */
@@ -14,21 +14,33 @@ export const USER_MENTIONS_MAX = 100;
 const idsOf = (parsed: ParsedMentions): string[] =>
   parsed.users.filter((id) => IdSchema.safeParse(id).success);
 
+const mentionedIdsOf = (body: string): string[] =>
+  idsOf(parseMentions(body, parseBody(body))).slice(0, USER_MENTIONS_MAX);
+
+/** The user ids each stored revision body mentions, keyed by body. */
+export type RevisionMentions = Map<string, string[]>;
+
+/** Parsed before the transaction, so the message's lock is not held over the parses. */
+export const parseRevisionMentions = async (
+  messageId: string
+): Promise<RevisionMentions> => {
+  const bodies = await db.messages.mentioningRevisionBodies(prisma, messageId);
+  return new Map(bodies.map((body) => [body, mentionedIdsOf(body)]));
+};
+
 /**
  * Everyone any revision of the message mentioned, so an edit emails only
  * readers it never mentioned before, however often a mention is toggled.
+ * Only a revision stored after `parsed` was read is parsed here.
  */
 export const everMentionedIds = async (
   tx: Prisma.TransactionClient,
-  messageId: string
+  messageId: string,
+  parsed: RevisionMentions = new Map()
 ): Promise<Set<string>> => {
   const bodies = await db.messages.mentioningRevisionBodies(tx, messageId);
-  // The plain-text scan (no tree): this runs under the message's lock, once
-  // per stored revision, so it skips the Markdown parse.
   return new Set(
-    bodies.flatMap((body) =>
-      idsOf(parseMentions(body, null)).slice(0, USER_MENTIONS_MAX)
-    )
+    bodies.flatMap((body) => parsed.get(body) ?? mentionedIdsOf(body))
   );
 };
 

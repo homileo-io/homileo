@@ -17,6 +17,7 @@ export const BODY_TEXT_LIMIT = 40_000;
 export const PARSE_MAX_LENGTH = 10_000;
 export const PARSE_MAX_MARKUP = 500;
 export const PARSE_MAX_DEPTH = 100;
+export const PARSE_MAX_WORK = 50_000;
 
 const INLINE_MARKUP = new Set(["*", "_", "~", "[", "]"]);
 const BLOCK_START = new Set(["#", "=", "-", "`", "~", "*", "_", "<"]);
@@ -29,9 +30,19 @@ const endsMarker = (s: string, i: number) =>
   s[i] === "\n" ||
   s[i] === "\r";
 
-/** Block-quote and list markers opening the line at `i`, and where they end. */
-const lineMarkers = (s: string, i: number): [count: number, end: number] => {
+/**
+ * Block-quote and list markers opening the line at `i`, the columns of its
+ * leading indent (tabs to stops of 4), and where the markers end.
+ */
+const lineMarkers = (
+  s: string,
+  i: number
+): [count: number, indent: number, end: number] => {
   let count = 0;
+  let indent = 0;
+  for (; s[i] === " " || s[i] === "\t"; i++) {
+    indent = s[i] === "\t" ? indent + 4 - (indent % 4) : indent + 1;
+  }
   for (;;) {
     while (s[i] === " " || s[i] === "\t") i++;
     if (s[i] === ">") {
@@ -54,7 +65,7 @@ const lineMarkers = (s: string, i: number): [count: number, end: number] => {
       i = j + 1;
       continue;
     }
-    return [count, i];
+    return [count, indent, i];
   }
 };
 
@@ -67,15 +78,25 @@ export interface Markup {
   count: number;
   /** The most block-quote and list markers opening one line. */
   depth: number;
+  /**
+   * An upper bound on micromark's container checks. Every line re-checks each
+   * container still open, and blank and lazy lines keep them open, so each
+   * line counts the most containers any line so far could have opened.
+   */
+  work: number;
 }
 
 export const measureMarkup = (markdown: string): Markup => {
-  const markup: Markup = { count: 0, depth: 0 };
+  const markup: Markup = { count: 0, depth: 0, work: 0 };
+  let open = 0;
   let i = 0;
   while (i < markdown.length) {
-    const [markers, end] = lineMarkers(markdown, i);
+    const [markers, indent, end] = lineMarkers(markdown, i);
     markup.count += markers;
     markup.depth = Math.max(markup.depth, markers);
+    // A nested list item needs at least two columns of indent per level.
+    open = Math.max(open, markers + Math.floor(indent / 2));
+    markup.work += 1 + open;
     i = end;
     if (i < markdown.length && BLOCK_START.has(markdown[i]!)) markup.count++;
     while (
@@ -106,8 +127,10 @@ const parseMarkdown = (markdown: string): Root =>
 /** The body's tree, or `null` when it is past the parse limits and read as plain text. */
 export const parseBody = (markdown: string): Root | null => {
   if (markdown.length > PARSE_MAX_LENGTH) return null;
-  const { count, depth } = measureMarkup(markdown);
-  return count > PARSE_MAX_MARKUP || depth > PARSE_MAX_DEPTH
+  const { count, depth, work } = measureMarkup(markdown);
+  return count > PARSE_MAX_MARKUP ||
+    depth > PARSE_MAX_DEPTH ||
+    work > PARSE_MAX_WORK
     ? null
     : parseMarkdown(markdown);
 };

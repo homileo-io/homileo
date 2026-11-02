@@ -7,6 +7,9 @@ import {
   MessageParamsSchema,
 } from "../../../../../routes/v1/messages/schemas.js";
 
+const nested = (levels: number): unknown =>
+  JSON.parse("[".repeat(levels) + "]".repeat(levels));
+
 describe("PATCH /v1/messages/:messageId body", () => {
   it.each([
     ["an empty body", {}],
@@ -23,6 +26,8 @@ describe("PATCH /v1/messages/:messageId body", () => {
       },
     ],
     ["a bad metadata key", { metadata: { "1a": "x" } }],
+    ["a payload nested 5,000 levels deep", { payload: nested(5000) }],
+    ["metadata nested 5,000 levels deep", { metadata: { a: nested(5000) } }],
     ["a field it does not know", { body: "x", type: "text" }],
     ["a non-string body", { body: 5 }],
   ])("refuses %s", (_name, input) => {

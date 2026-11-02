@@ -1,5 +1,5 @@
+import { boundedJson, metadataSchema } from "../../../../../utils/metadata.js";
 import { BUILTIN_MESSAGE_TYPE } from "../../../../../definitions/builtins.js";
-import { metadataSchema } from "../../../../../utils/metadata.js";
 import { IdSchema } from "../../../../../utils/idSchema.js";
 import { z } from "zod";
 
@@ -20,8 +20,7 @@ export const SendMessageBodySchema = z
     clientMessageId: z.string().min(1).max(128),
     type: z.string().min(1).max(64).default(BUILTIN_MESSAGE_TYPE),
     body: z.string().min(1).max(MESSAGE_BODY_MAX).optional(),
-    payload: z
-      .json()
+    payload: boundedJson()
       .refine((p) => p !== null, "A payload cannot be null")
       .refine(
         (p) => Buffer.byteLength(JSON.stringify(p)) <= PAYLOAD_MAX_BYTES,

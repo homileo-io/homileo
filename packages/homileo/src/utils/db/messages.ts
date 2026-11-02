@@ -80,12 +80,12 @@ export const loadViews = async (
 };
 
 export const findByClientId = (
-  tx: Tx,
+  client: Client,
   sessionId: string,
   senderId: string,
   clientMessageId: string
 ): Promise<Message | null> =>
-  tx.message.findUnique({
+  client.message.findUnique({
     where: {
       sessionId_senderId_clientMessageId: {
         sessionId,
@@ -218,11 +218,11 @@ export const sessionIdOf = async (
 
 /** The distinct bodies of the message's revisions that hold a `<@` mention. */
 export const mentioningRevisionBodies = async (
-  tx: Tx,
+  client: Client,
   messageId: string
 ): Promise<string[]> =>
   (
-    await tx.$queryRaw<Array<{ body: string }>>`
+    await client.$queryRaw<Array<{ body: string }>>`
       SELECT DISTINCT body FROM "chat"."message_revisions"
       WHERE message_id = ${messageId}::uuid AND body LIKE '%<@%'`
   ).map((r) => r.body);
@@ -275,6 +275,7 @@ export const markDeleted = (
       body: null,
       bodyText: null,
       payload: PrismaValues.DbNull,
+      metadata: {},
       deletedAt: at,
       deletedBy: by,
     },

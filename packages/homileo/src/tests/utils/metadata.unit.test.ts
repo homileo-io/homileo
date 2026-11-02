@@ -1,7 +1,18 @@
 // @module-tag unit
 // @module-tag platform
-import { metadataSchema } from "../../utils/metadata.js";
 import { describe, expect, it } from "vitest";
+import {
+  boundedJson,
+  JSON_MAX_DEPTH,
+  metadataSchema,
+} from "../../utils/metadata.js";
+
+/** `levels` objects, each the only value of the one outside it. */
+const nested = (levels: number): unknown => {
+  let value: unknown = 1;
+  for (let i = 0; i < levels; i++) value = { a: value };
+  return value;
+};
 
 const keys = (n: number) =>
   Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
@@ -26,8 +37,35 @@ describe("metadataSchema", () => {
     ["an array", [1]],
     ["null", null],
     ["a string", "x"],
+    [
+      "a value nested past JSON_MAX_DEPTH",
+      { deep: nested(JSON_MAX_DEPTH + 1) },
+    ],
+    ["a value nested 5,000 levels deep", { deep: nested(5000) }],
   ])("rejects %s", (_name, value) => {
     expect(metadataSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("accepts a value nested JSON_MAX_DEPTH levels deep", () => {
+    expect(
+      metadataSchema.safeParse({ deep: nested(JSON_MAX_DEPTH) }).success
+    ).toBe(true);
+  });
+});
+
+describe("boundedJson", () => {
+  it.each([
+    ["arrays", (n: number) => JSON.parse("[".repeat(n) + "]".repeat(n))],
+    ["objects", nested],
+  ])("takes %s JSON_MAX_DEPTH deep and refuses one more", (_name, make) => {
+    expect(boundedJson().safeParse(make(JSON_MAX_DEPTH)).success).toBe(true);
+    expect(boundedJson().safeParse(make(JSON_MAX_DEPTH + 1)).success).toBe(
+      false
+    );
+  });
+
+  it("refuses a value that is not JSON", () => {
+    expect(boundedJson().safeParse({ a: () => 1 }).success).toBe(false);
   });
 
   it("accepts exactly 16 KiB serialized", () => {

@@ -173,6 +173,23 @@ describe("PATCH /v1/messages/:messageId", () => {
     expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
   });
 
+  it("emails a reader an earlier revision named only inside indented code", async () => {
+    const { me, session } = await room();
+    const a = await fixtures.principal();
+    await fixtures.participant(session, a);
+    const sent = await sendMessage(session.id, me.token, {
+      body: `code:\n\n    <@${a.id}>`,
+    });
+    const id = sent.body.message.id;
+    expect(await mentionIds(id)).toEqual([]);
+
+    const res = await editMessage(id, me.token, { body: `<@${a.id}> hi` });
+
+    expect(res.status).toBe(200);
+    expect(await mentionIds(id)).toEqual([a.id]);
+    expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
+  });
+
   it("leaves a malformed id as text and stores at most 100 user mentions", async () => {
     const { me, session } = await room();
     const sent = await sendMessage(session.id, me.token, { body: "x" });
@@ -272,12 +289,13 @@ describe("PATCH /v1/messages/:messageId", () => {
 });
 
 describe("DELETE /v1/messages/:messageId", () => {
-  it("clears the message and keeps its revisions and mentions", async () => {
+  it("clears the message and its metadata, and keeps its revisions and mentions", async () => {
     const { me, session } = await room();
     const a = await fixtures.principal();
     await fixtures.participant(session, a);
     const sent = await sendMessage(session.id, me.token, {
       body: `<@${a.id}> secret`,
+      metadata: { ticket: "secret" },
     });
     const id = sent.body.message.id;
     await editMessage(id, me.token, { body: `<@${a.id}> secret 2` });
@@ -291,10 +309,16 @@ describe("DELETE /v1/messages/:messageId", () => {
       payload: null,
       attachments: [],
       reactions: [],
+      metadata: {},
       deletedBy: me.principalId,
     });
     const row = await prisma.message.findUniqueOrThrow({ where: { id } });
-    expect(row).toMatchObject({ body: null, bodyText: null, payload: null });
+    expect(row).toMatchObject({
+      body: null,
+      bodyText: null,
+      payload: null,
+      metadata: {},
+    });
     expect(await mentionIds(id)).toEqual([a.id]);
     expect(
       await prisma.messageRevision.count({ where: { messageId: id } })
