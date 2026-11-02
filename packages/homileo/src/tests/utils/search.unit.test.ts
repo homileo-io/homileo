@@ -1,9 +1,11 @@
 // @module-tag unit
 // @module-tag search
+import { Prisma } from "../../../prisma/generated/client/index.js";
 import { describe, expect, it } from "vitest";
 import {
   encodeSearchCursor,
   liftMetadataQuery,
+  metadataFilterSql,
   parseHeadline,
   parseSearchCursor,
   parseSearchQuery,
@@ -151,5 +153,23 @@ describe("SearchMetadataQuerySchema", () => {
     [Object.fromEntries([1, 2, 3, 4, 5, 6].map((i) => [`k${i}`, "v"])), false],
   ])("%j is valid: %s", (metadata, valid) => {
     expect(SearchMetadataQuerySchema.safeParse(metadata).success).toBe(valid);
+  });
+});
+
+describe("metadataFilterSql", () => {
+  const forms = (value: string) =>
+    metadataFilterSql(Prisma.raw("m"), "k", value).sql.match(/@>/g)?.length;
+
+  it.each([
+    ["ORD-1", 1],
+    ["1234", 2],
+    ["-1.5", 2],
+    ["0", 2],
+    ["true", 2],
+    ["01234", 1],
+    ["1.50", 1],
+    ["1.", 1],
+  ])("%j is matched in %i form(s)", (value, count) => {
+    expect(forms(value)).toBe(count);
   });
 });

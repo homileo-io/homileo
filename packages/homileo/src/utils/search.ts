@@ -115,7 +115,8 @@ export const SearchMetadataQuerySchema = z
     z.record(z.string().regex(METADATA_KEY_PATTERN), z.string().min(1).max(255))
   );
 
-const NUMERIC = /^-?\d+(\.\d+)?$/;
+// A number as JSON spells it: `01234` and `1.50` are text, not the numbers 1234 and 1.5.
+const NUMERIC = /^-?(0|[1-9]\d*)(\.\d*[1-9])?$/;
 
 /**
  * `column` (jsonb) holds `key` with `value`: as a string, or as the number or boolean `value`

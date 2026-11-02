@@ -135,6 +135,13 @@ export const searchFixtures = () => {
       token
     );
 
+  const searchSessions = (token: string, params: Record<string, string>) =>
+    fetchJson(
+      "GET",
+      `${url()}/v1/search/sessions?${new URLSearchParams(params)}`,
+      token
+    );
+
   const cleanup = async () => {
     await app?.close();
     await removeKinds();
@@ -152,6 +159,7 @@ export const searchFixtures = () => {
     insert,
     attach,
     search,
+    searchSessions,
     cleanup,
   };
 };
@@ -159,3 +167,12 @@ export const searchFixtures = () => {
 /** The message ids of a search response, in order. */
 export const hitIds = (body: { data: Array<{ message: { id: string } }> }) =>
   body.data.map((h) => h.message.id);
+
+/** The `type:id` of each hit of a session search response, in order. */
+export const sessionHitIds = (body: {
+  data: Array<{
+    type: string;
+    space?: { id: string };
+    session?: { id: string };
+  }>;
+}) => body.data.map((h) => `${h.type}:${(h.space ?? h.session)!.id}`);

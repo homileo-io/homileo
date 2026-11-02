@@ -1,7 +1,7 @@
+import { readableSessionSql, readableSpaceSql } from "../../policy/sql.js";
 import { Prisma } from "../../../prisma/generated/client/index.js";
 import { HIGHLIGHT_START, HIGHLIGHT_STOP } from "../search.js";
 import type { OrgCaller } from "../../middleware/auth.js";
-import { readableSessionSql } from "../../policy/sql.js";
 import { metadataFilterSql } from "../search.js";
 import { prisma } from "./prisma.js";
 import type {
@@ -148,4 +148,93 @@ export const messages = async (
     return [{ message, session, headline: r.headline }];
   });
   return { hits, hasMore };
+};
+
+export interface SessionSearch {
+  /** For `websearch_to_tsquery`. */
+  text: string;
+  /** For the trigram arm, or null when it does not apply (`parseSearchQuery`). */
+  trigramTerm: string | null;
+  asOf: Date;
+  offset: number;
+  limit: number;
+  /** Only sessions of this space, and no spaces. */
+  spaceId?: string;
+  /** Spaces of this kind, and the sessions in them. */
+  kind?: string;
+  /** Each matches the row's own metadata. */
+  metadata: Record<string, string>;
+}
+
+export interface SessionSearchRow {
+  type: "space" | "session";
+  id: string;
+}
+
+/**
+ * One page of the spaces and sessions the caller can read that match, in one list, best first: by
+ * relevance as in `messages`, then recency (a space's `created_at`, a session's last message or
+ * `created_at`), then id. Returns up to `limit + 1` rows; the extra one says another page follows.
+ */
+export const sessions = async (
+  caller: OrgCaller,
+  grantedKinds: string[],
+  q: SessionSearch
+): Promise<SessionSearchRow[]> => {
+  const term = q.trigramTerm;
+  const arm = (alias: string, tsq: Prisma.Sql) => ({
+    relevance:
+      term === null
+        ? Prisma.sql`round(ts_rank_cd(to_tsvector('english', ${Prisma.raw(alias)}.search_text), ${tsq}, 32)::numeric, 2)`
+        : Prisma.sql`round((CASE WHEN to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq} THEN ts_rank_cd(to_tsvector('english', ${Prisma.raw(alias)}.search_text), ${tsq}, 32) ELSE 0 END + COALESCE(chat.word_similarity(${term}, ${Prisma.raw(alias)}.search_text), 0))::numeric, 2)`,
+    match:
+      term === null
+        ? Prisma.sql`to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq}`
+        : Prisma.sql`(to_tsvector('english', ${Prisma.raw(alias)}.search_text) @@ ${tsq} OR ${term} OPERATOR(chat.<%) ${Prisma.raw(alias)}.search_text)`,
+  });
+  const metadataOf = (column: string) =>
+    Object.entries(q.metadata).map(([key, value]) =>
+      metadataFilterSql(Prisma.raw(column), key, value)
+    );
+  const where = (conditions: Prisma.Sql[]) => Prisma.join(conditions, " AND ");
+  const tsq = Prisma.sql`q.tsq`;
+  const asOf = Prisma.sql`${q.asOf}::timestamp(3)`;
+
+  const spaceArm = arm("sp", tsq);
+  const spaceArmSql =
+    q.spaceId !== undefined
+      ? Prisma.empty
+      : Prisma.sql`
+        SELECT 'space'::text AS type, sp.id, ${spaceArm.relevance} AS relevance, sp.created_at AS recency
+        FROM "chat"."spaces" sp, q
+        WHERE ${where([
+          Prisma.sql`sp.created_at <= ${asOf}`,
+          readableSpaceSql(caller, grantedKinds, "sp"),
+          spaceArm.match,
+          ...(q.kind ? [Prisma.sql`sp.kind = ${q.kind}`] : []),
+          ...metadataOf("sp.metadata"),
+        ])}
+        UNION ALL`;
+
+  const sessionArm = arm("s", tsq);
+  const sessionArmSql = Prisma.sql`
+        SELECT 'session'::text AS type, s.id, ${sessionArm.relevance} AS relevance, COALESCE(s.last_message_at, s.created_at) AS recency
+        FROM "chat"."sessions" s
+        LEFT JOIN "chat"."spaces" ssp ON ssp.id = s.space_id, q
+        WHERE ${where([
+          Prisma.sql`s.created_at <= ${asOf}`,
+          readableSessionSql(caller, grantedKinds, "s"),
+          sessionArm.match,
+          ...(q.spaceId ? [Prisma.sql`s.space_id = ${q.spaceId}::uuid`] : []),
+          ...(q.kind ? [Prisma.sql`ssp.kind = ${q.kind}`] : []),
+          ...metadataOf("s.metadata"),
+        ])}`;
+
+  return prisma.$queryRaw<SessionSearchRow[]>`
+    WITH q AS (SELECT websearch_to_tsquery('english', ${q.text}) AS tsq),
+    hits AS (${spaceArmSql}${sessionArmSql}
+    )
+    SELECT type, id FROM hits
+    ORDER BY relevance DESC, recency DESC, id DESC
+    OFFSET ${q.offset} LIMIT ${q.limit + 1}`;
 };
