@@ -1,3 +1,4 @@
+import { processSearchTextRebuild } from "./jobs/searchTextRebuild.js";
 import { processEventPartitions } from "./jobs/eventPartitions.js";
 import { processEventRetention } from "./jobs/eventRetention.js";
 import { logger } from "./utils/logger.js";
@@ -9,10 +10,12 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KEEP_INTERVAL_MS = 10 * 60 * 1000;
+const SEARCH_REBUILD_INTERVAL_MS = 60 * 1000;
 
 let partitionTimer: NodeJS.Timeout | null = null;
 let retentionTimer: NodeJS.Timeout | null = null;
 let keepTimer: NodeJS.Timeout | null = null;
+let searchRebuildTimer: NodeJS.Timeout | null = null;
 // Where the next keep run starts; at process start, as far back as a placeholder lives.
 let keepFrom = START_OF_KEEPS;
 
@@ -59,6 +62,22 @@ const runKeeps = tracked(async () => {
   }
 });
 
+let searchRebuildRunning = false;
+
+const runSearchRebuild = tracked(async () => {
+  // A slow rebuild must not overlap the next one.
+  if (searchRebuildRunning) return;
+  searchRebuildRunning = true;
+  try {
+    await processSearchTextRebuild();
+  } catch (err) {
+    // The kind stays due, so the next run retries it.
+    logger.warn({ err }, "Search text rebuild failed");
+  } finally {
+    searchRebuildRunning = false;
+  }
+});
+
 export async function startWorker(): Promise<void> {
   if (partitionTimer) return;
   await runPartitions();
@@ -70,6 +89,12 @@ export async function startWorker(): Promise<void> {
   await runKeeps();
   keepTimer = setInterval(() => void runKeeps(), KEEP_INTERVAL_MS);
   keepTimer.unref();
+  await runSearchRebuild();
+  searchRebuildTimer = setInterval(
+    () => void runSearchRebuild(),
+    SEARCH_REBUILD_INTERVAL_MS
+  );
+  searchRebuildTimer.unref();
   logger.info("homileo worker started");
 }
 
@@ -88,6 +113,8 @@ export async function stopWorker(
   retentionTimer = null;
   if (keepTimer) clearInterval(keepTimer);
   keepTimer = null;
+  if (searchRebuildTimer) clearInterval(searchRebuildTimer);
+  searchRebuildTimer = null;
 
   if (inFlight.size === 0) return;
   let timer: NodeJS.Timeout | undefined;

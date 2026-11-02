@@ -104,6 +104,7 @@ export const AREA_BY_PATH: ReadonlyArray<
   ["jobs/eventPartitions", "events"],
   ["jobs/eventRetention", "events"],
   ["jobs/attachmentKeep", "messages"],
+  ["jobs/searchTextRebuild", "search"],
   ["utils/db/events", "events"],
   ["realtime/syncCursor", "events"],
   ["routes/health", "platform"],
