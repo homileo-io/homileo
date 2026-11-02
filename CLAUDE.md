@@ -39,8 +39,8 @@ The plans are beside it in `docs/superpowers/plans/`.
   audit). Realtime, `GET /v1/sync` and webhooks carry the same events with the same ids.
 - **Access checks only through `src/policy/`.** Routes, controllers, sockets and search call the
   policy; none of them inlines a visibility, role or grant check. The readable-space and
-  readable-session SQL conditions (`readableSpaceWhere`, `readableSessionWhere`) are the policy's
-  SQL form, and change with it.
+  readable-session SQL conditions (`readableSpaceWhere`, `readableSessionWhere`, in `policy/sql.ts`)
+  are the policy's SQL form, and change with it.
 - **Contract types live in `@homileo-io/sdk`**: the event registry (`EVENT_TYPES`, one Zod schema
   per event) and the provisioning document schema. The service imports them; it does not define
   its own copies.
@@ -62,7 +62,7 @@ One ordinary package, shared by every area:
 | `src/env.ts` | The one env schema. `src/preload.ts` must be the first import of every entry point |
 | `src/definitions/` | `tereoDeclaration.ts` (what tereo is told), `builtins.ts` (the built-in `default` space kind) |
 | `src/middleware/auth.ts` | `authenticate`, `callerOf` |
-| `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`, and `chat.ts` (the token-level write gate, `canWriteChat`, which `requireChatWrite` applies). Lists filter in SQL with `readableSpaceWhere` and `readableSessionWhere`, which state the same rules as a Prisma `where` |
+| `src/policy/` | The access policy, pure functions over loaded facts: `spaces.ts`, `sessions.ts`, `messages.ts`, `members.ts`, `chat.ts` (the token-level gates, `canReadChat` and `canWriteChat`, which `requireChatRead` and `requireChatWrite` apply), and `sql.ts` (`readableSpaceWhere`, `readableSessionWhere`: the same rules as a Prisma `where`, for lists) |
 | `src/routes/` | Mirrors the URL. `index.ts` is the root: `health/` at the root, the API under `v1/` (`me/`, `principals/`, `spaces/`, `sessions/`, `messages/`, `threads/`, `sync/`) |
 | `src/utils/`, `src/utils/db/`, `src/jobs/` | Shared. `db` is one object across all tables; `changes.ts` is `recordChange`; `provisioning/` loads and applies documents; `tereo.ts` is the one SDK client |
 | `src/websocket/` | socket.io on `/ws` (Redis adapter): `auth.ts` handshake, `rooms.ts` joins and re-checks, `subscriptions.ts`, `fanout.ts` (pushes `changeBus` batches), `ephemeral.ts` (typing, presence), `limits.ts` |

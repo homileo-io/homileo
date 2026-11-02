@@ -102,7 +102,7 @@ adding or moving a route.
 - **Access is decided only in `src/policy/`** (`canReadSpace`, `canPostInSession`, `canWriteChat`,
   …). Routes, controllers, the socket layer and search call the policy; they never inline a
   visibility, role or grant check. `homileo.chat.admin` does not read DMs or space-less sessions.
-- **Lists filter in SQL**: `readableSpaceWhere` and `readableSessionWhere` build the Prisma `where`
+- **Lists filter in SQL**: `readableSpaceWhere` and `readableSessionWhere` (`policy/sql.ts`) build the Prisma `where`
   for "spaces / sessions the caller can read", the policy's rules in SQL form. A change to a read
   rule changes both the policy function and the condition, and the tests run the same cases
   through each.
