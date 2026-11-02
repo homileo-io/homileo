@@ -114,6 +114,8 @@ const EnvFields = z
     // After a sender's mention emails a reader, how long further mentions from
     // that sender to that reader send no email. 0 turns the cooldown off.
     MENTION_EMAIL_COOLDOWN_SECONDS: int(0, 86_400, 60),
+    // How many results a search walks through at most: a cursor past it is refused.
+    SEARCH_MAX_DEPTH: int(100, 10_000, 1000),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === "production" && val.TEREO_TEST_MODE) {

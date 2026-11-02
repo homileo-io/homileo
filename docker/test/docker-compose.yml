@@ -50,6 +50,7 @@ services:
       NODE_ENV: "test"
       LOG_LEVEL: "silent"
       TEREO_TEST_MODE: "true"
+      SEARCH_MAX_DEPTH: "100"
       PORT: "4101"
       PUBLIC_URL: http://localhost:4101
       DATABASE_URL: postgresql://homileo:homileo@postgres:5432/homileo_test

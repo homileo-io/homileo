@@ -110,5 +110,6 @@ export const AREA_BY_PATH: ReadonlyArray<
   ["routes/health", "platform"],
   ["websocket", "websocket"],
   ["routes/v1/sync", "sync"],
+  ["routes/v1/search", "search"],
   ...AREA_TAGS.map((a) => [`flows/${a}`, a] as const),
 ];

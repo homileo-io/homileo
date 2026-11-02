@@ -61,5 +61,7 @@ export function loadTestEnv(): Record<string, string> {
     NODE_ENV: "test",
     LOG_LEVEL: "silent",
     TEREO_TEST_MODE: "true",
+    // The lowest allowed, so a test reaches the search depth limit with 100 matches.
+    SEARCH_MAX_DEPTH: "100",
   };
 }

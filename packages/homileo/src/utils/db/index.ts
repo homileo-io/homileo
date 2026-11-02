@@ -9,6 +9,7 @@ import * as members from "./members.js";
 import * as threads from "./threads.js";
 import * as events from "./events.js";
 import * as spaces from "./spaces.js";
+import * as search from "./search.js";
 
 /**
  * One object across all tables. Each table's module is added here as it is
@@ -26,6 +27,7 @@ export const db = {
   mentions,
   reactions,
   threads,
+  search,
 };
 
 export { prisma } from "./prisma.js";
