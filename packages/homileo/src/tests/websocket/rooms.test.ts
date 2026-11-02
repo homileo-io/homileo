@@ -3,11 +3,15 @@
 // @module-tag access
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Principal } from "../../../prisma/generated/client/index.js";
-import { recheckSockets, sweepSockets } from "../../websocket/rooms.js";
 import { chatFixtures } from "../support/chatFixtures.js";
 import { personToken } from "../support/tokens.js";
 import { prisma } from "../../utils/db/prisma.js";
 import { v7 as uuidv7 } from "uuid";
+import {
+  leaveSpaceOfIfUnused,
+  recheckSockets,
+  sweepSockets,
+} from "../../websocket/rooms.js";
 import {
   sessionRoom,
   spaceOfRoom,
@@ -250,6 +254,58 @@ describe("recheckSockets", () => {
 
     expect(left.get(client.id!)).toEqual([spaceRoom(space.id)]);
     expect(serverSocket(client).rooms.has(spaceRoom(space.id))).toBe(false);
+  });
+});
+
+describe("leaveSpaceOfIfUnused", () => {
+  it("keeps spaceof: when another session room of the space is joined while it counts", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const leaving = await fixtures.session({ space, access: "space" });
+    const joining = await fixtures.session({ space, access: "space" });
+    const elsewhere = await fixtures.session({
+      space: await fixtures.space({ org, visibility: "public" }),
+      access: "space",
+    });
+    const server = serverSocket(await connectAs(who, org));
+    await server.join([
+      sessionRoom(leaving.id),
+      sessionRoom(elsewhere.id),
+      spaceOfRoom(space.id),
+    ]);
+
+    // The rooms are read before the first await, so this join lands during the count.
+    const left = leaveSpaceOfIfUnused(
+      server,
+      space.id,
+      sessionRoom(leaving.id)
+    );
+    await server.join([sessionRoom(joining.id), spaceOfRoom(space.id)]);
+    await left;
+
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(true);
+  });
+
+  it("leaves spaceof: when no other session room of the space remains", async () => {
+    const org = uuidv7();
+    const who = await fixtures.principal();
+    const space = await fixtures.space({ org, visibility: "public" });
+    const leaving = await fixtures.session({ space, access: "space" });
+    const elsewhere = await fixtures.session({
+      space: await fixtures.space({ org, visibility: "public" }),
+      access: "space",
+    });
+    const server = serverSocket(await connectAs(who, org));
+    await server.join([
+      sessionRoom(leaving.id),
+      sessionRoom(elsewhere.id),
+      spaceOfRoom(space.id),
+    ]);
+
+    await leaveSpaceOfIfUnused(server, space.id, sessionRoom(leaving.id));
+
+    expect(server.rooms.has(spaceOfRoom(space.id))).toBe(false);
   });
 });
 

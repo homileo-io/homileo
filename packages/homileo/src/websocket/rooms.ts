@@ -374,13 +374,23 @@ export const leaveSpaceOfIfUnused = async (
   spaceId: string,
   except: string
 ): Promise<void> => {
-  const others = [...socket.rooms].flatMap((room) => {
-    const id = room === except ? null : sessionIdOf(room);
-    return id ? [id] : [];
-  });
-  const remaining =
-    others.length === 0
-      ? 0
-      : await prisma.session.count({ where: { id: { in: others }, spaceId } });
-  if (remaining === 0) await socket.leave(spaceOfRoom(spaceId));
+  const checked = new Set<string>();
+  for (;;) {
+    // Read again after each count: a fan-out join of another session room of the space can
+    // land while it runs. That join adds the session room and `spaceof:` together, so rooms
+    // read with no await before the leave are a consistent view.
+    const fresh = [...socket.rooms].flatMap((room) => {
+      const id = room === except ? null : sessionIdOf(room);
+      return id && !checked.has(id) ? [id] : [];
+    });
+    if (fresh.length === 0) {
+      await socket.leave(spaceOfRoom(spaceId));
+      return;
+    }
+    const inSpace = await prisma.session.count({
+      where: { id: { in: fresh }, spaceId },
+    });
+    if (inSpace > 0) return;
+    for (const id of fresh) checked.add(id);
+  }
 };
