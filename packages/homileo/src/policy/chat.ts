@@ -1,11 +1,21 @@
-import { SPACES_WRITE_PERMISSION } from "../definitions/tereoDeclaration.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { OrgCaller } from "../middleware/auth.js";
+import {
+  SPACES_READ_PERMISSION,
+  SPACES_WRITE_PERMISSION,
+} from "../definitions/tereoDeclaration.js";
+
+/**
+ * Whether the caller's token lets it use chat at all (every `/v1` route and socket); the
+ * resource's own rules still decide what it sees. `homileo.chat.admin` sits on another branch
+ * of the ladder, so it is named here rather than implied; it still reads no DM.
+ */
+export const canReadChat = (c: OrgCaller): boolean =>
+  c.isAdmin || hasPermission(c.permissions, SPACES_READ_PERMISSION);
 
 /**
  * Whether the caller's token lets it change shared chat state at all; the
- * resource's own rules still decide each change. `homileo.chat.admin` sits on
- * another branch of the ladder, so it is named here rather than implied.
+ * resource's own rules still decide each change.
  */
 export const canWriteChat = (c: OrgCaller): boolean =>
   c.isAdmin || hasPermission(c.permissions, SPACES_WRITE_PERMISSION);

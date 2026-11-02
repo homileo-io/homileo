@@ -13,6 +13,23 @@ membership, role, grants or `homileo.chat.admin` (a route turns this into `404`)
 must also be in the session's organization. `public` means any signed-in user of that organization.
 Kind grants and `homileo.chat.admin` are checked against the permissions in the caller's token.
 
+## Read permission
+
+Using chat at all needs `canReadChat` (`policy/chat.ts`): the token holds `homileo.spaces.read`
+(or anything above it on tereo's ladder: `homileo.spaces.write`, `homileo.spaces.admin`, `admin`)
+or `homileo.chat.admin`, named for the same reason as below. `homileo.chat.admin` passes the read
+gate as it passes the write gate; it still reads no DM or space-less session, which the rules below
+decide.
+
+Every `/v1` route asks it through `requireChatRead` (`middleware/auth.ts`), mounted once on the
+`/v1` router after `authenticate`, so a token without it gets `403 forbidden` ("Requires the
+homileo.spaces.read permission") before validation or any lookup: every GET, `/v1/sync`,
+`/v1/me/*`, the principal lookups, the calls on the caller's own state, and leaving. A permission
+off the ladder (`homileo.messages.read_private`, a kind's grant) does not pass it. The socket
+handshake refuses such a token with the connect error `forbidden`, and the periodic token
+re-check closes the sockets of a token that no longer holds it, so every socket action runs for a
+caller with read ([realtime.md](realtime.md)).
+
 ## Write permission
 
 Changing shared chat state needs `canWriteChat` (`policy/chat.ts`): the token holds
@@ -30,23 +47,26 @@ even for an id it cannot read. Gated:
   request approve and deny;
 - sessions: create, direct, `PATCH`, archive, participant add and removal of someone else;
 - messages: send, edit, delete; reactions add and remove; attachment placeholders;
+- `POST /principals/resolve`, which creates principals for tereo users;
 - the socket's `typing.start` and `typing.stop` (a signal other participants see), acked
   `forbidden`.
 
-Reading needs no Homileo permission, and neither do the calls that touch only the caller's own
+Reading needs only the read permission, and so do the calls that touch only the caller's own
 state: `PUT /sessions/:id/read`, `PUT /sessions/:id/notify`, `PUT /threads/:rootId/read`,
-`PUT /threads/:rootId/follow`, plus `POST /principals/resolve`, subscriptions and presence.
+`PUT /threads/:rootId/follow`, plus subscriptions and presence.
 
 Leaving is the one exception that others see: `DELETE /spaces/:id/members/:principalId` and
 `DELETE /sessions/:id/participants/:principalId` with the caller's own id are open to a read-only
 token, so a principal someone added is never trapped. `canRemoveWithToken(caller, targetId)`
-(`policy/chat.ts`) decides it, and those two routes ask it through `requireChatWriteUnlessSelf`;
-removing anyone else still needs `canWriteChat`. The leave itself is then judged by the usual rules
-(`canChangeMember`, `canLeaveSession`: a DM still cannot be left).
+(`policy/chat.ts`) decides it, and those two routes ask it through `requireChatWriteUnlessSelf`,
+which reads `:principalId` as the params schema does (lower-cased), so the caller's id in upper
+case is still the caller; removing anyone else still needs `canWriteChat`. The leave itself is then
+judged by the usual rules (`canChangeMember`, `canLeaveSession`: a DM still cannot be left).
 
-A token with only `homileo.spaces.read` (or none) can therefore read, keep its own read state and
-leave, and change nothing else others see. `routes/routes.permissions.test.ts` lists every route
-that is not a GET as one or the other, and checks the self-removal exception.
+A token with only `homileo.spaces.read` can therefore read, keep its own read state and leave, and
+change nothing else others see; a token without it can do nothing. `routes/routes.permissions.test.ts`
+checks the read gate on every `/v1` route, lists every route that is not a GET as write-gated or
+open to readers, and checks the self-removal exception.
 
 ## Read a space
 

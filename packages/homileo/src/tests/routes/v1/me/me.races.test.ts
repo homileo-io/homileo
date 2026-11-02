@@ -17,7 +17,7 @@ describe("GET /v1/me races", () => {
         fetchJson(
           "GET",
           `${env.PUBLIC_URL}/v1/me`,
-          `test-token-${userId}|org=${org}`
+          `test-token-${userId}|org=${org}|perms=homileo.spaces.read`
         )
       )
     );

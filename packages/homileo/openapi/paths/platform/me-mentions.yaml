@@ -9,7 +9,7 @@
       out. A message mentioning the caller more than once appears once. The cursor is the id of the
       last message returned. A page can hold fewer than `limit` items when some are dropped.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: listMeMentions
     parameters:
       - $ref: '../../components/parameters.yaml#/CursorParam'
@@ -23,5 +23,6 @@
               $ref: '../../components/platform/schemas.yaml#/ListMentionsResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

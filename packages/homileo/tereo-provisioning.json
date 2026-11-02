@@ -15,7 +15,7 @@
       {
         "name": "homileo.spaces.read",
         "displayName": "Read spaces",
-        "description": "Read spaces, sessions and messages, and their events",
+        "description": "Use the chat API and realtime: read spaces, sessions and messages, keep one's own read state, and receive their webhook events",
         "orgAssignable": true
       },
       {
@@ -33,7 +33,7 @@
       {
         "name": "homileo.chat.admin",
         "displayName": "Administer chat",
-        "description": "Administer every space and session of the organization; also grants Use spaces",
+        "description": "Administer every space and session of the organization, without reading its DMs; also grants Read spaces and Use spaces",
         "orgAssignable": true
       }
     ],

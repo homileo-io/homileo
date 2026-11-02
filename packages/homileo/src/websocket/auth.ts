@@ -1,5 +1,6 @@
 import { callerFromToken } from "../middleware/auth.js";
 import type { AppSocket, IOServer } from "./types.js";
+import { canReadChat } from "../policy/chat.js";
 import { isDeepStrictEqual } from "node:util";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
@@ -15,7 +16,8 @@ const tokens = new WeakMap<AppSocket, string>();
 
 /**
  * Checks the handshake's `auth.token` as `authenticate` checks a request's, and sets
- * `socket.data`. A refusal's message is its code: `unauthorized` or `organization_required`.
+ * `socket.data`. A refusal's message is its code: `unauthorized`, `organization_required`, or
+ * `forbidden` for a token without `homileo.spaces.read` (`canReadChat`).
  */
 export const authenticateSocket = async (
   socket: AppSocket,
@@ -28,6 +30,10 @@ export const authenticateSocket = async (
   }
   try {
     const { caller, exp } = await callerFromToken(token);
+    if (!canReadChat(caller)) {
+      next(new Error("forbidden"));
+      return;
+    }
     socket.data = {
       caller,
       subscriptions: new Set(),
@@ -102,8 +108,15 @@ const revalidateToken = async (
 ): Promise<void> => {
   try {
     const { caller } = await callerFromToken(token);
+    // Socket actions rely on every connected socket's caller holding read, as the handshake checked.
+    if (!canReadChat(caller)) {
+      for (const socket of sockets) socket.disconnect(true);
+      return;
+    }
+    const permissions = [...caller.permissions].sort();
     const changed = sockets.filter(
-      (s) => !isDeepStrictEqual(s.data.caller.permissions, caller.permissions)
+      (s) =>
+        !isDeepStrictEqual([...s.data.caller.permissions].sort(), permissions)
     );
     for (const socket of sockets) socket.data.caller = caller;
     if (changed.length > 0) await recheckSockets(changed);

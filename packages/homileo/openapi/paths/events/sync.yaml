@@ -37,7 +37,7 @@
       an edited one its latest revision. The cursor is not signed; because of this and the rule
       above, a made-up cursor reveals nothing the REST routes do not.
 
-      **Required permissions:** none; any signed-in caller in an organization.
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
     operationId: sync
     parameters:
       - $ref: '../../components/events/parameters.yaml#/SyncSinceParam'
@@ -54,6 +54,7 @@
               $ref: '../../components/events/schemas.yaml#/SyncResponse'
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
       '410': { $ref: '../../components/events/responses.yaml#/SyncResyncRequiredResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
       '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

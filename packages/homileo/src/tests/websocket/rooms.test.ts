@@ -26,7 +26,11 @@ const fixtures = chatFixtures();
 let local: LocalSocketServer;
 const opened: ClientSocket[] = [];
 
-const connectAs = async (who: Principal, org: string, perms: string[] = []) => {
+const connectAs = async (
+  who: Principal,
+  org: string,
+  perms = ["homileo.spaces.read"]
+) => {
   const socket = await openLocalSocket(
     personToken({ userId: who.tereoUserId!, org, perms }),
     local

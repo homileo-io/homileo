@@ -90,7 +90,11 @@ One ordinary package, shared by every area:
   may not see is a 404.
 - **Auth**: `authenticate` (tereo's `requireAuth`, then the principal) refuses a token without `org_id`, and sits once on the `/v1`
   router: the organization is the token's `org_id` only, and a token without one (person or service
-  account) gets 400 `organization_required`. Permissions are
+  account) gets 400 `organization_required`. Two gates follow, both in `policy/chat.ts`, both 403
+  `forbidden` before validation or any lookup: `requireChatRead` (`canReadChat`, once on `/v1`
+  after `authenticate`, and in the socket handshake) needs `homileo.spaces.read` for everything;
+  `requireChatWrite` (`canWriteChat`, per route) needs `homileo.spaces.write` for changes to shared
+  chat state. `homileo.chat.admin` passes both, and still reads no DM. Permissions are
   tereo's dotted, hierarchical form (`utils/permissions.ts`): `write` includes `read`, `admin`
   includes all. There is no test-mode shortcut in the service: tests use `@tereo-io/sdk` test
   tokens (`test-token-<uuid>|org=<uuid>|perms=a,b`; a service account is

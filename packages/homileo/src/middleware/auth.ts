@@ -1,12 +1,13 @@
-import { canRemoveWithToken, canWriteChat } from "../policy/chat.js";
 import type { Principal } from "../utils/db/principals.js";
 import { hasPermission } from "../utils/permissions.js";
 import type { RequestHandler, Request } from "express";
 import type { AuthContext } from "@tereo-io/sdk";
+import { IdSchema } from "../utils/idSchema.js";
 import { getTereo } from "../utils/tereo.js";
 import { db } from "../utils/db/index.js";
 import {
   CHAT_ADMIN_PERMISSION,
+  SPACES_READ_PERMISSION,
   SPACES_WRITE_PERMISSION,
 } from "../definitions/tereoDeclaration.js";
 import {
@@ -14,6 +15,11 @@ import {
   ForbiddenError,
   UnauthorizedError,
 } from "../utils/errors.js";
+import {
+  canReadChat,
+  canRemoveWithToken,
+  canWriteChat,
+} from "../policy/chat.js";
 
 export interface Caller {
   principalId: string;
@@ -127,6 +133,20 @@ export const principalOf = (req: Request): Principal => {
   return req.principal;
 };
 
+/** Refuses (403) a caller whose token may not use chat (`canReadChat`); needs `authenticate` before it. */
+export const requireChatRead: RequestHandler = (req, _res, next) => {
+  try {
+    if (!canReadChat(callerOf(req))) {
+      throw new ForbiddenError(
+        `Requires the ${SPACES_READ_PERMISSION} permission`
+      );
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
 /** Refuses (403) a caller whose token may only read chat (`canWriteChat`); needs `authenticate` before it. */
 export const requireChatWrite: RequestHandler = (req, _res, next) => {
   try {
@@ -144,7 +164,10 @@ export const requireChatWrite: RequestHandler = (req, _res, next) => {
 /** `requireChatWrite` for a removal route: a read-only caller may still remove itself (`:principalId`). */
 export const requireChatWriteUnlessSelf: RequestHandler = (req, _res, next) => {
   try {
-    if (!canRemoveWithToken(callerOf(req), String(req.params.principalId))) {
+    // As the route's params schema will read it, so an upper-case own id is still the caller.
+    const target = IdSchema.safeParse(req.params.principalId);
+    const targetId = target.success ? target.data : "";
+    if (!canRemoveWithToken(callerOf(req), targetId)) {
       throw new ForbiddenError(
         `Requires the ${SPACES_WRITE_PERMISSION} permission`
       );
