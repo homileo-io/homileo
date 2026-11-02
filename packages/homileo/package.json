@@ -20,6 +20,7 @@
     "test:logs": "../../docker/test/run.sh logs -f runner",
     "test:clean": "../../docker/test/run.sh down -v",
     "cli": "tsx src/cli/index.ts",
+    "cli:prod": "node dist/cli/index.js",
     "tereo:provisioning": "tsx scripts/tereo-provisioning.ts",
     "openapi:lint": "redocly lint",
     "openapi:build": "redocly lint && redocly bundle",
