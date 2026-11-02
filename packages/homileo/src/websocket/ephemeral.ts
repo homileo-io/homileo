@@ -153,7 +153,7 @@ export const handleEphemeral = (socket: AppSocket): void => {
       handler(payload).then(reply, (err: unknown) => {
         logFailure(socket, event)(err);
         reply(
-          failure({ code: "internal_error", message: "Something went wrong" })
+          failure({ code: "server_error", message: "Something went wrong" })
         );
       });
     };

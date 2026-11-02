@@ -1,6 +1,5 @@
 import { claimSocketSlot, limitEvents, MAX_PACKET_BYTES } from "./limits.js";
 import { handleEphemeral, startPresenceSweep } from "./ephemeral.js";
-import { authenticateSocket, closeAtExpiry } from "./auth.js";
 import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import { redisRetryStrategy } from "../utils/redisRetry.js";
 import { closeRedisClient, redis } from "../utils/redis.js";
@@ -15,6 +14,11 @@ import { db } from "../utils/db/index.js";
 import type { Redis } from "ioredis";
 import { Server } from "socket.io";
 import env from "../env.js";
+import {
+  authenticateSocket,
+  closeAtExpiry,
+  startTokenRecheck,
+} from "./auth.js";
 
 export type {
   AppSocket,
@@ -151,7 +155,7 @@ export const createSocketServer = async (
           { err, principalId: socket.data.caller.principalId },
           "Loading a socket's rooms failed"
         );
-        next(new Error("internal_error"));
+        next(new Error("server_error"));
       }
     );
   });
@@ -191,12 +195,14 @@ export const closeSocketServer = async (io: IOServer): Promise<void> => {
 
 let io: IOServer | null = null;
 let stopPresenceSweep: (() => void) | null = null;
+let stopTokenRecheck: (() => void) | null = null;
 
 /** Attaches the node's socket server to `http`; call before `listen`. */
 export const attachSockets = async (http: HttpServer): Promise<void> => {
   if (io) throw new Error("Sockets are already attached");
   io = await createSocketServer(http);
   stopPresenceSweep = startPresenceSweep(io);
+  stopTokenRecheck = startTokenRecheck(io);
   startFanout(io);
   logger.info("Socket server attached on /ws");
 };
@@ -212,6 +218,8 @@ export const closeSockets = async (): Promise<void> => {
   io = null;
   stopPresenceSweep?.();
   stopPresenceSweep = null;
+  stopTokenRecheck?.();
+  stopTokenRecheck = null;
   await stopFanout(closing);
   await closeSocketServer(closing);
 };

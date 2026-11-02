@@ -179,11 +179,23 @@ SpaceResponse:
 
 SpaceEventData:
   type: object
-  description: The payload of `space.created`, `space.updated` and `space.archived`, with the event's id
+  description: The payload of `space.created` and `space.archived`, with the event's id
   required: [eventId, space]
   properties:
     eventId: { type: string }
     space: { $ref: '#/Space' }
+
+SpaceUpdatedEventData:
+  type: object
+  description: The payload of `space.updated`, with the event's id
+  required: [eventId, space, previousVisibility]
+  properties:
+    eventId: { type: string }
+    space: { $ref: '#/Space' }
+    previousVisibility:
+      type: string
+      enum: [public, members]
+      description: The space's `visibility` before the update
 
 SpaceMemberAddedEventData:
   type: object

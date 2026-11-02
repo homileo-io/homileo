@@ -39,7 +39,13 @@ const Reaction = z.strictObject({
 
 export const EVENT_TYPES = {
   "space.created": def("space", Space),
-  "space.updated": def("space", Space),
+  "space.updated": def(
+    "space",
+    z.strictObject({
+      space: SpaceSchema,
+      previousVisibility: SpaceSchema.shape.visibility,
+    })
+  ),
   "space.archived": def("space", Space),
   "space.member_added": def(
     "space",

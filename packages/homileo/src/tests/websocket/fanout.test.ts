@@ -1,7 +1,6 @@
 // @module-tag int
 // @module-tag websocket
 // @module-tag events
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { deleteMessage, sendMessage } from "../support/messageApi.js";
 import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
@@ -20,6 +19,15 @@ import {
   type ClientSocket,
   type LocalSocketServer,
 } from "../support/sockets.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const api = spaceApiFixtures();
 const { fixtures } = api;
@@ -327,6 +335,37 @@ describe("startFanout", () => {
       await arriving;
       await silent;
     });
+
+    it.each([
+      ["a members-only space", "members"],
+      ["a public space", "public"],
+    ] as const)(
+      "does not re-check any socket when %s is renamed",
+      async (_name, visibility) => {
+        const space = await fixtures.space({ org, visibility });
+        await fixtures.member(space, owner.principal, "owner");
+        const member = await api.actor(org);
+        await fixtures.member(space, member.principal);
+        const socket = await connect(member);
+        const fetching = vi.spyOn(local.io.of("/").adapter, "fetchSockets");
+        try {
+          const arriving = nextEvent(socket, "space.updated");
+
+          const patched = await fetchJson(
+            "PATCH",
+            `${app.url}/v1/spaces/${space.id}`,
+            owner.token,
+            { name: `renamed ${visibility}` }
+          );
+          expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+
+          await arriving;
+          expect(fetching).not.toHaveBeenCalled();
+        } finally {
+          fetching.mockRestore();
+        }
+      }
+    );
 
     it("drops non-members' subscribed sockets from a space's session rooms when it turns members-only", async () => {
       const space = await fixtures.space({ org, visibility: "public" });

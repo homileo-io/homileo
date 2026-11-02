@@ -6,7 +6,7 @@ import { spaceView } from "../../views/space.js";
 import { eventView } from "../../views/event.js";
 import { describe, expect, it } from "vitest";
 
-const payload = { space: spaceView(spaceRow) };
+const payload = { space: spaceView(spaceRow), previousVisibility: "public" };
 
 describe("eventView", () => {
   it("writes the id as a decimal string, createdAt as ISO and the payload as stored", () => {

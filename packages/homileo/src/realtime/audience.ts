@@ -11,6 +11,11 @@ export interface Audience {
   join: Array<{ principalId: string; room: string }>;
   /** The space whose moderators, among the sockets in its room, also get the event. */
   moderators: string | null;
+  /**
+   * Personal rooms of the mentioned principals. Only their sockets whose own caller can read
+   * the session get the event.
+   */
+  mentioned: string[];
 }
 
 /** What `isRelevantTo` knows of one reader, loaded in bulk by its caller. */
@@ -136,6 +141,7 @@ export const eventAudience = (
       recheck: target ? [target] : [],
       join: [],
       moderators: null,
+      mentioned: [],
     };
   }
   if (MODERATOR_EVENTS.includes(e.type)) {
@@ -144,10 +150,12 @@ export const eventAudience = (
       recheck: [],
       join: [],
       moderators: e.spaceId,
+      mentioned: [],
     };
   }
   const rooms: string[] = [];
   const join: Audience["join"] = [];
+  const mentionRooms: string[] = [];
   const { channel } = EVENT_TYPES[e.type];
   for (const p of founders) rooms.push(userRoom(e.organizationId, p));
   if (channel === "space" && e.spaceId) {
@@ -167,11 +175,19 @@ export const eventAudience = (
       }
     }
     if (MENTION_EVENTS.includes(e.type)) {
-      for (const p of mentioned) rooms.push(userRoom(e.organizationId, p));
+      for (const p of mentioned) {
+        mentionRooms.push(userRoom(e.organizationId, p));
+      }
     }
   }
   if (target) rooms.push(userRoom(e.organizationId, target));
-  return { rooms: [...new Set(rooms)], recheck: [], join, moderators: null };
+  return {
+    rooms: [...new Set(rooms)],
+    recheck: [],
+    join,
+    moderators: null,
+    mentioned: [...new Set(mentionRooms)],
+  };
 };
 
 /**

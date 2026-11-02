@@ -62,7 +62,10 @@ export const updateSpace = async (req: Request, res: Response) => {
       spaceId: row.id,
       actorId: caller.principalId,
       entity: { type: "space", id: row.id },
-      payload: { space: spaceView(row) },
+      payload: {
+        space: spaceView(row),
+        previousVisibility: current.visibility,
+      },
       audit: {
         action: "UPDATE",
         userId: caller.tereoUserId,

@@ -17,11 +17,18 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 - The token is a tereo access token in the handshake's `auth.token`, checked as a request's is. A
   refusal is a `connect_error` whose message is the code: `unauthorized` (missing or bad token),
   `organization_required`, `too_many_connections`, `connection_closed` (the connection closed
-  while the handshake was checked), `shutting_down` or `internal_error`.
+  while the handshake was checked), `shutting_down` or `server_error`.
 - A socket belongs to the token's organization and sees nothing of another.
 - At most 20 sockets per principal per node. Packets over 16 KiB close the connection.
 - The socket closes when the token's `exp` passes. The client reconnects with a fresh token, which
   refreshes the permissions the socket is judged by.
+- Every 60 s each node introspects its sockets' tokens again through tereo, once per distinct
+  token and at most 10 at a time, skipping a round while the last is still running. A token tereo
+  no longer accepts (revoked, expired, or tereo unreachable, as a request would then get `401`)
+  closes its sockets; a token without `exp` is closed this way, never by expiry. A token still
+  active gives its sockets its current permissions, and those whose permissions changed are
+  re-checked. With tereo's introspection cache (60 s), a revoked token's sockets close within
+  about two minutes.
 - Connecting counts as a presence heartbeat.
 - The server accepts the `websocket` and `polling` transports. Polling sends each request of one
   connection separately, so with more than one api replica behind a load balancer, either route a
@@ -43,6 +50,11 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 | `spaceof:<spaceId>` | every socket in a session room of that space | joined and left with the session rooms |
 | `presence:<organizationId>:<principalId>` | sockets watching that principal | `presence.watch` |
 
+When a member or participant is added, their sockets on the node that fans out join the room at
+once, before the event is sent; other nodes' sockets join through the Redis adapter, a round trip
+later. All of them are then re-checked, so an add that fans out after a later removal does not
+leave the removed principal in the room.
+
 A socket joined for membership or participation never leaves it on `unsubscribe`; that only undoes
 `subscribe`. `unsubscribe` checks participation or membership again after leaving, and joins again
 if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
@@ -54,7 +66,7 @@ Every client event takes an optional ack. An ack is `{ ok: true, … }` or
 `{ ok: false, error: { code, message, issues? } }`. Codes: `invalid_request` (with `issues`),
 `not_found` (the resource is missing, in another organization, unreadable, or, for typing, not
 postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rate_limited` and
-`internal_error`. A socket may send 20 client events a second; the rest are dropped and answered
+`server_error`. A socket may send 20 client events a second; the rest are dropped and answered
 `rate_limited`.
 
 | Event | Payload | Ack |
@@ -118,9 +130,10 @@ More precisely:
   and `session.archived` of an `access: space` session also go to `space:<id>`. Those of an
   `access: members` session do not, not even to readers of the space who could read the session
   through a kind grant or `homileo.chat.admin`: they hear it by taking part or subscribing.
-- **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the personal room
-  of each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
-  participant, or a member of the space of an `access: space` session). Someone removed since the
+- **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the sockets of
+  each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
+  participant, or a member of the space of an `access: space` session) and, judged by the
+  socket's own token, can read the session, as `/sync` requires. Someone removed since the
   message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
   rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that
@@ -155,11 +168,12 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
   session rooms, and `spaceof:` once no session room of the space remains. The revocation goes to
   each socket of theirs that, judged by its own token, cannot read the resource, whether or not it
   was following it.
-- After `space.updated` or `session.updated`, the sockets in that resource's room (and `spaceof:`
-  for a space) are re-checked before the update is sent, so a socket that lost access with it does
-  not receive it. The payload holds only the new state, so the re-check runs only when the new
-  state could narrow access: a `members` space, or a `members` session. A `public` space or an
-  `access: space` session cannot lock anyone out and is not re-checked.
+- After a `space.updated` that turns a space from `public` to `members` (its payload's
+  `previousVisibility` says what it was), the sockets in `space:<id>` and `spaceof:<id>` are
+  re-checked before the update is sent, so a socket that lost access with it does not receive it.
+  No other update can lock anyone out (a session's `access` cannot be changed), so none other is
+  re-checked. If the re-check cannot reach the other nodes, this node's sockets are re-checked and
+  only they get the update through those rooms; if that fails too, no socket gets it through them.
 - Narrowing visibility records no revocation event: the subscribers it locks out are dropped from
   the room silently. Only removing a member or participant revokes, and only when they cannot read
   the resource any more.
