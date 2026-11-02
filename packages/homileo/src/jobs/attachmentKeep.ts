@@ -12,9 +12,16 @@ import {
 /**
  * Attachments younger than this are left to the send that is still keeping
  * them. It outlasts the placeholder's write URL, issued before the send, so
- * the size checked here is the final one.
+ * no new upload can start after the first check.
  */
 export const KEEP_GRACE_MS = UPLOAD_URL_SECONDS * 1000 + 60 * 1000;
+
+/**
+ * A PUT that began before its write URL expired can still be writing when
+ * the first pass looks, so a second pass checks the size again this long
+ * after the send. An upload that runs longer still escapes both.
+ */
+export const RECHECK_AFTER_MS = 60 * 60 * 1000;
 const BATCH = 100;
 const PARALLEL = 10;
 
@@ -69,20 +76,16 @@ const keep = async (a: {
   }
 };
 
-/**
- * Keeps (see `keep`) every attachment stored from `from` up to
- * `KEEP_GRACE_MS` ago: a send whose keep failed, or that stopped between
- * commit and keep, and any object refilled after its send. Returns where the
- * next run starts: the first attachment that could not be kept, or the end
- * of this range.
- */
-export const processAttachmentKeeps = async (
+const keepRange = async (
   from: Date,
-  now = new Date()
+  now: Date,
+  delayMs: number
 ): Promise<Date> => {
   const horizon = new Date(now.getTime() - PLACEHOLDER_TTL_MS);
   const start = from < horizon ? horizon : from;
-  const end = new Date(now.getTime() - KEEP_GRACE_MS);
+  const end = new Date(now.getTime() - delayMs);
+  // A cursor never moves back, or the range it skipped would be walked again.
+  if (end <= start) return start;
   let after = idAt(start);
   let firstFailed: string | null = null;
   for (;;) {
@@ -105,3 +108,30 @@ export const processAttachmentKeeps = async (
     after = rows[rows.length - 1].id;
   }
 };
+
+/** Where each pass of the next keep run starts. */
+export interface KeepCursors {
+  /** Attachments stored from here up to `KEEP_GRACE_MS` ago. */
+  keep: Date;
+  /** Attachments stored from here up to `RECHECK_AFTER_MS` ago. */
+  recheck: Date;
+}
+
+export const START_OF_KEEPS: KeepCursors = {
+  keep: new Date(0),
+  recheck: new Date(0),
+};
+
+/**
+ * Keeps (see `keep`) every attachment stored in either pass's range: a send
+ * whose keep failed, or that stopped between commit and keep, and any object
+ * refilled after its send. Each pass returns where its next run starts: the
+ * first attachment it could not keep, or the end of its range.
+ */
+export const processAttachmentKeeps = async (
+  from: KeepCursors,
+  now = new Date()
+): Promise<KeepCursors> => ({
+  keep: await keepRange(from.keep, now, KEEP_GRACE_MS),
+  recheck: await keepRange(from.recheck, now, RECHECK_AFTER_MS),
+});

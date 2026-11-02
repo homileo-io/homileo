@@ -1,8 +1,11 @@
 import { processEventPartitions } from "./jobs/eventPartitions.js";
-import { processAttachmentKeeps } from "./jobs/attachmentKeep.js";
 import { processEventRetention } from "./jobs/eventRetention.js";
 import { logger } from "./utils/logger.js";
 import env from "./env.js";
+import {
+  processAttachmentKeeps,
+  START_OF_KEEPS,
+} from "./jobs/attachmentKeep.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KEEP_INTERVAL_MS = 10 * 60 * 1000;
@@ -11,7 +14,7 @@ let partitionTimer: NodeJS.Timeout | null = null;
 let retentionTimer: NodeJS.Timeout | null = null;
 let keepTimer: NodeJS.Timeout | null = null;
 // Where the next keep run starts; at process start, as far back as a placeholder lives.
-let keepFrom = new Date(0);
+let keepFrom = START_OF_KEEPS;
 
 const inFlight = new Set<Promise<void>>();
 

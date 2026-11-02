@@ -2,8 +2,14 @@
 // @module-tag platform
 import { InvalidAuditEntryError, RequestError } from "@tereo-io/sdk";
 import type { NextFunction, Request, Response } from "express";
-import { errorHandler } from "../../utils/errors.js";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import {
+  errorHandler,
+  issuesOf,
+  MAX_ISSUE_CHARS,
+  MAX_ISSUES,
+} from "../../utils/errors.js";
 
 const fakeRes = () => {
   const res = {
@@ -292,5 +298,37 @@ describe("errorHandler", () => {
         error_description: "action is required",
       })
     );
+  });
+});
+
+describe("issuesOf", () => {
+  it("lists at most MAX_ISSUES issues, each path and message cut to MAX_ISSUE_CHARS", () => {
+    const key = "k".repeat(MAX_ISSUE_CHARS * 2);
+    const keys = Array.from({ length: MAX_ISSUES + 5 }, (_, i) => `${key}${i}`);
+    const schema = z.object(
+      Object.fromEntries(
+        keys.map((k) => [k, z.string().min(1, "m".repeat(MAX_ISSUE_CHARS * 2))])
+      )
+    );
+    const result = schema.safeParse(
+      Object.fromEntries(keys.map((k) => [k, ""]))
+    );
+
+    const issues = issuesOf(result.error!);
+
+    expect(issues).toHaveLength(MAX_ISSUES);
+    for (const issue of issues) {
+      expect(issue.path).toHaveLength(MAX_ISSUE_CHARS);
+      expect(issue.path.endsWith("…")).toBe(true);
+      expect(issue.message).toHaveLength(MAX_ISSUE_CHARS);
+    }
+  });
+
+  it("keeps short issues as they are", () => {
+    const result = z.object({ a: z.string() }).safeParse({ a: 1 });
+
+    expect(issuesOf(result.error!)).toEqual([
+      { path: "a", message: result.error!.issues[0]!.message },
+    ]);
   });
 });

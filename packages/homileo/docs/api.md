@@ -88,10 +88,10 @@ extra one on the newer side).
 | `clientMessageId` | 1 to 128 characters |
 | `emoji` | 1 to 64 characters |
 | attachments per message | 10 |
-| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`) and again by the keep run once the write URL has expired (see decision 11); tereo's own upload limit is not checked |
+| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`) and again by the keep run once the write URL has expired and an hour after the send (see decision 11); tereo's own upload limit is not checked |
 | pending attachments | `ATTACHMENT_MAX_PENDING` (50 by default) placeholders per principal that no message has claimed and that have not expired (`409 too_many_pending_attachments`) |
 | attachment `contentType` | a media type, `type/subtype` with optional `; name=value` parameters, at most 255 characters |
-| mention emails | 25 per send or edit, to the first readers mentioned; and one per sender and reader per `MENTION_EMAIL_COOLDOWN_SECONDS` (60 by default) |
+| mention emails | 25 per send or edit, to the first readers mentioned who are out of cooldown; and one per sender and reader per `MENTION_EMAIL_COOLDOWN_SECONDS` (60 by default) |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
 
 ## JSON shapes
@@ -265,10 +265,11 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   records no `read.updated`.
 - **10. Mentions.** `<@id>` mentions are stored only for principals who can read the session (see
   [access.md](access.md)) and emailed through `core.outbox.notify` unless their `notify` is `none`
-  or they are the sender or a bot. A send or edit emails at most 25 readers, the first it mentions,
-  and a sender's mention emails a reader at most once per `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis
-  key per sender and reader; without Redis the cooldown is skipped, and a rolled-back send still
-  starts it). The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
+  or they are the sender or a bot. A sender's mention emails a reader at most once per
+  `MENTION_EMAIL_COOLDOWN_SECONDS` (a Redis key per sender and reader), and a send or edit emails at
+  most 25 readers: the first it mentions, in body order, that are out of cooldown. When Redis is not
+  ready, fails or takes over 200 ms, the cooldown is skipped and only the cap applies; a rolled-back
+  send still starts it. An edit emails only readers no earlier revision mentioned. The other readers keep the mention, in `/me/mentions` and unread counts. A reply makes its sender a follower and creates a following row
   for the root's sender if none exists; an existing row (an unfollow) is left alone.
   `<!here>` and `<!session>` are stored, so they appear in `/me/mentions` for participants, and send
   no email.
@@ -284,8 +285,10 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   placeholders that no message has claimed (counted in Redis until a send claims one or it
   expires); past that the request is `409 too_many_pending_attachments`, and without Redis `503`.
   The write URL stays valid for 15 minutes, so the bytes can change after the send: the keep run
-  looks at an attachment only once that URL has expired (16 minutes after it was stored), and
-  deletes the tereo object if it is now larger than `ATTACHMENT_MAX_BYTES`. The message keeps
+  looks at an attachment once that URL has expired (16 minutes after it was stored), and again an
+  hour after it was stored for an upload that began before the URL expired and finished later, and
+  each time deletes the tereo object if it is now larger than `ATTACHMENT_MAX_BYTES`. An upload
+  still running an hour after the send is not checked again. The message keeps
   listing the attachment as sent; its read URL answers `404`. `GET /v1/messages/:messageId/attachments/:attachmentId`
   returns a presigned read URL. tereo's storage serves the object with the content type the
   placeholder was made with (the uploader's claim: nothing checks it against the bytes), so a client

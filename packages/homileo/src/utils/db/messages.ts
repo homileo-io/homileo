@@ -168,7 +168,7 @@ export interface MentionedPrincipal {
   spaceRole: SpaceRole | null;
 }
 
-/** One query for every id; ids that name no principal are left out. */
+/** One query for every id, in the order of `ids`; ids that name no principal are left out. */
 export const mentionedPrincipals = async (
   tx: Tx,
   session: { id: string; spaceId: string | null },
@@ -186,7 +186,8 @@ export const mentionedPrincipals = async (
       AND sp.left_at IS NULL
     LEFT JOIN "chat"."space_members" sm
       ON sm.space_id = ${session.spaceId}::uuid AND sm.user_id = p.id
-    WHERE p.id = ANY(${ids}::uuid[])`;
+    WHERE p.id = ANY(${ids}::uuid[])
+    ORDER BY array_position(${ids}::uuid[], p.id)`;
 };
 
 export const insertMentions = async (

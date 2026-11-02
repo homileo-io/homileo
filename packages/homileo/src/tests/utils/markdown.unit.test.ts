@@ -58,6 +58,16 @@ describe("plainText", () => {
   });
 });
 
+// Whitespace to `trim()` and `\s`, but not to micromark: none of these makes a line blank.
+const UNICODE_SPACES = [
+  ["NBSP", "\u00a0"],
+  ["\\v", "\v"],
+  ["\\f", "\f"],
+  ["U+3000", "\u3000"],
+  ["U+2028", "\u2028"],
+  ["U+FEFF", "\ufeff"],
+] as const;
+
 describe("measureMarkup", () => {
   it.each([
     ["plain prose", "just some words, no markup.", 0, 0, 1],
@@ -86,6 +96,14 @@ describe("measureMarkup", () => {
     ],
     ["indent alone opens nothing", "a\n" + " ".repeat(200) + "x\nb", 0, 0, 3],
     ["fenced code counts no markup", "```\n> > > *x*\n```\nz", 2, 0, 4],
+    [
+      "a fence closed only by spaces and tabs",
+      "```\n```\u00a0\n> *x*\n``` \t\n> y",
+      3,
+      1,
+      6,
+    ],
+    ["a fence whose info holds U+2028", "```a\u2028b\n> *x*\n```", 2, 0, 3],
   ])("%s", (_name, markdown, count, depth, work) => {
     expect(measureMarkup(markdown)).toEqual({ count, depth, work });
   });
@@ -160,6 +178,17 @@ describe("parseBody", () => {
       "list markers that cannot interrupt a paragraph",
       "> a\n" + "c\n".repeat(1000) + "2. b\n".repeat(490),
     ],
+    ...UNICODE_SPACES.flatMap(([name, space]) => [
+      [`lazy lines of ${name}`, "> a\n" + `${space}\n`.repeat(4990)],
+      [
+        `lazy lines between lines of ${name}`,
+        "> a\n" + `b\n${space}\n`.repeat(2490),
+      ],
+      [
+        `nine quotes followed by lines of ${name}`,
+        "> ".repeat(9) + "a\n" + `b\n${space}\n`.repeat(2480),
+      ],
+    ]),
   ])("reads %s as plain text", (_name, markdown) => {
     expect(markdown.length).toBeLessThanOrEqual(PARSE_MAX_LENGTH);
     expect(measureMarkup(markdown).work).toBeGreaterThan(PARSE_MAX_WORK);

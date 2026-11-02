@@ -1,22 +1,11 @@
-import { ValidationError, type ValidationIssue } from "./errors.js";
+import { issuesOf, ValidationError } from "./errors.js";
 import { ZodSchema, z, type ZodError } from "zod";
 import type { Request } from "express";
 
-/** The most issues a 400 lists; `error_description` says how many it left out. */
-export const MAX_ISSUES = 20;
-/** The most characters of an issue's path or message: a path holds the request's own keys. */
-export const MAX_ISSUE_CHARS = 256;
-
-export const truncate = (text: string, max: number): string =>
-  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+export { MAX_ISSUE_CHARS, MAX_ISSUES, truncate } from "./errors.js";
 
 const invalid = (what: string, error: ZodError): ValidationError => {
-  const issues: ValidationIssue[] = error.issues
-    .slice(0, MAX_ISSUES)
-    .map((i) => ({
-      path: truncate(i.path.join("."), MAX_ISSUE_CHARS),
-      message: truncate(i.message, MAX_ISSUE_CHARS),
-    }));
+  const issues = issuesOf(error);
   const more = error.issues.length - issues.length;
   const listed = issues.map((i) => `${i.path}: ${i.message}`).join(", ");
   return new ValidationError(
