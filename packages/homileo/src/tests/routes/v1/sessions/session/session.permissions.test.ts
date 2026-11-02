@@ -67,7 +67,10 @@ describe("reading a members-only session in a public space", () => {
       grants: [{ permission: "sessions-perm.moderate", access: "moderate" }],
     });
     const space = await fixtures.space({ org, kind, visibility: "members" });
-    const holder = await signIn(org, ["sessions-perm.moderate"]);
+    const holder = await signIn(org, [
+      "sessions-perm.moderate",
+      "homileo.spaces.write",
+    ]);
     const created = await fetchJson(
       "POST",
       `${app.url}/v1/sessions`,
