@@ -16,11 +16,8 @@ export const putFollow = async (req: Request, res: Response) => {
   const { rootId } = validateParams(ThreadParamsSchema, req);
   const { following } = validateBody(FollowBodySchema, req);
   const row = await withChanges(async (tx) => {
-    // The session row first, then the follower row, as a thread read takes them.
-    const { message: root } = await readableMessage(caller, rootId, {
-      tx,
-      lock: true,
-    });
+    // No session lock: sends take it, and setFollowing is one statement on the follower row.
+    const { message: root } = await readableMessage(caller, rootId, { tx });
     if (root.threadRootId !== null) {
       throw new BadRequestError(
         "reply_to_reply",

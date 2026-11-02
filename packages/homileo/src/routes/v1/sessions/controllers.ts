@@ -14,12 +14,14 @@ import { memberView } from "../../../views/space.js";
 import type { Request, Response } from "express";
 import { db } from "../../../utils/db/index.js";
 import {
-  canCreateSessionIn,
+  createSessionRefusal,
   readsEverySessionOf,
+  type SpaceFacts,
 } from "../../../policy/index.js";
 import {
   ArchivedError,
   ForbiddenError,
+  NotFoundError,
   PostingRestrictedError,
   ValidationError,
 } from "../../../utils/errors.js";
@@ -96,6 +98,23 @@ const invalidIds = (message: string, indexes: number[]) =>
     indexes.map((i) => ({ path: `participantIds.${i}`, message }))
   );
 
+const refuseCreateIn = (caller: Caller, space: SpaceFacts): void => {
+  switch (createSessionRefusal(caller, space)) {
+    case null:
+      return;
+    case "not_found":
+      throw new NotFoundError("Space not found");
+    case "archived":
+      throw new ArchivedError("The space is archived");
+    case "posting_restricted":
+      throw new PostingRestrictedError(
+        "Only moderators start sessions in this space"
+      );
+    case "not_a_member":
+      throw new ForbiddenError("You are not a member of this space");
+  }
+};
+
 export const createSession = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const body = validateBody(CreateSessionBodySchema, req);
@@ -105,19 +124,7 @@ export const createSession = async (req: Request, res: Response) => {
     const space = body.spaceId
       ? await readableSpace(caller, body.spaceId, { tx, lock: true })
       : null;
-    if (space) {
-      if (space.facts.archived) {
-        throw new ArchivedError("The space is archived");
-      }
-      if (!canCreateSessionIn(caller, space.facts)) {
-        if (space.facts.postPolicy === "moderators") {
-          throw new PostingRestrictedError(
-            "Only moderators start sessions in this space"
-          );
-        }
-        throw new ForbiddenError("You are not a member of this space");
-      }
-    }
+    if (space) refuseCreateIn(caller, space.facts);
 
     const unknown = await db.sessions.unknownPrincipalIndexes(
       tx,

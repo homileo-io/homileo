@@ -26,6 +26,7 @@ import {
 import {
   canDeleteMessage,
   canEditMessage,
+  canReadSession,
   editWindowOpen,
 } from "../../../../policy/index.js";
 import {
@@ -166,12 +167,12 @@ export const deleteMessage = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
 
-  const message = await withChanges(async (tx, record) => {
+  const { message, readable } = await withChanges(async (tx, record) => {
     const {
       message: row,
       session,
       facts,
-    } = await lockedMessage(tx, caller, messageId);
+    } = await lockedMessage(tx, caller, messageId, { moderate: true });
     if (row.deletedAt !== null) {
       throw new ArchivedError("The message was already deleted");
     }
@@ -221,8 +222,13 @@ export const deleteMessage = async (req: Request, res: Response) => {
         },
       });
     }
-    return view;
+    return { message: view, readable: canReadSession(caller, facts) };
   });
 
+  // A moderator deleting in a session it cannot read gets no view of the message.
+  if (!readable) {
+    res.status(204).end();
+    return;
+  }
   res.status(200).json({ message });
 };

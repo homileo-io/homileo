@@ -123,4 +123,24 @@ describe("POST /v1/spaces/:spaceId/join-requests/:principalId/deny", () => {
       0
     );
   });
+
+  it("answers 409 resource_archived in an archived space before the policy and the request lookup", async () => {
+    const { org, moderator, space, applicant } = await setup();
+    const member = await api.actor(org);
+    await fixtures.member(space, member.principal, "member");
+    await prisma.space.update({
+      where: { id: space.id },
+      data: { archivedAt: new Date() },
+    });
+
+    const answers = [
+      await deny(member.token, space.id, applicant.principal.id),
+      await deny(moderator.token, space.id, member.principal.id),
+    ];
+
+    expect(answers.map((a) => [a.status, a.body.error])).toEqual([
+      [409, "resource_archived"],
+      [409, "resource_archived"],
+    ]);
+  });
 });

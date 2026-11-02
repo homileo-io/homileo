@@ -2,8 +2,7 @@ import type { ChangeEvent, ChangeInput } from "../changes.js";
 import { participantView } from "../../views/session.js";
 import type { Caller } from "../../middleware/auth.js";
 import type { prisma, Prisma } from "./prisma.js";
-import { readableSpaceWhere } from "./spaces.js";
-import { kindsGrantingRead } from "../kinds.js";
+import { grantedKindsOf } from "./spaces.js";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ParticipantRole,
@@ -11,6 +10,11 @@ import type {
   SessionParticipant,
   SessionType,
 } from "../../../prisma/generated/client/index.js";
+import {
+  participatesWhere,
+  readableSessionWhere,
+  spaceSessionsWhere,
+} from "../../policy/sql.js";
 
 type Tx = Prisma.TransactionClient;
 type Client = Tx | typeof prisma;
@@ -222,55 +226,15 @@ const afterCondition = (a: SessionPageStart): Prisma.SessionWhereInput => {
   };
 };
 
-const participates = (principalId: string): Prisma.SessionWhereInput => ({
-  participants: { some: { userId: principalId, leftAt: null } },
-});
-
-/**
- * `canReadSession` as a condition, for a query the caller's organization already limits. The
- * `access: members` branch is `readsEverySessionOf`: a kind grant of the space, or admin.
- */
-export const readableSessionWhere = async (
-  caller: Caller
-): Promise<Prisma.SessionWhereInput> => {
-  const mine = participates(caller.principalId);
-  const granted = caller.isAdmin
-    ? []
-    : await kindsGrantingRead(caller.permissions);
-  const membersBranch: Prisma.SessionWhereInput[] = caller.isAdmin
-    ? [{ access: "members" }]
-    : [
-        { access: "members", ...mine },
-        ...(granted.length > 0
-          ? [{ access: "members" as const, space: { kind: { in: granted } } }]
-          : []),
-      ];
-  return {
-    OR: [
-      { spaceId: null, ...mine },
-      {
-        spaceId: { not: null },
-        space: await readableSpaceWhere(caller),
-        OR: [{ access: "space" }, ...membersBranch],
-      },
-    ],
-  };
-};
-
 const scopeWhere = async (
   input: ListSessionsInput
 ): Promise<Prisma.SessionWhereInput> => {
   const { scope, caller } = input;
   if ("spaceId" in scope) {
-    return {
-      spaceId: scope.spaceId,
-      ...(scope.everything
-        ? {}
-        : { OR: [{ access: "space" }, participates(caller.principalId)] }),
-    };
+    return spaceSessionsWhere(caller, scope.spaceId, scope.everything);
   }
-  if ("participating" in scope) return participates(caller.principalId);
-  return readableSessionWhere(caller);
+  if ("participating" in scope) return participatesWhere(caller.principalId);
+  return readableSessionWhere(caller, await grantedKindsOf(caller));
 };
 
 export const list = async (

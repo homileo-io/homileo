@@ -322,7 +322,7 @@ paths:
 
         **Errors:** `400 setting_not_overridable` (the kind does not let spaces override
         `visibility`, `joinPolicy` or `postPolicy`), `400 invalid_state`, `409 external_ref_taken`,
-        `409 resource_archived`.
+        `409 resource_archived` (checked before the moderation check).
       operationId: updateSpace
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -621,7 +621,7 @@ paths:
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
-        request is already decided, `409 resource_archived` for an archived space.
+        request is already decided, `409 resource_archived` for an archived space, checked before the moderation check and the request lookup.
       operationId: approveJoinRequest
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -660,7 +660,7 @@ paths:
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
         request is already decided, `409 already_member` when the principal is already a member
-        (approve the request to close it), `409 resource_archived` for an archived space.
+        (approve the request to close it), `409 resource_archived` for an archived space, checked before the moderation check and the request lookup.
       operationId: denyJoinRequest
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -1032,9 +1032,9 @@ paths:
       description: |
         Archives the session. In a space it needs the right to moderate the space; in a group without
         a space, the participant `owner` or `homileo.chat.admin`; a DM, only `homileo.chat.admin`.
-        An admin of the session's organization reaches it without being a participant, though it
-        still cannot read a space-less session: such an admin gets `204` with no body instead of the
-        session's view. Archiving an archived session is `409 already_archived`. Records
+        An admin of the session's organization, and in a space whoever can moderate it, reach it
+        without being a participant or able to read it (a space-less session, an `access: members`
+        session): such a caller gets `204` with no body instead of the session's view. Archiving an archived session is `409 already_archived`. Records
         `session.archived`.
 
         **Required permissions:** `homileo.spaces.write` or `homileo.chat.admin` (`403 forbidden` without).
@@ -1054,7 +1054,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
         '204':
-          description: Archived by an admin who cannot read the session (a DM or a space-less group)
+          description: Archived by an admin or space moderator who cannot read the session
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':
@@ -1174,9 +1174,10 @@ paths:
       summary: Leave a session or remove a participant
       description: |
         When `principalId` is the caller, they leave: any participant may, except in a DM (`403`),
-        even from an archived session or space. Removing someone else from an archived session, or
+        even from an archived session or space, and even when they can no longer read it. Removing someone else from an archived session, or
         one in an archived space, is `409 resource_archived`.
-        Otherwise it removes the participant: in a space, whoever can moderate the space; in a group
+        Otherwise it removes the participant: in a space, whoever can moderate the space (without
+        needing to read the session, as for an `access: members` one); in a group
         without a space, its `owner` or `homileo.chat.admin` (who reaches it without being a
         participant, though it still cannot read it). A principal who is not a current participant is `404`. When the last `owner` of a group
         without a space leaves or is removed, ownership passes to the remaining participant who
@@ -1268,7 +1269,8 @@ paths:
       summary: Set the caller's notify level
       description: |
         Sets how the caller is notified of this session. A personal setting: records no event. A
-        caller who can read the session but is not a participant gets `403 not_a_participant`.
+        caller who can read the session but is not a participant gets `403 not_a_participant`. A
+        current participant may set it even when they can no longer read the session.
 
         **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
       operationId: putSessionNotify
@@ -1523,8 +1525,10 @@ paths:
         `deletedBy`; the row, its revisions, mentions, reactions and attachments stay (reads show
         reactions and attachments as empty). Deleting a reply lowers the root's `replyCount`.
 
-        The sender (while a participant) may delete. In a space, so may whoever can moderate it. An
-        already deleted message is `409 resource_archived`; any other refusal is `403`.
+        The sender (while a participant) may delete. In a space, so may whoever can moderate it, even
+        in an `access: members` session they cannot read; such a caller gets `204` with no body
+        instead of the message's view. An already deleted message is `409 resource_archived`; any
+        other refusal is `403`.
 
         Records `message.deleted` (and `thread.updated` for a reply), emitting
         `homileo.message.deleted` and `homileo.thread.updated`. A moderator deleting someone
@@ -1541,6 +1545,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
+        '204':
+          description: Deleted by a space moderator who cannot read the session
         '400':
           $ref: '#/components/responses/BadRequestResponse'
         '401':

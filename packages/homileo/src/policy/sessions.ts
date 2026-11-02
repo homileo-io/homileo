@@ -3,7 +3,10 @@ import type { SessionFacts, SpaceFacts } from "./types.js";
 import type { OrgCaller } from "../middleware/auth.js";
 
 /** A session and its space (if any) must both be in the caller's organization. */
-const sameOrganization = (c: OrgCaller, ss: SessionFacts): boolean =>
+export const inSessionOrganization = (
+  c: OrgCaller,
+  ss: SessionFacts
+): boolean =>
   c.organizationId === ss.organizationId &&
   (ss.space === null || ss.space.organizationId === ss.organizationId);
 
@@ -16,7 +19,7 @@ export const readsEverySessionOf = (c: OrgCaller, s: SpaceFacts): boolean =>
 
 /** Session access only narrows the space's: a session in a space needs read on the space. */
 export const canReadSession = (c: OrgCaller, ss: SessionFacts): boolean => {
-  if (!sameOrganization(c, ss)) return false;
+  if (!inSessionOrganization(c, ss)) return false;
   if (ss.space === null) return ss.participantRole !== null;
   if (!canReadSpace(c, ss.space)) return false;
   if (ss.access === "space") return true;
@@ -34,7 +37,7 @@ export const isPrivateSession = (ss: {
 
 /** Whether the caller may make themselves a participant of an `access: space` session. */
 export const canJoinSession = (c: OrgCaller, ss: SessionFacts): boolean => {
-  if (!sameOrganization(c, ss) || ss.archived) return false;
+  if (!inSessionOrganization(c, ss) || ss.archived) return false;
   if (ss.space === null || ss.access !== "space") return false;
   if (ss.space.archived || !canReadSpace(c, ss.space)) return false;
   if (ss.participantRole !== null || ss.space.role !== null) return true;
@@ -42,7 +45,7 @@ export const canJoinSession = (c: OrgCaller, ss: SessionFacts): boolean => {
 };
 
 export const canPost = (c: OrgCaller, ss: SessionFacts): boolean => {
-  if (!sameOrganization(c, ss) || ss.archived) return false;
+  if (!inSessionOrganization(c, ss) || ss.archived) return false;
   if (ss.participantRole === null || !canReadSession(c, ss)) return false;
   if (ss.space === null) return true;
   if (ss.space.archived) return false;
@@ -61,7 +64,7 @@ const canChangeSpaceParticipants = (c: OrgCaller, space: SpaceFacts): boolean =>
  * `owner` adds: an admin who could add themselves could then read the session.
  */
 export const canAddParticipant = (c: OrgCaller, ss: SessionFacts): boolean => {
-  if (!sameOrganization(c, ss) || ss.archived) return false;
+  if (!inSessionOrganization(c, ss) || ss.archived) return false;
   if (ss.type === "direct") return false;
   if (ss.space === null) return ss.participantRole === "owner";
   return canChangeSpaceParticipants(c, ss.space);
@@ -72,14 +75,14 @@ export const canRemoveParticipant = (
   c: OrgCaller,
   ss: SessionFacts
 ): boolean => {
-  if (!sameOrganization(c, ss) || ss.archived) return false;
+  if (!inSessionOrganization(c, ss) || ss.archived) return false;
   if (ss.space === null) return ss.participantRole === "owner" || c.isAdmin;
   return canChangeSpaceParticipants(c, ss.space);
 };
 
 /** In a space, who moderates it; in a space-less group its `owner` or an admin; a DM, only an admin. */
 export const canArchiveSession = (c: OrgCaller, ss: SessionFacts): boolean => {
-  if (!sameOrganization(c, ss)) return false;
+  if (!inSessionOrganization(c, ss)) return false;
   if (ss.space !== null) return canModerateSpace(c, ss.space);
   if (ss.type === "direct") return c.isAdmin;
   return ss.participantRole === "owner" || c.isAdmin;
@@ -90,9 +93,39 @@ export const canArchiveSession = (c: OrgCaller, ss: SessionFacts): boolean => {
  * participants.
  */
 export const canLeaveSession = (c: OrgCaller, ss: SessionFacts): boolean =>
-  sameOrganization(c, ss) &&
+  inSessionOrganization(c, ss) &&
   ss.participantRole !== null &&
   ss.type !== "direct";
+
+/**
+ * Whom archiving and removing participants load a session for without the read check: an admin
+ * of its organization, and in a space whoever moderates the space. The action's own rule still
+ * decides.
+ */
+export const managesWithoutReading = (
+  c: OrgCaller,
+  ss: SessionFacts
+): boolean =>
+  (ss.space === null && inSessionOrganization(c, ss) && c.isAdmin) ||
+  moderatesWithoutReading(c, ss);
+
+/** Whoever moderates the session's space; the content of a space-less session has no moderator. */
+export const moderatesWithoutReading = (
+  c: OrgCaller,
+  ss: SessionFacts
+): boolean =>
+  inSessionOrganization(c, ss) &&
+  ss.space !== null &&
+  canModerateSpace(c, ss.space);
+
+/**
+ * Leaving and muting change only the caller's own participant row, so a participant who lost read
+ * (and still gets mentions and notifications as one) can do both.
+ */
+export const actsOnOwnParticipation = (
+  c: OrgCaller,
+  ss: SessionFacts
+): boolean => inSessionOrganization(c, ss) && ss.participantRole !== null;
 
 /** Reacting needs participation and a writable session, but not the space's post policy. */
 export const canReact = (c: OrgCaller, ss: SessionFacts): boolean =>
@@ -103,7 +136,7 @@ export const canEditSessionSettings = (
   c: OrgCaller,
   ss: SessionFacts
 ): boolean => {
-  if (!sameOrganization(c, ss) || ss.archived || ss.type === "direct") {
+  if (!inSessionOrganization(c, ss) || ss.archived || ss.type === "direct") {
     return false;
   }
   if (ss.space !== null)
@@ -112,10 +145,23 @@ export const canEditSessionSettings = (
 };
 
 /** Starting a session in a space: members (or moderators) of an unarchived space; moderators only when posting is restricted. */
-export const canCreateSessionIn = (c: OrgCaller, s: SpaceFacts): boolean => {
-  if (c.organizationId !== s.organizationId || s.archived) return false;
-  if (s.role === null && !canModerateSpace(c, s)) return false;
-  return s.postPolicy !== "moderators" || canModerateSpace(c, s);
+export const canCreateSessionIn = (c: OrgCaller, s: SpaceFacts): boolean =>
+  createSessionRefusal(c, s) === null;
+
+export type CreateSessionRefusal =
+  "not_found" | "archived" | "posting_restricted" | "not_a_member";
+
+/** The first reason `canCreateSessionIn` would be false, or `null` when it is true. */
+export const createSessionRefusal = (
+  c: OrgCaller,
+  s: SpaceFacts
+): CreateSessionRefusal | null => {
+  if (c.organizationId !== s.organizationId) return "not_found";
+  if (s.archived) return "archived";
+  const moderates = canModerateSpace(c, s);
+  if (s.postPolicy === "moderators" && !moderates) return "posting_restricted";
+  if (s.role === null && !moderates) return "not_a_member";
+  return null;
 };
 
 export type PostRefusal =

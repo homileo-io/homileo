@@ -48,36 +48,27 @@ export const findFollower = (
 
 /**
  * Moves the caller's thread read position forward to `seq`, never back. A caller
- * with no row gets one that does not follow. Returns the position before and after.
+ * with no row gets one that does not follow. One statement, so concurrent reads and
+ * follows serialize on the follower row alone. Returns whether it moved, and where it is.
  */
 export const advanceRead = async (
   tx: Tx,
   rootId: string,
   userId: string,
   seq: bigint
-): Promise<{ before: bigint; after: bigint }> => {
-  const rows = await tx.$queryRaw<Array<{ last_read_seq: bigint }>>`
-    SELECT last_read_seq FROM "chat"."thread_followers"
-    WHERE thread_root_id = ${rootId}::uuid AND user_id = ${userId}::uuid
-    FOR UPDATE`;
-  if (rows.length === 0) {
-    await tx.threadFollower.create({
-      data: {
-        threadRootId: rootId,
-        userId,
-        following: false,
-        lastReadSeq: seq,
-      },
-    });
-    return { before: 0n, after: seq };
-  }
-  const before = rows[0].last_read_seq;
-  if (seq <= before) return { before, after: before };
-  await tx.threadFollower.update({
-    where: { threadRootId_userId: { threadRootId: rootId, userId } },
-    data: { lastReadSeq: seq },
-  });
-  return { before, after: seq };
+): Promise<{ moved: boolean; lastReadSeq: bigint }> => {
+  const moved = await tx.$queryRaw<Array<{ last_read_seq: bigint }>>`
+    INSERT INTO "chat"."thread_followers"
+      (thread_root_id, user_id, following, last_read_seq)
+    VALUES (${rootId}::uuid, ${userId}::uuid, false, ${seq})
+    ON CONFLICT (thread_root_id, user_id)
+    DO UPDATE SET last_read_seq = EXCLUDED.last_read_seq
+      WHERE "chat"."thread_followers".last_read_seq < EXCLUDED.last_read_seq
+    RETURNING last_read_seq`;
+  // A new row at 0 is where a missing one already stood.
+  if (moved.length > 0) return { moved: seq > 0n, lastReadSeq: seq };
+  const current = await findFollower(tx, rootId, userId);
+  return { moved: false, lastReadSeq: current!.lastReadSeq };
 };
 
 /**

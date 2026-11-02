@@ -232,7 +232,8 @@ export interface StoredMention {
   messageId: string;
   userId: string;
   access: "space" | "members";
-  spaceId: string | null;
+  /** The session's space's visibility; `null` for a space-less session. */
+  visibility: "public" | "members" | null;
   /** `null` when not a current participant. */
   participantRole: ParticipantRole | null;
   /** `null` when not a member of the session's space (or it has none). */
@@ -248,10 +249,11 @@ export const storedMentionsOf = async (
   if (messageIds.length === 0) return [];
   return client.$queryRaw<StoredMention[]>`
     SELECT mm.message_id::text AS "messageId", mm.user_id::text AS "userId",
-      s.access::text AS access, s.space_id::text AS "spaceId",
+      s.access::text AS access, sx.visibility::text AS visibility,
       sp.role::text AS "participantRole", sm.role::text AS "spaceRole"
     FROM "chat"."message_mentions" mm
     JOIN "chat"."sessions" s ON s.id = mm.session_id
+    LEFT JOIN "chat"."spaces" sx ON sx.id = s.space_id
     LEFT JOIN "chat"."session_participants" sp
       ON sp.session_id = mm.session_id AND sp.user_id = mm.user_id
       AND sp.left_at IS NULL
@@ -333,7 +335,8 @@ export const uncountReply = async (
 
 /**
  * The root's sender follows the thread (an earlier unfollow stands); the
- * replier follows it again and has read up to their reply.
+ * replier follows it again and has read up to their reply. Each is one statement,
+ * as thread follows and reads write these rows without the session lock.
  */
 export const followOnReply = async (
   tx: Tx,
@@ -343,24 +346,18 @@ export const followOnReply = async (
   seq: bigint
 ): Promise<void> => {
   if (rootSenderId !== replierId) {
-    await tx.threadFollower.upsert({
-      where: {
-        threadRootId_userId: { threadRootId: rootId, userId: rootSenderId },
-      },
-      create: { threadRootId: rootId, userId: rootSenderId, following: true },
-      update: {},
-    });
+    await tx.$executeRaw`
+      INSERT INTO "chat"."thread_followers" (thread_root_id, user_id, following)
+      VALUES (${rootId}::uuid, ${rootSenderId}::uuid, true)
+      ON CONFLICT (thread_root_id, user_id) DO NOTHING`;
   }
-  await tx.threadFollower.upsert({
-    where: { threadRootId_userId: { threadRootId: rootId, userId: replierId } },
-    create: {
-      threadRootId: rootId,
-      userId: replierId,
-      following: true,
-      lastReadSeq: seq,
-    },
-    update: { following: true, lastReadSeq: seq },
-  });
+  await tx.$executeRaw`
+    INSERT INTO "chat"."thread_followers"
+      (thread_root_id, user_id, following, last_read_seq)
+    VALUES (${rootId}::uuid, ${replierId}::uuid, true, ${seq})
+    ON CONFLICT (thread_root_id, user_id)
+    DO UPDATE SET following = true,
+      last_read_seq = GREATEST("chat"."thread_followers".last_read_seq, EXCLUDED.last_read_seq)`;
 };
 
 /** Moves a participant's read position forward to `seq`. */

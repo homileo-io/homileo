@@ -1,3 +1,4 @@
+import { memberOfWhere, readableSpaceWhere } from "../../policy/sql.js";
 import type { Space } from "../../../prisma/generated/client/index.js";
 import type { SpaceRole } from "../../policy/index.js";
 import type { Caller } from "../../middleware/auth.js";
@@ -21,34 +22,18 @@ export interface SpacePage {
   roles: Map<string, SpaceRole>;
 }
 
-const memberOf = (caller: Caller): Prisma.SpaceWhereInput => ({
-  members: { some: { userId: caller.principalId } },
-});
-
-/**
- * `canReadSpace` as a condition, for a query the caller's organization already limits:
- * an admin reads every space of it.
- */
-export const readableSpaceWhere = async (
-  caller: Caller
-): Promise<Prisma.SpaceWhereInput> => {
-  if (caller.isAdmin) return {};
-  const granted = await kindsGrantingRead(caller.permissions);
-  return {
-    OR: [
-      memberOf(caller),
-      { visibility: "public" },
-      ...(granted.length > 0 ? [{ kind: { in: granted } }] : []),
-    ],
-  };
-};
+/** The kinds whose grants give the caller read; an admin reads everything without them. */
+export const grantedKindsOf = async (caller: Caller): Promise<string[]> =>
+  caller.isAdmin ? [] : kindsGrantingRead(caller.permissions);
 
 /** Whose spaces `membership` lists: the caller's own, or everything they may read. */
 const readableBy = async (
   caller: Caller,
   membership: SpaceListFilter["membership"]
 ): Promise<Prisma.SpaceWhereInput> =>
-  membership === "member" ? memberOf(caller) : readableSpaceWhere(caller);
+  membership === "member"
+    ? memberOfWhere(caller.principalId)
+    : readableSpaceWhere(caller, await grantedKindsOf(caller));
 
 /** The caller's organization's spaces they asked for, newest first, with one extra row's worth of `hasMore`. */
 export const listPage = async (

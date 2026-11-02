@@ -17,7 +17,10 @@ export const putNotify = async (req: Request, res: Response) => {
   const { notify } = validateBody(NotifyBodySchema, req);
 
   const row = await withChanges(async (tx) => {
-    const { participant } = await readableSession(caller, sessionId, { tx });
+    const { participant } = await readableSession(caller, sessionId, {
+      tx,
+      ownParticipation: true,
+    });
     if (!participant) throw new NotAParticipantError();
     // Only a current row: a leave that commits first leaves nothing to update.
     const { count } = await tx.sessionParticipant.updateMany({

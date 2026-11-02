@@ -10,6 +10,7 @@ import { prisma } from "../../utils/db/prisma.js";
 import { db } from "../../utils/db/index.js";
 import { v7 as uuidv7 } from "uuid";
 import {
+  currentMentionReaders,
   readableMessage,
   readableSession,
   readableSpace,
@@ -277,7 +278,7 @@ describe("access loading", () => {
         readableSession(caller, session.id, {
           tx,
           lock: true,
-          adminManage: true,
+          manage: true,
         })
       );
       await caught(readableSpace(caller, space.id, { tx, lock: true }));
@@ -335,5 +336,48 @@ describe("readableSpaces", () => {
     const who = await fixtures.principal();
 
     expect((await readableSpaces(callerOf(who, uuidv7()), [])).size).toBe(0);
+  });
+});
+
+describe("currentMentionReaders", () => {
+  afterAll(async () => {
+    await fixtures.cleanup();
+  });
+
+  it("drops a participant who is not a space member once the space stops being public", async () => {
+    const space = await fixtures.space({ visibility: "public" });
+    const session = await fixtures.session({ space, access: "members" });
+    const sender = await fixtures.principal();
+    const who = await fixtures.principal();
+    await fixtures.participant(session, who);
+    const message = await prisma.message.create({
+      data: {
+        sessionId: session.id,
+        seq: 1,
+        senderId: sender.id,
+        clientMessageId: uuidv7(),
+        type: "text",
+        body: `<@${who.id}>`,
+      },
+    });
+    await prisma.messageMention.create({
+      data: {
+        messageId: message.id,
+        sessionId: session.id,
+        kind: "user",
+        userId: who.id,
+      },
+    });
+    const readers = async () =>
+      currentMentionReaders(
+        await db.messages.storedMentionsOf(prisma, [message.id])
+      ).get(message.id) ?? [];
+
+    expect(await readers()).toEqual([who.id]);
+    await prisma.space.update({
+      where: { id: space.id },
+      data: { visibility: "members" },
+    });
+    expect(await readers()).toEqual([]);
   });
 });

@@ -150,13 +150,14 @@ export const removeParticipant = async (req: Request, res: Response) => {
   );
 
   await withChanges(async (tx, record) => {
+    const leaving = principalId === caller.principalId;
     await db.sessions.lockSpaceOf(tx, caller.organizationId, sessionId);
     const { session, facts } = await readableSession(caller, sessionId, {
       tx,
       lock: true,
-      adminManage: true,
+      manage: !leaving,
+      ownParticipation: leaving,
     });
-    const leaving = principalId === caller.principalId;
     // Leaving is the one change an archived session or space still takes.
     if (!leaving) refuseIfArchived(facts);
     const target = await db.participants.findCurrent(

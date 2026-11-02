@@ -1,6 +1,6 @@
-import type { MessageFacts, SessionFacts } from "./types.js";
+import type { MessageFacts, SessionFacts, SpaceFacts } from "./types.js";
+import { canReadSession, moderatesWithoutReading } from "./sessions.js";
 import type { OrgCaller } from "../middleware/auth.js";
-import { canReadSession } from "./sessions.js";
 import { canModerateSpace } from "./spaces.js";
 
 const isWritable = (ss: SessionFacts): boolean =>
@@ -38,15 +38,15 @@ export const canEditMessage = (
   return editWindowOpen(ss, m, now);
 };
 
+/** A space's moderator deletes in its sessions without reading them; `access: members` ones included. */
 export const canDeleteMessage = (
   c: OrgCaller,
   ss: SessionFacts,
   m: MessageFacts
 ): boolean => {
   if (!isWritable(ss) || m.deleted) return false;
-  if (!canReadSession(c, ss)) return false;
-  if (isCurrentSender(c, ss, m)) return true;
-  return ss.space !== null && canModerateSpace(c, ss.space);
+  if (moderatesWithoutReading(c, ss)) return true;
+  return canReadSession(c, ss) && isCurrentSender(c, ss, m);
 };
 
 /**
@@ -64,13 +64,19 @@ export const canReadRevisions = (
 };
 
 /**
- * Whether a mentioned principal is stored as mentioned: a current participant, or, in an
- * `access: space` session, a member of its space. Visibility and permissions do not count:
- * principals are not organization-scoped, so a public space would admit any id.
+ * Whether a mentioned principal is stored, emailed and reached as mentioned: what `canReadSession`
+ * says of them with no permissions. Their kind grants and admin role are not known to the sender's
+ * request, so they count for nothing. A public space alone does not count for a non-participant:
+ * principals are not organization-scoped, so it would admit any id.
  */
 export const isMentionReader = (
-  ss: Pick<SessionFacts, "access"> & { space: object | null },
+  ss: Pick<SessionFacts, "access"> & {
+    space: Pick<SpaceFacts, "visibility"> | null;
+  },
   p: { participantRole: string | null; spaceRole: string | null }
-): boolean =>
-  p.participantRole !== null ||
-  (ss.space !== null && ss.access === "space" && p.spaceRole !== null);
+): boolean => {
+  const participates = p.participantRole !== null;
+  if (ss.space === null) return participates;
+  if (p.spaceRole !== null) return ss.access === "space" || participates;
+  return participates && ss.space.visibility === "public";
+};
