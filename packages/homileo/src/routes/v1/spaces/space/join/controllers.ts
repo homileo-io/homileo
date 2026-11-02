@@ -1,3 +1,4 @@
+import { approvePendingJoinRequest } from "../../../../../utils/joinRequests.js";
 import { canReadSpace, joinSpaceOutcome } from "../../../../../policy/index.js";
 import { joinRequestView, memberView } from "../../../../../views/space.js";
 import { isUniqueViolationOn } from "../../../../../utils/prismaErrors.js";
@@ -56,6 +57,12 @@ export const joinSpace = async (req: Request, res: Response) => {
           payload: { spaceId, member: memberView(row) },
           audit: { action: "CREATE", userId: caller.tereoUserId },
         });
+        await approvePendingJoinRequest(
+          tx,
+          record,
+          { ...base, auditUserId: caller.tereoUserId },
+          caller.principalId
+        );
         return { status: 200, body: { member: memberView(row) } };
       }
 

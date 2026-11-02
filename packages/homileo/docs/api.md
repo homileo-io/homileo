@@ -36,8 +36,9 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `external_ref_taken`, `managed_by_provisioning` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning` |
 | 410 | `resync_required` |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
 
@@ -95,8 +96,9 @@ its `clientMessageId` under that lock, so of two concurrent sends with the same 
 the other answers `409 duplicate_client_message` without using a `seq`. `seq` comes from
 `UPDATE sessions SET last_seq = last_seq + 1 … RETURNING last_seq`, so it is gap-free.
 
-An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
-(`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
+An edit or delete takes the message's space row `FOR SHARE`, then its session row `FOR UPDATE`
+(`lockedMessage`: `db.sessions.lockSpaceOf`, then `readableMessage({ lock: true })`), and re-reads
+the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
 on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
 a mention and adding it back sends nothing); a `metadata`-only
@@ -141,12 +143,17 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `GET /spaces/:spaceId` | `canReadSpace` | | |
 | `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
 | `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
-| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added`, or `space.join_requested` for `request` |
+| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added` (and `space.join_decided` for the caller's pending request), or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
-| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` or `space.member_role_changed` |
+| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` (and `space.join_decided` for a pending request) or `space.member_role_changed` |
 | `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
-| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409` already decided, `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409 conflict` (already decided), `409 already_member` (deny, for a member), `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+
+A principal who becomes a member any other way (joining once the space is `open`, being added, or
+joining a session of an `open` space) has their pending join request approved in the same
+transaction, as the actor of that change, so a request never stays pending for a member. Approving
+a member's request only closes it; denying it is `409 already_member`.
 
 `description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
 kind; `externalRef` is unique per kind within the organization.
@@ -157,7 +164,7 @@ kind; `externalRef` is unique per kind within the organization.
 |---|---|---|---|
 | `GET /sessions` | `canReadSession` per row; filters `spaceId`, `type`, `externalRef`, … | | |
 | `POST /sessions` | `canCreateSessionIn` in a space; open for a space-less group | `403 forbidden`, `403 posting_restricted` (a space whose `postPolicy` is `moderators`), `409 resource_archived`, `400 invalid_state` (a `state` on a space-less group, or one the kind does not declare) | `session.created`, `space.member_added` for kind bots missing from the space |
-| `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal | `session.created` (once; a repeat records nothing) |
+| `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
 | `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
@@ -170,8 +177,16 @@ kind; `externalRef` is unique per kind within the organization.
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
 
+`GET /sessions` pages on `lastMessageAt`, which moves: a session not yet returned that gets a
+message during a page walk moves above the cursor and is skipped by the later pages. A client
+building its full list takes a `/sync` cursor (or opens its socket) before page 1 and adds the
+sessions named by events that arrive during the walk.
+
 A DM is created with `type: "direct"` and a deterministic `direct_key`, so two concurrent requests
-for the same pair produce one session. A session's `externalRef` is not unique, so `PATCH` never
+for the same pair produce one session. The key stays taken for good, so a repeat returns the pair's
+one DM: it answers `409 resource_archived` once the DM is archived (the pair cannot start another),
+and re-adds the caller as a `member` if an admin removed them (the other principal is left as they
+are, and rejoins the same way). A session's `externalRef` is not unique, so `PATCH` never
 answers `external_ref_taken`.
 
 An attachment's upload URL stays valid until it expires (15 minutes), and the bytes behind it can be

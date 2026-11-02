@@ -59,7 +59,8 @@ permission implies it, `homileo.chat.admin` included. See [events.md](events.md)
 Participants are added with `canAddParticipant` and removed with `canRemoveParticipant`.
 
 - A `direct` session (a DM) has exactly its two participants and never an `owner`: nobody adds to
-  it, not even an admin.
+  it, not even an admin. One of the two whom an admin removed rejoins by asking for the DM again
+  (`POST /sessions/direct`), unless it is archived.
 - In a space-less group the participant `owner` adds and removes participants and renames it.
   `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
   delete its messages: admins archive DMs and remove people, not touch their content. An admin who
@@ -179,7 +180,7 @@ then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
 needs both. A route that changes a session's participants or settings, archives it, or edits,
 deletes or reacts to a message starts from a session id and locks its space first
-(`db.sessions.lockSpaceOf(tx, sessionId, "share")`): `FOR SHARE`, since it needs the space to stay
+(`db.sessions.lockSpaceOf(tx, sessionId)`): `FOR SHARE`, since it needs the space to stay
 as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
 `FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
 only the caller's participant row; an attachment upload takes no lock. Removing a member locks the

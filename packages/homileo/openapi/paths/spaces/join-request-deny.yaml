@@ -9,7 +9,8 @@
       can read the space but not moderate it gets 403; one who cannot read it, 404.
 
       **Errors:** `404` when the principal has no request, `409 conflict` when their latest
-      request is already decided, `409 resource_archived` for an archived space.
+      request is already decided, `409 already_member` when the principal is already a member
+      (approve the request to close it), `409 resource_archived` for an archived space.
     operationId: denyJoinRequest
     parameters:
       - $ref: '../../components/spaces/parameters.yaml#/SpaceIdParam'

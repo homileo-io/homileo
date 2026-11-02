@@ -3,7 +3,7 @@
     tags: [Spaces]
     summary: Approve a join request
     description: |
-      Approves the applicant's pending request and makes them a `member` (recording `space.member_added`). Records `space.join_decided`, emits its webhook and writes an audit entry.
+      Approves the applicant's pending request and makes them a `member` (recording `space.member_added`); for an applicant who is already a member it only closes the request. Records `space.join_decided`, emits its webhook and writes an audit entry.
 
       **Required permissions:** none; the caller must be able to moderate the space. A caller who
       can read the space but not moderate it gets 403; one who cannot read it, 404.
