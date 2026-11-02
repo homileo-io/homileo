@@ -167,6 +167,8 @@ describe("recordChange", () => {
             messageId: uuidv7(),
             principalId: actor.id,
             emoji: "👍",
+            reactions: [],
+            reactionSeq: 1,
           },
         })
       );
