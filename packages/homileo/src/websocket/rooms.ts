@@ -1,10 +1,12 @@
+import type { AppRemoteSocket, AppSocket, IOServer } from "./types.js";
 import { sessionFactsFor, spaceFactsFor } from "../utils/access.js";
 import type { Space } from "../../prisma/generated/client/index.js";
 import { canReadSession, canReadSpace } from "../policy/index.js";
 import type { SpaceFacts, SpaceRole } from "../policy/index.js";
-import type { AppRemoteSocket, AppSocket } from "./types.js";
 import type { Caller } from "../middleware/auth.js";
 import { prisma } from "../utils/db/prisma.js";
+import { logger } from "../utils/logger.js";
+import { runPool } from "./pool.js";
 import {
   sessionIdOf,
   sessionRoom,
@@ -223,6 +225,51 @@ export const recheckSockets = async (
   return left;
 };
 
+/** `roomsOnConnect` loads in flight at once during a sweep. */
+const SWEEP_CONCURRENCY = 10;
+
+/**
+ * The backstop for this node's sockets: joins each to the participation and membership rooms
+ * it is missing (a join lost in Redis), drops the subscriptions those rooms now hold, then
+ * re-checks them all.
+ */
+export const sweepSockets = async (io: IOServer): Promise<void> => {
+  const sockets = [...io.of("/").sockets.values()];
+  const loads = new Map<Caller, Promise<string[]>>();
+  const load = (c: Caller) => {
+    let rooms = loads.get(c);
+    if (!rooms) {
+      rooms = roomsOnConnect(c);
+      loads.set(c, rooms);
+    }
+    return rooms;
+  };
+  await runPool(sockets, SWEEP_CONCURRENCY, async (socket) => {
+    const c = socket.data?.caller;
+    if (!c) return;
+    try {
+      const rooms = await load(c);
+      const held = new Set(rooms);
+      for (const r of socket.data.subscriptions) {
+        if (held.has(r)) socket.data.subscriptions.delete(r);
+      }
+      const missing = rooms.filter((r) => !socket.rooms.has(r));
+      if (missing.length === 0 || socket.disconnected) return;
+      await socket.join(missing);
+      // A removal committed since the load shows in this reload, or fans out after the join.
+      const still = new Set(await roomsOnConnect(c));
+      const gone = missing.filter((r) => !still.has(r));
+      for (const r of gone) await socket.leave(r);
+    } catch (err) {
+      logger.error(
+        { err, principalId: c.principalId },
+        "Joining a socket's missing rooms failed"
+      );
+    }
+  });
+  await recheckSockets(sockets);
+};
+
 /**
  * The ids of `sockets` whose own caller can read the session now. A mention reaches only
  * these, as `/sync` judges a mention by the reader's own token.
@@ -271,19 +318,14 @@ export const socketsReadingSession = async (
 };
 
 /**
- * Leaves `rooms`, explicit subscriptions included. A remote socket's data is a copy: its own
- * node prunes the subscription on its next subscribe.
+ * Leaves `rooms`, explicit subscriptions included: the socket's own node drops those from its
+ * list and tells it (`watchSubscriptionLoss`).
  */
 export const leaveRooms = async (
   socket: AppSocket | AppRemoteSocket,
   rooms: string[]
 ): Promise<void> => {
-  for (const room of rooms) {
-    await socket.leave(room);
-    if (socket.data.subscriptions instanceof Set) {
-      socket.data.subscriptions.delete(room);
-    }
-  }
+  for (const room of rooms) await socket.leave(room);
 };
 
 /**

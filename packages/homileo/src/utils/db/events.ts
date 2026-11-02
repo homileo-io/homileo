@@ -153,17 +153,23 @@ export const tail = async (): Promise<SyncPosition> => {
 /** The alias `readFrom` gives `chat.events`; its `where` may qualify columns with it. */
 export const EVENTS_ALIAS = "ev";
 
+/** The most rows one `readFrom` page scans, matching or not. */
+export const MAX_SCANNED_ROWS = 5000;
+
 /**
  * Events after `after` in commit order, matching `where`: SQL over the
  * `chat.events` columns, unqualified or qualified as `ev` (`EVENTS_ALIAS`),
  * which a correlated subquery in it must use. Only transactions older than
  * every running one are read, so a transaction that commits later can never
- * land behind the cursor.
+ * land behind the cursor. At most `maxScanned` rows within `scope` are
+ * scanned per page: `where` must imply it, and an index should lead with it.
+ * A page cut there has more, and its cursor is the last row scanned.
  */
 export const readFrom = async (
   after: SyncPosition,
   where: Prisma.Sql,
-  limit: number
+  limit: number,
+  o: { scope?: Prisma.Sql; maxScanned?: number } = {}
 ): Promise<{
   rows: EventRow[];
   next: SyncPosition;
@@ -173,45 +179,87 @@ export const readFrom = async (
   /** The first transaction id not yet assigned when the page was read. */
   tail: bigint;
 }> => {
-  // `at` and the horizon ride in the same statement as the rows; the join
-  // keeps one row when the page is empty.
+  const scope = o.scope ?? Prisma.sql`true`;
+  const maxScanned = o.maxScanned ?? MAX_SCANNED_ROWS;
+  const alias = Prisma.raw(EVENTS_ALIAS);
+  // `at` and the horizon ride in the same statement as the rows; the joins
+  // keep one row when the page is empty.
   const found = await prisma.$queryRaw<
-    Array<Partial<RawEventRow> & { at: Date; horizon: string; tail: string }>
+    Array<
+      Partial<RawEventRow> & {
+        at: Date;
+        horizon: string;
+        tail: string;
+        scanned: number | null;
+        scanned_tx_id: string | null;
+        scanned_id: bigint | null;
+      }
+    >
   >`
+    WITH scanned AS MATERIALIZED (
+      -- Native xid8 and bigint, so both sorts are numeric.
+      SELECT id, created_at, type, organization_id, space_id, session_id,
+             actor_id, payload, tx_id
+      FROM "chat"."events"
+      WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
+        AND tx_id < pg_snapshot_xmin(pg_current_snapshot())
+        AND (${scope})
+      ORDER BY tx_id, id
+      LIMIT ${maxScanned}
+    ), last_scanned AS (
+      SELECT tx_id::text AS tx_id, id, (count(*) OVER ())::int AS n
+      FROM scanned
+      ORDER BY tx_id DESC, id DESC
+      LIMIT 1
+    )
     SELECT date_trunc('milliseconds', now() AT TIME ZONE 'UTC') AS at,
            pg_snapshot_xmin(pg_current_snapshot())::text AS horizon,
            pg_snapshot_xmax(pg_current_snapshot())::text AS tail,
+           ls.n AS scanned, ls.tx_id AS scanned_tx_id, ls.id AS scanned_id,
            page.id, page.created_at, page.type, page.organization_id,
            page.space_id, page.session_id, page.actor_id, page.payload,
            page.tx_id::text AS tx_id
     FROM (SELECT 1) AS one
+    LEFT JOIN last_scanned AS ls ON true
     LEFT JOIN (
-      -- Native xid8 and bigint, so both sorts are numeric.
       SELECT id, created_at, type, organization_id, space_id, session_id,
              actor_id, payload, tx_id
-      FROM "chat"."events" AS ${Prisma.raw(EVENTS_ALIAS)}
-      WHERE (tx_id, id) > (${after.txId.toString()}::xid8, ${after.id})
-        AND tx_id < pg_snapshot_xmin(pg_current_snapshot())
-        AND (${where})
+      FROM scanned AS ${alias}
+      WHERE (${where})
       ORDER BY tx_id, id
       LIMIT ${limit + 1}
     ) AS page ON true
     ORDER BY page.tx_id, page.id`;
-  const now = found[0].at;
-  const horizon = BigInt(found[0].horizon);
-  const tail = BigInt(found[0].tail);
+  const first = found[0];
+  const now = first.at;
+  const horizon = BigInt(first.horizon);
+  const tail = BigInt(first.tail);
   const matched = found.filter((r) => r.id != null) as RawEventRow[];
-  const hasMore = matched.length > limit;
   const rows = matched.slice(0, limit).map(toEventRow);
   const last = rows.at(-1);
-  if (hasMore) {
-    // What is left may be committed backlog of any age, so the cursor keeps
-    // the time it was issued: a retention drop in between must still read as
-    // too old.
+  // What is left may be committed backlog of any age, so a cursor with more
+  // keeps the time it was issued: a retention drop in between must still read
+  // as too old.
+  if (matched.length > limit) {
     return {
       rows,
       next: { txId: last!.txId, id: last!.id, at: after.at },
-      hasMore,
+      hasMore: true,
+      horizon,
+      tail,
+    };
+  }
+  // Every scanned row was matched against `where`, so the next page starts
+  // after the last one scanned.
+  if ((first.scanned ?? 0) >= maxScanned) {
+    return {
+      rows,
+      next: {
+        txId: BigInt(first.scanned_tx_id!),
+        id: BigInt(first.scanned_id!),
+        at: after.at,
+      },
+      hasMore: true,
       horizon,
       tail,
     };
@@ -223,7 +271,7 @@ export const readFrom = async (
     horizon > reached.txId
       ? { txId: horizon, id: 0n, at: now }
       : { txId: reached.txId, id: reached.id, at: now };
-  return { rows, next, hasMore, horizon, tail };
+  return { rows, next, hasMore: false, horizon, tail };
 };
 
 export interface Partition {

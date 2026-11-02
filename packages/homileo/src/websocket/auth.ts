@@ -5,11 +5,15 @@ import { isDeepStrictEqual } from "node:util";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { recheckSockets } from "./rooms.js";
+import { failureCode } from "./failures.js";
+import { runPool } from "./pool.js";
 
 /** How often each node introspects its sockets' tokens again. */
 export const TOKEN_RECHECK_INTERVAL_MS = 60_000;
 /** Introspections in flight at once during a re-check. */
 const TOKEN_RECHECK_CONCURRENCY = 10;
+/** How long shutdown waits for a re-check in flight. */
+const TOKEN_RECHECK_STOP_MS = 5000;
 
 // Kept off `socket.data`, which the adapter sends to other nodes in `fetchSockets` replies.
 const tokens = new WeakMap<AppSocket, string>();
@@ -24,6 +28,8 @@ export const authenticateSocket = async (
   next: (err?: Error) => void
 ): Promise<void> => {
   const token: unknown = socket.handshake.auth?.token;
+  // The adapter's `fetchSockets` replies carry the handshake to other nodes, through Redis.
+  if (socket.handshake.auth) delete socket.handshake.auth.token;
   if (typeof token !== "string" || token === "") {
     next(new Error("unauthorized"));
     return;
@@ -48,7 +54,7 @@ export const authenticateSocket = async (
       return;
     }
     logger.error({ err }, "Socket handshake failed");
-    next(new Error("server_error"));
+    next(new Error(failureCode(err)));
   }
 };
 
@@ -81,10 +87,12 @@ export const closeAtExpiry = (socket: AppSocket): void => {
  * Introspects the sockets' tokens again, once per distinct token, and closes the sockets of a
  * token tereo no longer accepts (revoked, expired, or tereo unreachable, as a request would be
  * refused). Sockets of a token still active take its current caller, and are re-checked when
- * its permissions changed.
+ * its permissions changed. `spreadMs` paces the introspections over that span; none starts
+ * once `stopped()` holds.
  */
 export const revalidateSockets = async (
-  sockets: AppSocket[]
+  sockets: AppSocket[],
+  o: { spreadMs?: number; stopped?: () => boolean } = {}
 ): Promise<void> => {
   const byToken = new Map<string, AppSocket[]>();
   for (const socket of sockets) {
@@ -92,14 +100,12 @@ export const revalidateSockets = async (
     if (!token || socket.disconnected) continue;
     byToken.set(token, [...(byToken.get(token) ?? []), socket]);
   }
-  const entries = [...byToken];
-  for (let i = 0; i < entries.length; i += TOKEN_RECHECK_CONCURRENCY) {
-    await Promise.all(
-      entries
-        .slice(i, i + TOKEN_RECHECK_CONCURRENCY)
-        .map(([token, group]) => revalidateToken(token, group))
-    );
-  }
+  await runPool(
+    [...byToken],
+    TOKEN_RECHECK_CONCURRENCY,
+    ([token, group]) => revalidateToken(token, group),
+    o
+  );
 };
 
 const revalidateToken = async (
@@ -132,21 +138,43 @@ const revalidateToken = async (
   }
 };
 
-/** Re-introspects this node's sockets' tokens every `TOKEN_RECHECK_INTERVAL_MS`. */
-export const startTokenRecheck = (io: IOServer): (() => void) => {
-  let running = false;
+/**
+ * Re-introspects this node's sockets' tokens every `intervalMs`, pacing them over half of it
+ * so tereo sees no burst. The returned stop waits up to `TOKEN_RECHECK_STOP_MS` for a run in
+ * flight, which starts no introspection once stopped.
+ */
+export const startTokenRecheck = (
+  io: IOServer,
+  intervalMs = TOKEN_RECHECK_INTERVAL_MS
+): (() => Promise<void>) => {
+  let stopped = false;
+  let run: Promise<void> | null = null;
   const timer = setInterval(() => {
     // A run still going (tereo slow) is not overlapped.
-    if (running) return;
-    running = true;
-    revalidateSockets([...io.of("/").sockets.values()])
+    if (run) return;
+    run = revalidateSockets([...io.of("/").sockets.values()], {
+      spreadMs: intervalMs / 2,
+      stopped: () => stopped,
+    })
       .catch((err: unknown) => {
         logger.error({ err }, "Re-checking the sockets' tokens failed");
       })
       .finally(() => {
-        running = false;
+        run = null;
       });
-  }, TOKEN_RECHECK_INTERVAL_MS);
+  }, intervalMs);
   timer.unref();
-  return () => clearInterval(timer);
+  return async () => {
+    stopped = true;
+    clearInterval(timer);
+    if (!run) return;
+    let bound: NodeJS.Timeout | undefined;
+    await Promise.race([
+      run,
+      new Promise((resolve) => {
+        bound = setTimeout(resolve, TOKEN_RECHECK_STOP_MS);
+      }),
+    ]);
+    clearTimeout(bound);
+  };
 };

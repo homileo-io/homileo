@@ -1,15 +1,26 @@
-import { sessionRoom, spaceOfRoom, spaceRoom } from "../realtime/rooms.js";
+import type { Ack, AckError, AppSocket, IOServer } from "./types.js";
 import { readableSession, readableSpace } from "../utils/access.js";
-import { leaveSpaceOfIfUnused, recheckSockets } from "./rooms.js";
 import { NotFoundError, issuesOf } from "../utils/errors.js";
 import { encodeSyncCursor } from "../realtime/syncCursor.js";
-import type { Ack, AckError, AppSocket } from "./types.js";
 import { IdSchema } from "../utils/idSchema.js";
 import { MAX_SUBSCRIPTIONS } from "./limits.js";
 import { prisma } from "../utils/db/prisma.js";
 import { logger } from "../utils/logger.js";
+import { failureAck } from "./failures.js";
 import { db } from "../utils/db/index.js";
 import { z } from "zod";
+import {
+  sessionIdOf,
+  sessionRoom,
+  spaceIdOf,
+  spaceOfRoom,
+  spaceRoom,
+} from "../realtime/rooms.js";
+import {
+  leaveSpaceOfIfUnused,
+  recheckSockets,
+  roomsOnConnect,
+} from "./rooms.js";
 
 export const SubscriptionTargetSchema = z.union([
   z.strictObject({ sessionId: IdSchema }),
@@ -17,6 +28,9 @@ export const SubscriptionTargetSchema = z.union([
 ]);
 
 const OK: Ack = { ok: true };
+
+/** The rooms each socket's `subscribe` calls are joining and re-checking. */
+const subscribing = new WeakMap<AppSocket, Set<string>>();
 
 /**
  * A successful subscribe: `until`, taken once the socket is in the room, is where the
@@ -57,17 +71,19 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
   if (socket.rooms.has(room)) return subscribed();
 
   const { subscriptions } = socket.data;
-  const atLimit = () => {
-    // A room left by a re-check on another node is still listed here.
-    for (const r of subscriptions)
-      if (!socket.rooms.has(r)) subscriptions.delete(r);
+  const atLimit = async () => {
+    if (subscriptions.size < MAX_SUBSCRIPTIONS) return false;
+    // Another node's add joined some for participation or membership; it could not update
+    // this list.
+    const held = new Set(await roomsOnConnect(socket.data.caller));
+    for (const r of subscriptions) if (held.has(r)) subscriptions.delete(r);
     return subscriptions.size >= MAX_SUBSCRIPTIONS;
   };
   const tooMany = failure({
     code: "too_many_subscriptions",
     message: `At most ${MAX_SUBSCRIPTIONS} subscriptions per socket`,
   });
-  if (atLimit()) return tooMany;
+  if (await atLimit()) return tooMany;
 
   let spaceId: string | null = null;
   try {
@@ -85,11 +101,18 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
 
   // Subscribes in flight together all passed the first check.
   if (socket.rooms.has(room)) return subscribed();
-  if (atLimit()) return tooMany;
+  if (await atLimit()) return tooMany;
   subscriptions.add(room);
-  await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
-  // A revocation committed during the check re-checked the sockets before this one joined.
-  await recheckSockets([socket]);
+  const pending = subscribing.get(socket) ?? new Set<string>();
+  subscribing.set(socket, pending);
+  pending.add(room);
+  try {
+    await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
+    // A revocation committed during the check re-checked the sockets before this one joined.
+    await recheckSockets([socket]);
+  } finally {
+    pending.delete(room);
+  }
   if (!socket.rooms.has(room)) return notFound(target);
   return subscribed();
 };
@@ -163,7 +186,7 @@ const answer =
         { err, event, principalId: socket.data.caller.principalId },
         "Socket event failed"
       );
-      reply(failure({ code: "server_error", message: "Something went wrong" }));
+      reply(failure(failureAck(err)));
     });
   };
 
@@ -171,4 +194,24 @@ const answer =
 export const handleSubscriptions = (socket: AppSocket): void => {
   socket.on("subscribe", answer(socket, "subscribe", subscribe));
   socket.on("unsubscribe", answer(socket, "unsubscribe", unsubscribe));
+  // Leaving every room on the way out is no loss to report.
+  socket.on("disconnecting", () => socket.data.subscriptions.clear());
+};
+
+/**
+ * Sends `unsubscribed` (`{ sessionId }` or `{ spaceId }`) to a socket of this node when it
+ * leaves a room it holds by `subscribe` other than by `unsubscribe`: a re-check or a removal,
+ * run by any node. The subscription is dropped from its list then, so it no longer counts.
+ */
+export const watchSubscriptionLoss = (io: IOServer): void => {
+  const nsp = io.of("/");
+  nsp.adapter.on("leave-room", (room: string, id: string) => {
+    const socket = nsp.sockets.get(id);
+    if (!socket?.data?.subscriptions?.delete(room)) return;
+    // Its own subscribe answers `not_found` instead.
+    if (subscribing.get(socket)?.has(room)) return;
+    const sessionId = sessionIdOf(room);
+    const spaceId = spaceIdOf(room);
+    socket.emit("unsubscribed", sessionId ? { sessionId } : { spaceId });
+  });
 };

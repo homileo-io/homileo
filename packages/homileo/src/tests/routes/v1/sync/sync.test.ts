@@ -1,15 +1,23 @@
 // @module-tag int
 // @module-tag sync
+import { catchUp, drainSync, sync, syncHead } from "../../../support/sync.js";
 import { EventEnvelopeSchema, SyncResponseSchema } from "@homileo-io/sdk";
-import { drainSync, sync, syncHead } from "../../../support/sync.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spaceApiFixtures } from "../../../support/spaceApi.js";
-import { sendMessage } from "../../../support/messageApi.js";
+import type { JsonResponse } from "../../../support/http.js";
 import { prisma } from "../../../../utils/db/prisma.js";
+import { db } from "../../../../utils/db/index.js";
 import {
   decodeSyncCursor,
   encodeSyncCursor,
 } from "../../../../realtime/syncCursor.js";
+import {
+  addReaction,
+  editMessage,
+  getMessage,
+  removeReaction,
+  sendMessage,
+} from "../../../support/messageApi.js";
 
 const api = spaceApiFixtures();
 const { fixtures } = api;
@@ -110,6 +118,88 @@ describe("GET /v1/sync", () => {
 
     expect(first.events).toHaveLength(1);
     expect(again.events).toEqual([]);
+  });
+
+  describe("reactions applied in order", () => {
+    type Summary = { emoji: string; count: number };
+    /** A client's reaction counts for one message, applying the events in order. */
+    const countsAfter = (events: JsonResponse["body"][]) => {
+      let counts = new Map<string, number>();
+      for (const { type, payload } of events) {
+        if (type.startsWith("message.")) {
+          counts = new Map(
+            (payload.message.reactions as Summary[]).map((r) => [
+              r.emoji,
+              r.count,
+            ])
+          );
+        } else if (type === "reaction.added" || type === "reaction.removed") {
+          const step = type === "reaction.added" ? 1 : -1;
+          counts.set(payload.emoji, (counts.get(payload.emoji) ?? 0) + step);
+          if (counts.get(payload.emoji) === 0) counts.delete(payload.emoji);
+        }
+      }
+      return Object.fromEntries(counts);
+    };
+    // Up to now: an open transaction elsewhere on the server must not cut the read short.
+    const catchUpNow = async (token: string, since: string) =>
+      catchUp(token, since, encodeSyncCursor(await db.events.tail()));
+    const restCounts = async (messageId: string) => {
+      const rest = await getMessage(messageId, bob.token);
+      expect(rest.status, JSON.stringify(rest.body)).toBe(200);
+      return Object.fromEntries(
+        (rest.body.message.reactions as Summary[]).map((r) => [
+          r.emoji,
+          r.count,
+        ])
+      );
+    };
+
+    it("ends a send then a reaction at the REST count", async () => {
+      const session = await groupOfTwo();
+      const since = await syncHead(bob.token);
+      const sent = await sendMessage(session.id, alice.token, { body: "m" });
+      const id = sent.body.message.id;
+      expect((await addReaction(id, bob.token, "👍")).status).toBe(201);
+
+      const { events } = await catchUpNow(bob.token, since);
+
+      expect(countsAfter(events)).toEqual({ "👍": 1 });
+      expect(countsAfter(events)).toEqual(await restCounts(id));
+    });
+
+    it("ends a reaction then its removal at the REST count", async () => {
+      const session = await groupOfTwo();
+      const since = await syncHead(bob.token);
+      const sent = await sendMessage(session.id, alice.token, { body: "m" });
+      const id = sent.body.message.id;
+      expect((await addReaction(id, bob.token, "👍")).status).toBe(201);
+      expect((await addReaction(id, alice.token, "🎉")).status).toBe(201);
+      expect((await removeReaction(id, bob.token, "👍")).status).toBe(200);
+
+      const { events } = await catchUpNow(bob.token, since);
+
+      expect(countsAfter(events)).toEqual({ "🎉": 1 });
+      expect(countsAfter(events)).toEqual(await restCounts(id));
+    });
+
+    it("keeps an edit's reactions as of the edit, so later reactions add to them", async () => {
+      const session = await groupOfTwo();
+      const sent = await sendMessage(session.id, alice.token, { body: "m" });
+      const id = sent.body.message.id;
+      expect((await addReaction(id, bob.token, "👍")).status).toBe(201);
+      const since = await syncHead(bob.token);
+      expect((await editMessage(id, alice.token, { body: "m2" })).status).toBe(
+        200
+      );
+      expect((await addReaction(id, alice.token, "👍")).status).toBe(201);
+
+      const { events } = await catchUpNow(bob.token, since);
+
+      expect(events[0].payload.message.body).toBe("m2");
+      expect(countsAfter(events)).toEqual({ "👍": 2 });
+      expect(countsAfter(events)).toEqual(await restCounts(id));
+    });
   });
 
   it("skips a message event whose message id is not a uuid instead of failing", async () => {
