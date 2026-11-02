@@ -32,7 +32,7 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 
 | Status | Code |
 |---|---|
-| 400 | `invalid_request`, `organization_required`, `kind_not_found`, `setting_not_overridable`, `invalid_state`, `message_type_not_found`, `invalid_payload`, `reply_to_reply`, `attachment_not_found`, `attachment_not_uploaded`, `cannot_dm_self` |
+| 400 | `invalid_request`, `organization_required`, `kind_not_found`, `setting_not_overridable`, `invalid_state`, `message_type_not_found`, `invalid_payload`, `reply_to_reply`, `attachment_not_found`, `attachment_not_uploaded`, `attachment_too_large`, `cannot_dm_self` |
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
@@ -59,12 +59,13 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
-| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) and 100 block-quote and list markers on one line; past any of these it is read as plain text |
-| message `payload` | 64 KiB serialized |
-| `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) 100 block-quote and list markers on one line, and a work bound of 50,000 (each line counts 1 plus the most block quotes and list items any line so far could have opened, from its markers and two columns of indent per level, since blank and lazy lines keep them open); past any of these it is read as plain text |
+| message `payload` | 64 KiB serialized, nested at most 32 arrays and objects deep |
+| `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON nested at most 32 arrays and objects deep |
 | `clientMessageId` | 1 to 128 characters |
 | `emoji` | 1 to 64 characters |
 | attachments per message | 10 |
+| attachment size | `ATTACHMENT_MAX_BYTES` (100 MiB by default), checked when a message names the file (`400 attachment_too_large`); tereo's own upload limit is not checked |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
 
 ## JSON shapes
@@ -103,7 +104,7 @@ the message under them. An edit that changes the
 on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
 a mention and adding it back sends nothing); a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
-nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
+nothing. A delete clears `body`, `body_text` and `payload`, empties `metadata` (to `{}`), keeps revisions, reactions and attachments
 (views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
 readers the message reached through a mention; `/me/mentions` and unread counts skip deleted
 messages), and lowers a reply's root `reply_count`.
@@ -111,7 +112,12 @@ messages), and lowers a reply's root `reply_count`.
 deleted message's text does not reach everyone in the session.
 
 A message body is parsed once, before the transaction, for its mentions and its `body_text`
-(`utils/markdown.ts`, `utils/mentions.ts`). Only a body within all three parse limits (see
+(`utils/markdown.ts`, `utils/mentions.ts`). A send first checks, without a lock, that the caller
+reads the session and may post in it, and an edit that the caller may edit the message, so a
+caller refused either way costs no parse and no tereo call; the transaction checks both again under
+its locks. An edit also parses the earlier revisions that hold a mention before the transaction,
+for the same Markdown-aware mentions the send stored (only a revision stored meanwhile is parsed
+under the lock). Only a body within all four parse limits (see
 [Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
 while past them micromark can take minutes or overflow the stack. Any other body is accepted and
 read as plain text: mentions count everywhere outside fenced code blocks and single-line code
@@ -175,7 +181,7 @@ kind; `externalRef` is unique per kind within the organization.
 | `PUT /sessions/:sessionId/notify` | participant | `403 not_a_participant` (also when a leave commits first) | |
 | `POST /sessions/:sessionId/attachments` | `postRefusal` | `403`, `409 resource_archived`, `503 temporarily_unavailable` | |
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
-| `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
+| `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `400 attachment_too_large`, `503` | `message.created`, then `thread.updated` for a reply |
 
 `GET /sessions` pages on `lastMessageAt`, which moves: a session not yet returned that gets a
 message during a page walk moves above the cursor and is skipped by the later pages. A client
@@ -232,7 +238,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
   24 h, and returns a presigned write URL for the object's id. A message names the object id. The
   send fetches the objects from tereo before its transaction, then checks inside it the key prefix
-  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit. If that
+  (this session, this sender), `sizeBytes > 0` and `sizeBytes <= ATTACHMENT_MAX_BYTES`, and clears `deleteAfter` after commit. If that
   fails or never runs, a repeat of the send with the same `clientMessageId` (`409
   duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
   every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.

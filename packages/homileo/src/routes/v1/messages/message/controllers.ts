@@ -1,20 +1,28 @@
 import { validateBody, validateParams } from "../../../../utils/validateReq.js";
 import { lockedMessage, messageFactsOf, refuseIfArchived } from "./utils.js";
 import { EditMessageBodySchema, MessageParamsSchema } from "../schemas.js";
-import { callerOf, principalOf } from "../../../../middleware/auth.js";
 import { notifyMentioned } from "../../../../utils/notifyMentions.js";
 import { validatePayload } from "../../../../utils/messageTypes.js";
 import { withChanges } from "../../../../utils/transaction.js";
-import { readableMessage } from "../../../../utils/access.js";
 import type { Prisma } from "../../../../utils/db/prisma.js";
 import { db, prisma } from "../../../../utils/db/index.js";
 import type { Request, Response } from "express";
 import { isDeepStrictEqual } from "node:util";
 import {
   everMentionedIds,
+  parseRevisionMentions,
   resolveMentions,
   readBody,
 } from "../../../../utils/resolveMentions.js";
+import {
+  callerOf,
+  principalOf,
+  type Caller,
+} from "../../../../middleware/auth.js";
+import {
+  readableMessage,
+  type MessageContext,
+} from "../../../../utils/access.js";
 import {
   canDeleteMessage,
   canEditMessage,
@@ -35,32 +43,46 @@ export const getMessage = async (req: Request, res: Response) => {
   res.status(200).json({ message: view });
 };
 
+const refuseEdit = (
+  caller: Caller,
+  { message: row, facts }: MessageContext,
+  now: Date
+): void => {
+  if (row.deletedAt !== null) {
+    throw new ArchivedError("The message was deleted");
+  }
+  refuseIfArchived(facts);
+  const messageFacts = messageFactsOf(row);
+  if (!canEditMessage(caller, facts, messageFacts, now)) {
+    // Only the window failed: the same call at the message's creation passes.
+    if (
+      !editWindowOpen(facts, messageFacts, now) &&
+      canEditMessage(caller, facts, messageFacts, row.createdAt)
+    ) {
+      throw new EditWindowClosedError();
+    }
+    throw new ForbiddenError("You may not edit this message");
+  }
+};
+
 export const editMessage = async (req: Request, res: Response) => {
   const caller = callerOf(req);
   const editor = principalOf(req);
   const { messageId } = validateParams(MessageParamsSchema, req);
   const body = validateBody(EditMessageBodySchema, req);
+  // Unlocked, so a caller who may not edit never costs a parse; checked again under the lock.
+  refuseEdit(caller, await readableMessage(caller, messageId), new Date());
   const read = readBody(body.body);
+  const parsedRevisions =
+    body.body === undefined
+      ? new Map<string, string[]>()
+      : await parseRevisionMentions(messageId);
 
   const message = await withChanges(async (tx, record) => {
     const context = await lockedMessage(tx, caller, messageId);
-    const { message: row, session, facts } = context;
-    if (row.deletedAt !== null) {
-      throw new ArchivedError("The message was deleted");
-    }
-    refuseIfArchived(facts);
+    const { message: row, session } = context;
     const now = new Date();
-    const messageFacts = messageFactsOf(row);
-    if (!canEditMessage(caller, facts, messageFacts, now)) {
-      // Only the window failed: the same call at the message's creation passes.
-      if (
-        !editWindowOpen(facts, messageFacts, now) &&
-        canEditMessage(caller, facts, messageFacts, row.createdAt)
-      ) {
-        throw new EditWindowClosedError();
-      }
-      throw new ForbiddenError("You may not edit this message");
-    }
+    refuseEdit(caller, context, now);
 
     if (body.payload !== undefined) {
       await validatePayload(row.type, body.payload, tx);
@@ -89,7 +111,7 @@ export const editMessage = async (req: Request, res: Response) => {
       data.payload = (newPayload ?? undefined) as Prisma.InputJsonValue;
       // Read before this edit's revision is stored, or its own mentions would count as earlier ones.
       const before = bodyChanged
-        ? await everMentionedIds(tx, row.id)
+        ? await everMentionedIds(tx, row.id, parsedRevisions)
         : new Set<string>();
       await tx.messageRevision.create({
         data: {

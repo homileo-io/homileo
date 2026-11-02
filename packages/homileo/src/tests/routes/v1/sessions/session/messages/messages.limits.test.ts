@@ -20,6 +20,23 @@ afterAll(async () => {
 
 describe("POST /v1/sessions/:sessionId/messages", () => {
   it.each([
+    ["payload", (deep: unknown) => ({ type: "text", payload: deep })],
+    ["metadata", (deep: unknown) => ({ body: "hi", metadata: { deep } })],
+  ])("answers 400 to a %s nested 5,000 levels deep", async (_name, make) => {
+    const org = uuidv7();
+    orgs.push(org);
+    const me = await signIn(org);
+    const session = await fixtures.session({ org });
+    await fixtures.participant(session, { id: me.principalId }, "owner");
+    const deep = JSON.parse("[".repeat(5000) + "]".repeat(5000));
+
+    const sent = await sendMessage(session.id, me.token, make(deep));
+
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe("invalid_request");
+  });
+
+  it.each([
     ["> nesting", ">"],
     ["'- ' nesting", "- "],
   ])(

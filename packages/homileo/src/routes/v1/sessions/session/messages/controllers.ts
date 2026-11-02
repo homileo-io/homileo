@@ -56,6 +56,21 @@ export const sendMessage = async (req: Request, res: Response) => {
   const sender = principalOf(req);
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
+  // Unlocked, so a caller who may not post costs no parse or tereo call; checked again under the lock.
+  const unlocked = await readableSession(caller, sessionId);
+  const refused = postRefusal(caller, unlocked.facts);
+  // A refused repeat goes on, so it still answers 409 with the first send's message.
+  if (
+    refused &&
+    !(await db.messages.findByClientId(
+      prisma,
+      sessionId,
+      caller.principalId,
+      body.clientMessageId
+    ))
+  ) {
+    throw postRefusalError[refused]();
+  }
   const attachments = await resolveAttachments(body.attachments ?? []);
   const read = readBody(body.body);
 
