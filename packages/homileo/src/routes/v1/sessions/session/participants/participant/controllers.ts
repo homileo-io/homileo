@@ -1,3 +1,4 @@
+import { approvePendingJoinRequest } from "../../../../../../utils/joinRequests.js";
 import { participantView, memberView } from "../../../../../../views/index.js";
 import { validateParams } from "../../../../../../utils/validateReq.js";
 import type { SessionFacts } from "../../../../../../policy/index.js";
@@ -85,6 +86,17 @@ export const putParticipant = async (req: Request, res: Response) => {
           payload: { spaceId: session.spaceId, member: memberView(member) },
           audit: { action: "CREATE", userId: caller.tereoUserId },
         });
+        await approvePendingJoinRequest(
+          tx,
+          record,
+          {
+            organizationId: session.organizationId,
+            spaceId: session.spaceId,
+            actorId: caller.principalId,
+            auditUserId: caller.tereoUserId,
+          },
+          principalId
+        );
       } else if (!joining) {
         const missing = await db.sessions.nonMemberIndexes(
           tx,

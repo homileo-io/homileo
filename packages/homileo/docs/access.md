@@ -26,6 +26,16 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 | In a space, `access: members` | participants, holders of a kind grant, `homileo.chat.admin` |
 | No space | participants only (`homileo.chat.admin` cannot read) |
 
+## Webhooks
+
+tereo delivers Homileo's webhook events by permission alone: an endpoint gets an event when its
+creator holds the event type's read permission in the organization (and `webhooks.read`). It does
+not apply the table above. So the events of a private session (`isPrivateSession`: no space, or
+`access: members`) leave under separate types, `homileo.private_<area>.<verb>`, readable only with
+`homileo.messages.read_private`; every other webhook type is readable with `homileo.spaces.read`.
+`homileo.messages.read_private` is granted explicitly, to an integration that must see DMs: no other
+permission implies it, `homileo.chat.admin` included. See [events.md](events.md).
+
 ## Join and post
 
 - `joinSpaceOutcome`: `join` for an existing member, or `open`; `request` for `request`;
@@ -49,7 +59,8 @@ caller holds (grant `read` or `moderate`); the caller has `homileo.chat.admin`.
 Participants are added with `canAddParticipant` and removed with `canRemoveParticipant`.
 
 - A `direct` session (a DM) has exactly its two participants and never an `owner`: nobody adds to
-  it, not even an admin.
+  it, not even an admin. One of the two whom an admin removed rejoins by asking for the DM again
+  (`POST /sessions/direct`), unless it is archived.
 - In a space-less group the participant `owner` adds and removes participants and renames it.
   `homileo.chat.admin` may remove participants but not add them, and cannot read the session or
   delete its messages: admins archive DMs and remove people, not touch their content. An admin who
@@ -169,7 +180,7 @@ then the session row, then any other row (owner rows, participants, messages).
 `readableSpace({ tx, lock: true })` comes before `readableSession({ tx, lock: true })` when a route
 needs both. A route that changes a session's participants or settings, archives it, or edits,
 deletes or reacts to a message starts from a session id and locks its space first
-(`db.sessions.lockSpaceOf(tx, sessionId, "share")`): `FOR SHARE`, since it needs the space to stay
+(`db.sessions.lockSpaceOf(tx, sessionId)`): `FOR SHARE`, since it needs the space to stay
 as it is, not to change it. Space changes (`PATCH`, archive, member changes, join) take the space
 `FOR UPDATE`. Sending a message and a thread read lock only the session row, and a session read
 only the caller's participant row; an attachment upload takes no lock. Removing a member locks the

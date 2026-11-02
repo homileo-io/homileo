@@ -231,6 +231,22 @@ describe("sending a message with attachments", () => {
     expect(sent.body.message.attachments).toHaveLength(1);
   });
 
+  it("clears the expiry on a clientMessageId repeat when the first send could not", async () => {
+    const { me, session } = await room();
+    const objectId = await uploaded(session.id, me.token);
+    const body = { clientMessageId: uuidv7(), attachments: [{ objectId }] };
+    files.failing.add("patchObject");
+    expect((await send(session.id, me.token, body)).status).toBe(201);
+    expect(files.objects.get(objectId)!.deleteAfter).not.toBeNull();
+    files.failing.clear();
+
+    const repeat = await send(session.id, me.token, body);
+
+    expect(repeat.status).toBe(409);
+    expect(repeat.body.error).toBe("duplicate_client_message");
+    expect(files.objects.get(objectId)!.deleteAfter).toBeNull();
+  });
+
   it("refuses an object of another session", async () => {
     const { me, session } = await room();
     const elsewhere = await room();

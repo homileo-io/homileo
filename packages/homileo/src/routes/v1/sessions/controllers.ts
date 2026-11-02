@@ -2,6 +2,7 @@ import { CreateSessionBodySchema, ListSessionsQuerySchema } from "./schemas.js";
 import { holdsKindGrant, canCreateSessionIn } from "../../../policy/index.js";
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
 import { readableSessions, readableSpace } from "../../../utils/access.js";
+import { approvePendingJoinRequest } from "../../../utils/joinRequests.js";
 import { participantView, sessionView } from "../../../views/session.js";
 import { encodeSessionCursor, parseSessionCursor } from "./utils.js";
 import { callerOf, type Caller } from "../../../middleware/auth.js";
@@ -211,6 +212,16 @@ export const createSession = async (req: Request, res: Response) => {
           entity: { type: "space", id: space.space.id },
           payload: { spaceId: space.space.id, member: memberView(member) },
         });
+        await approvePendingJoinRequest(
+          tx,
+          record,
+          {
+            organizationId: row.organizationId,
+            spaceId: space.space.id,
+            actorId: caller.principalId,
+          },
+          bot.id
+        );
       }
     }
 

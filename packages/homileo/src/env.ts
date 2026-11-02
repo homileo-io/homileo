@@ -1,4 +1,5 @@
 import "./preload.js";
+import { SERVICE_SLUG } from "./definitions/tereoDeclaration.js";
 import { z } from "zod";
 
 // The one env schema for the whole service.
@@ -87,7 +88,8 @@ const EnvFields = z
     REQUEST_HANDLER_KEY: z.string().optional(),
     // Accepts the SDK's test tokens instead of tereo's. Refused in production.
     TEREO_TEST_MODE: bool("false"),
-    TEREO_SERVICE_SLUG: z.string().min(1).default("homileo"),
+    // The declaration names everything under this slug, so no other is accepted.
+    TEREO_SERVICE_SLUG: z.literal(SERVICE_SLUG).default(SERVICE_SLUG),
     // A folder of provisioning documents applied on every start.
     PROVISIONING_PATH: z.string().optional(),
     // How long change events are kept.

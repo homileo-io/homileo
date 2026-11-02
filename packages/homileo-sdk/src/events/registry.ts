@@ -108,8 +108,34 @@ export const EVENT_TYPES = {
 
 export type EventType = keyof typeof EVENT_TYPES;
 
-/** The names declared to tereo: `homileo.`-prefixed, webhook events only. */
-export const webhookEventTypes = (): string[] =>
-  (Object.keys(EVENT_TYPES) as EventType[])
-    .filter((name) => EVENT_TYPES[name].webhook)
-    .map((name) => `homileo.${name}`);
+const webhookTypes = (): EventType[] =>
+  (Object.keys(EVENT_TYPES) as EventType[]).filter(
+    (name) => EVENT_TYPES[name].webhook
+  );
+
+/**
+ * The tereo name of a webhook event. A session event of a private session (no
+ * space, or `access: members`) leaves as `homileo.private_<area>.<verb>`,
+ * which only `homileo.messages.read_private` receives.
+ */
+export const webhookEventName = (
+  type: EventType,
+  { privateSession }: { privateSession: boolean }
+): string =>
+  privateSession && EVENT_TYPES[type].channel === "session"
+    ? `homileo.private_${type}`
+    : `homileo.${type}`;
+
+/** The private session events' tereo names (`webhookEventName`). */
+export const privateWebhookEventTypes = (): string[] =>
+  webhookTypes()
+    .filter((name) => EVENT_TYPES[name].channel === "session")
+    .map((name) => webhookEventName(name, { privateSession: true }));
+
+/** Every name declared to tereo: `homileo.`-prefixed, webhook events only, private ones included. */
+export const webhookEventTypes = (): string[] => [
+  ...webhookTypes().map((name) =>
+    webhookEventName(name, { privateSession: false })
+  ),
+  ...privateWebhookEventTypes(),
+];

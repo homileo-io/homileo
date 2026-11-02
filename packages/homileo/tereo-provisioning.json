@@ -25,6 +25,12 @@
         "orgAssignable": true
       },
       {
+        "name": "homileo.messages.read_private",
+        "displayName": "Receive private messages",
+        "description": "Receive webhook events of DMs, space-less groups and members-only sessions, message bodies included",
+        "orgAssignable": true
+      },
+      {
         "name": "homileo.chat.admin",
         "displayName": "Administer chat",
         "description": "Administer every space and session of the organization",
@@ -143,6 +149,61 @@
         "eventType": "homileo.thread.updated",
         "description": "homileo.thread.updated",
         "readPermission": "homileo.spaces.read"
+      },
+      {
+        "eventType": "homileo.private_session.created",
+        "description": "homileo.private_session.created",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_session.updated",
+        "description": "homileo.private_session.updated",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_session.archived",
+        "description": "homileo.private_session.archived",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_session.participant_added",
+        "description": "homileo.private_session.participant_added",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_session.participant_removed",
+        "description": "homileo.private_session.participant_removed",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_message.created",
+        "description": "homileo.private_message.created",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_message.edited",
+        "description": "homileo.private_message.edited",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_message.deleted",
+        "description": "homileo.private_message.deleted",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_reaction.added",
+        "description": "homileo.private_reaction.added",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_reaction.removed",
+        "description": "homileo.private_reaction.removed",
+        "readPermission": "homileo.messages.read_private"
+      },
+      {
+        "eventType": "homileo.private_thread.updated",
+        "description": "homileo.private_thread.updated",
+        "readPermission": "homileo.messages.read_private"
       }
     ]
   }

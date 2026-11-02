@@ -138,6 +138,17 @@ describe("GET /v1/sync", () => {
     expect(body.issues[0].path).toBe("until");
   });
 
+  it("answers 400 invalid_request to a since this database has not reached", async () => {
+    const head = decodeSyncCursor(await syncHead(bob.token));
+    const since = encodeSyncCursor({ ...head, txId: head.txId + 10n ** 12n });
+
+    const { status, body } = await sync(bob.token, { since });
+
+    expect(status).toBe(400);
+    expect(body.error).toBe("invalid_request");
+    expect(body.issues[0].path).toBe("since");
+  });
+
   it("answers hasMore false once the horizon has passed until", async () => {
     const since = await syncHead(bob.token);
 

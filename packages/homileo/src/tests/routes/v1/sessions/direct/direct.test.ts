@@ -152,6 +152,93 @@ describe("POST /v1/sessions/direct", () => {
     expect(res.body.error).toBe("invalid_request");
   });
 
+  it("re-adds a caller an admin removed and answers 200 with the DM", async () => {
+    const org = newOrg();
+    const a = await signIn(org);
+    const b = await signIn(org);
+    const admin = await signIn(org, ["homileo.chat.admin"]);
+    const dm = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+    const sessionUrl = `${env.PUBLIC_URL}/v1/sessions/${dm.body.session.id}`;
+    const removed = await fetchJson(
+      "DELETE",
+      `${sessionUrl}/participants/${a.principalId}`,
+      admin.token
+    );
+    expect(removed.status).toBe(204);
+
+    const again = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+
+    expect(again.status).toBe(200);
+    expect(again.body.session.id).toBe(dm.body.session.id);
+    expect((await fetchJson("GET", sessionUrl, a.token)).status).toBe(200);
+    const events = await prisma.event.findMany({
+      where: {
+        sessionId: dm.body.session.id,
+        type: "session.participant_added",
+        actorId: a.principalId,
+      },
+    });
+    expect(events).toHaveLength(3);
+  });
+
+  it("does not re-add the other principal when the caller asks", async () => {
+    const org = newOrg();
+    const a = await signIn(org);
+    const b = await signIn(org);
+    const admin = await signIn(org, ["homileo.chat.admin"]);
+    const dm = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+    await fetchJson(
+      "DELETE",
+      `${env.PUBLIC_URL}/v1/sessions/${dm.body.session.id}/participants/${b.principalId}`,
+      admin.token
+    );
+
+    const again = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+
+    expect(again.status).toBe(200);
+    const row = await prisma.sessionParticipant.findUniqueOrThrow({
+      where: {
+        sessionId_userId: {
+          sessionId: dm.body.session.id,
+          userId: b.principalId,
+        },
+      },
+    });
+    expect(row.leftAt).not.toBeNull();
+  });
+
+  it("answers 409 resource_archived for an archived DM", async () => {
+    const org = newOrg();
+    const a = await signIn(org);
+    const b = await signIn(org);
+    const admin = await signIn(org, ["homileo.chat.admin"]);
+    const dm = await fetchJson("POST", URL, a.token, {
+      principalId: b.principalId,
+    });
+    const archived = await fetchJson(
+      "POST",
+      `${env.PUBLIC_URL}/v1/sessions/${dm.body.session.id}/archive`,
+      admin.token
+    );
+    expect(archived.status).toBe(200);
+
+    const again = await fetchJson("POST", URL, b.token, {
+      principalId: a.principalId,
+    });
+
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe("resource_archived");
+    expect(again.body.session).toBeUndefined();
+  });
+
   it("is not readable by an admin who is no participant", async () => {
     const org = newOrg();
     const a = await signIn(org);

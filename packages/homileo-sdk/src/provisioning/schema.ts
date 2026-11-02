@@ -56,7 +56,8 @@ export const provisioningDocumentSchema = z
   .strictObject({
     // Lets an editor validate the file against provisioning.schema.json.
     $schema: z.string().optional(),
-    version: z.string().regex(SEMVER, "version must be semver"),
+    // Stored in 64-character document_version columns.
+    version: z.string().max(64).regex(SEMVER, "version must be semver"),
     app: z.string().regex(APP),
     spaceKinds: z.array(SpaceKindDeclarationSchema).optional(),
     messageTypes: z.array(MessageTypeDeclarationSchema).optional(),

@@ -94,6 +94,35 @@ describe("POST /v1/spaces/:spaceId/join", () => {
     ).toBe(0);
   });
 
+  it("approves the caller's pending request when they join after the space opens", async () => {
+    const { org, space, joiner } = await setup("request");
+    const requested = await join(joiner.token, space.id);
+    await prisma.space.update({
+      where: { id: space.id },
+      data: { joinPolicy: "open" },
+    });
+
+    const res = await join(joiner.token, space.id);
+
+    expect(res.status).toBe(200);
+    const request = await prisma.spaceJoinRequest.findUniqueOrThrow({
+      where: { id: requested.body.request.id },
+    });
+    expect(request).toMatchObject({
+      status: "approved",
+      decidedBy: joiner.principal.id,
+    });
+    const events = await prisma.event.findMany({
+      where: { organizationId: org },
+      orderBy: { id: "asc" },
+    });
+    expect(events.map((e) => e.type)).toEqual([
+      "space.join_requested",
+      "space.member_added",
+      "space.join_decided",
+    ]);
+  });
+
   it("allows a new request after the earlier one was decided", async () => {
     const { space, joiner } = await setup("request");
     await prisma.spaceJoinRequest.create({

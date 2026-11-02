@@ -9,7 +9,10 @@
       `400 cannot_dm_self`; an unknown principal is `404`.
 
       Only `homileo.chat.admin` can archive a DM, and an admin who is not one of its two
-      participants cannot read it.
+      participants cannot read it. The pair keeps its one DM for good: once it is archived this
+      answers `409 resource_archived` and no new DM can be made for the pair. A caller an admin
+      removed from the DM is re-added as a `member` (recording `session.participant_added`); the
+      other principal is left as they are.
 
       **Required permissions:** none; any signed-in caller in an organization.
     operationId: createDirectSession
@@ -35,4 +38,5 @@
       '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
       '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
       '404': { $ref: '../../components/responses.yaml#/NotFoundResponse' }
+      '409': { $ref: '../../components/responses.yaml#/ConflictResponse' }
       '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }

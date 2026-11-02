@@ -54,7 +54,7 @@ NotFoundResponse:
         $ref: '#/Error'
 
 ConflictResponse:
-  description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+  description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
   content:
     application/json:
       schema:
@@ -62,6 +62,13 @@ ConflictResponse:
 
 ServerErrorResponse:
   description: Server error
+  content:
+    application/json:
+      schema:
+        $ref: '#/Error'
+
+ServiceUnavailableResponse:
+  description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
   content:
     application/json:
       schema:

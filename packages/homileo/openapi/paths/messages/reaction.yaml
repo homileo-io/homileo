@@ -11,6 +11,9 @@
       caller who can read the session but is not a participant gets `403 not_a_participant`; a
       caller who cannot read the message gets `404`.
 
+      A message carries at most 50 distinct emoji. Adding one it does not have yet when it already
+      has 50 is `409 reaction_limit`; reacting with an emoji it already has is always allowed.
+
       **Required permissions:** none; the caller must be a participant.
     operationId: addMessageReaction
     parameters:

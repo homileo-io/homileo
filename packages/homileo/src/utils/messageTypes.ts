@@ -2,21 +2,17 @@ import { BUILTIN_MESSAGE_TYPE } from "../definitions/builtins.js";
 import { createPayloadAjv } from "./provisioning/validate.js";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import { AppError, BadRequestError } from "./errors.js";
-import { prisma, type Prisma } from "./db/prisma.js";
+import type { Prisma } from "./db/prisma.js";
 
-type Client = Prisma.TransactionClient | typeof prisma;
-
-/** Other replicas re-provision on their own start; they pick the change up within this. */
-const CACHE_TTL_MS = 60_000;
+type Tx = Prisma.TransactionClient;
 
 interface Compiled {
+  schema: string;
   validate: ValidateFunction;
-  loadedAt: number;
 }
 
-const cache = new Map<string, Compiled>();
-// Bumped by `invalidateMessageTypes`, so a load that began before it is not stored.
-let generation = 0;
+// Keyed by type; reused while the row's schema text is unchanged.
+const compiled = new Map<string, Compiled>();
 
 const issuesOf = (errors: ErrorObject[] | null | undefined) =>
   (errors ?? []).map((e) => ({
@@ -29,30 +25,31 @@ const invalidPayload = (
   issues: Array<{ path: string; message: string }>
 ) => new AppError(400, "invalid_payload", message, { details: { issues } });
 
-/** An active type's compiled payload schema, or `null` for an unknown or retired type. */
+/**
+ * An active type's compiled payload schema, or `null` for an unknown or retired
+ * type. The row is read in `tx` with `FOR SHARE`: retiring the type (which takes
+ * it `FOR UPDATE` first) waits for this transaction, or this waits for it.
+ */
 const validatorFor = async (
-  type: string,
-  client: Client
+  tx: Tx,
+  type: string
 ): Promise<ValidateFunction | null> => {
-  const cached = cache.get(type);
-  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
-    return cached.validate;
-  }
-  const started = generation;
-  const row = await client.provisionedMessageType.findUnique({
-    where: { name: type },
-    select: { payloadSchema: true, retiredAt: true },
-  });
-  if (!row || row.retiredAt !== null) {
-    if (started === generation) cache.delete(type);
+  const rows = await tx.$queryRaw<Array<{ schema: string }>>`
+    SELECT payload_schema::text AS schema
+    FROM "chat"."provisioned_message_types"
+    WHERE name = ${type} AND retired_at IS NULL
+    FOR SHARE`;
+  const schema = rows[0]?.schema;
+  if (schema === undefined) {
+    compiled.delete(type);
     return null;
   }
+  const cached = compiled.get(type);
+  if (cached?.schema === schema) return cached.validate;
   // An instance per schema: one Ajv would keep every version it compiled, and
   // refuse a changed schema that kept its `$id`.
-  const validate = createPayloadAjv().compile(row.payloadSchema as object);
-  if (started === generation) {
-    cache.set(type, { validate, loadedAt: Date.now() });
-  }
+  const validate = createPayloadAjv().compile(JSON.parse(schema) as object);
+  compiled.set(type, { schema, validate });
   return validate;
 };
 
@@ -65,7 +62,7 @@ const validatorFor = async (
 export const validatePayload = async (
   type: string,
   payload: unknown,
-  client: Client = prisma
+  tx: Tx
 ): Promise<void> => {
   if (type === BUILTIN_MESSAGE_TYPE) {
     if (payload !== undefined) {
@@ -75,7 +72,7 @@ export const validatePayload = async (
     }
     return;
   }
-  const validate = await validatorFor(type, client);
+  const validate = await validatorFor(tx, type);
   if (!validate) {
     throw new BadRequestError(
       "message_type_not_found",
@@ -92,6 +89,5 @@ export const validatePayload = async (
 
 /** Drops the compiled schemas: provisioning changed the message types. */
 export const invalidateMessageTypes = (): void => {
-  generation++;
-  cache.clear();
+  compiled.clear();
 };

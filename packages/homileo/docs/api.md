@@ -36,8 +36,9 @@ The body is `{ "error": "<code>", "error_description": "<text>", ...details }`. 
 | 401 | `unauthorized` |
 | 403 | `forbidden`, `posting_restricted`, `not_a_participant`, `edit_window_closed` |
 | 404 | `not_found` |
-| 409 | `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `external_ref_taken`, `managed_by_provisioning` |
+| 409 | `conflict` (a unique or foreign-key conflict, or a join request already decided), `already_archived`, `resource_archived`, `duplicate_client_message` (the body also carries `message`), `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit` |
 | 410 | `resync_required` |
+| 503 | `temporarily_unavailable` (tereo's file storage did not answer; retry) |
 
 `resource_archived` is a change to something archived; `already_archived` is archiving it again.
 
@@ -58,6 +59,7 @@ extra one on the newer side).
 | What | Limit |
 |---|---|
 | message `body` | 40,000 characters |
+| message `body` parsed as Markdown | at most 10,000 characters, 500 markup marks (block-quote and list markers, lines that open a heading, fence, rule or HTML block, and each `*`, `_`, `~`, `[`, `]` and `![`) and 100 block-quote and list markers on one line; past any of these it is read as plain text |
 | message `payload` | 64 KiB serialized |
 | `metadata` (spaces, sessions, messages) | a flat object of at most 50 keys, each matching `^[A-Za-z][A-Za-z0-9_.-]{0,63}$`, at most 16 KiB serialized (`utils/metadata.ts`); values may be any JSON |
 | `clientMessageId` | 1 to 128 characters |
@@ -81,26 +83,39 @@ A mutation loads what it checks inside its transaction with `{ tx, lock: true }`
 session (or space) row `FOR UPDATE`, so the checks and the write see the same rows. Creating a space
 reads its kind with `activeKind` (`FOR SHARE`); provisioning takes the kind's row `FOR UPDATE`
 before it counts the unarchived spaces of a kind it retires, so a space is never created in a kind
-as it retires.
+as it retires. Message types work the same way: a send or an edit with a payload reads the type's
+row `FOR SHARE` (`validatePayload`), and provisioning takes it `FOR UPDATE` before it looks for a
+message of a type it retires, so no message is stored with a type as it retires, on any replica.
 
 Kinds are cached in the process for 60 seconds and dropped when provisioning applies
-(`invalidateKinds`). So are message types' compiled payload schemas (`utils/messageTypes.ts`); a
-type not in the cache is read from the database when a message uses it.
+(`invalidateKinds`). Message types are read on every use; only their compiled payload schemas are
+kept (`utils/messageTypes.ts`), reused while the row's schema is unchanged.
 
 A send takes the session row `FOR UPDATE` first (`readableSession({ lock: true })`) and looks up
 its `clientMessageId` under that lock, so of two concurrent sends with the same id one inserts and
 the other answers `409 duplicate_client_message` without using a `seq`. `seq` comes from
 `UPDATE sessions SET last_seq = last_seq + 1 … RETURNING last_seq`, so it is gap-free.
 
-An edit or delete takes the message's space row, then its session row, `FOR UPDATE`
-(`readableMessage({ lock: true })`), and re-reads the message under them. An edit that changes the
+An edit or delete takes the message's space row `FOR SHARE`, then its session row `FOR UPDATE`
+(`lockedMessage`: `db.sessions.lockSpaceOf`, then `readableMessage({ lock: true })`), and re-reads
+the message under them. An edit that changes the
 `body` or `payload` inserts `message_revisions` row `revision + 1` (revision 1 is the original, written
-on send), rewrites `message_mentions` and emails only the readers newly mentioned; a `metadata`-only
+on send), rewrites `message_mentions` and emails only the readers no earlier revision mentioned (removing
+a mention and adding it back sends nothing); a `metadata`-only
 change makes no revision but still records `message.edited`, and an edit that changes nothing records
 nothing. A delete clears `body`, `body_text` and `payload`, keeps revisions, reactions and attachments
-(views show the last two as empty), and lowers a reply's root `reply_count`.
+(views show the last two as empty), keeps `message_mentions` (so `message.deleted` reaches the
+readers the message reached through a mention; `/me/mentions` and unread counts skip deleted
+messages), and lowers a reply's root `reply_count`.
 `GET /v1/messages/:id/revisions` is for the sender and for whoever can moderate the message's space: any other reader gets `403`, so a
 deleted message's text does not reach everyone in the session.
+
+A message body is parsed once, before the transaction, for its mentions and its `body_text`
+(`utils/markdown.ts`, `utils/mentions.ts`). Only a body within all three parse limits (see
+[Limits](#limits)) is parsed as Markdown: within them a parse takes tens of milliseconds at most,
+while past them micromark can take minutes or overflow the stack. Any other body is accepted and
+read as plain text: mentions count everywhere outside fenced code blocks and single-line code
+spans, and `body_text` is the body as written with mentions replaced by names. Neither is refused.
 
 ## Routes
 
@@ -128,12 +143,17 @@ area's limit) and `404 not_found`. Events are recorded in the request's transact
 | `GET /spaces/:spaceId` | `canReadSpace` | | |
 | `PATCH /spaces/:spaceId` | `canModerateSpace` | `403`, `409 resource_archived`, `400 setting_not_overridable`, `400 invalid_state`, `409 external_ref_taken` | `space.updated` |
 | `POST /spaces/:spaceId/archive` | `canManageSpace` | `403`, `409 already_archived` | `space.archived` |
-| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added`, or `space.join_requested` for `request` |
+| `POST /spaces/:spaceId/join` | `joinSpaceOutcome` | `403` (`invite`), `409 resource_archived` | `space.member_added` (and `space.join_decided` for the caller's pending request), or `space.join_requested` for `request` |
 | `GET /spaces/:spaceId/members` | `canReadSpace` | | |
-| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` or `space.member_role_changed` |
+| `PUT /spaces/:spaceId/members/:principalId` | `canChangeMember` | `403`, `404` unknown principal, `409 last_owner`, `409 resource_archived` | `space.member_added` (and `space.join_decided` for a pending request) or `space.member_role_changed` |
 | `DELETE /spaces/:spaceId/members/:principalId` | `canChangeMember` (anyone may leave, even an archived space) | `403`, `404`, `409 last_owner`, `409 resource_archived` (someone else, in an archived space) | `space.member_removed`, `session.participant_removed`, `space.access_revoked`, `session.access_revoked` |
 | `GET /spaces/:spaceId/join-requests` | `canModerateSpace`; items embed `principal` | `403` | |
-| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409` already decided, `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+| `POST /spaces/:spaceId/join-requests/:principalId/approve`, `/deny` | `canModerateSpace` | `403`, `404`, `409 conflict` (already decided), `409 already_member` (deny, for a member), `409 resource_archived` | `space.join_decided`, plus `space.member_added` on approval |
+
+A principal who becomes a member any other way (joining once the space is `open`, being added, or
+joining a session of an `open` space) has their pending join request approved in the same
+transaction, as the actor of that change, so a request never stays pending for a member. Approving
+a member's request only closes it; denying it is `409 already_member`.
 
 `description` is at most 10,000 characters (or `null`). A space's `kind` defaults to the built-in
 kind; `externalRef` is unique per kind within the organization.
@@ -144,7 +164,7 @@ kind; `externalRef` is unique per kind within the organization.
 |---|---|---|---|
 | `GET /sessions` | `canReadSession` per row; filters `spaceId`, `type`, `externalRef`, … | | |
 | `POST /sessions` | `canCreateSessionIn` in a space; open for a space-less group | `403 forbidden`, `403 posting_restricted` (a space whose `postPolicy` is `moderators`), `409 resource_archived`, `400 invalid_state` (a `state` on a space-less group, or one the kind does not declare) | `session.created`, `space.member_added` for kind bots missing from the space |
-| `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal | `session.created` (once; a repeat records nothing) |
+| `POST /sessions/direct` | open; at most one DM per pair | `400 cannot_dm_self`, `404` unknown principal, `409 resource_archived` | `session.created` (once), `session.participant_added`; a repeat records nothing unless it re-adds the caller |
 | `GET /sessions/:sessionId` | `canReadSession` | | |
 | `PATCH /sessions/:sessionId` | `canEditSessionSettings` | `403`, `409 resource_archived`, `400 invalid_state` | `session.updated` |
 | `POST /sessions/:sessionId/archive` | `canArchiveSession` | `403`, `409 already_archived` | `session.archived` |
@@ -157,8 +177,16 @@ kind; `externalRef` is unique per kind within the organization.
 | `GET /sessions/:sessionId/messages` | `canReadSession` | `400` for more than one of `before`, `after`, `around` | |
 | `POST /sessions/:sessionId/messages` | `postRefusal` | `403 not_a_participant`, `403 posting_restricted`, `409 resource_archived`, `409 duplicate_client_message`, `400 message_type_not_found`, `400 invalid_payload`, `400 reply_to_reply`, `400 attachment_not_found`, `400 attachment_not_uploaded`, `503` | `message.created`, then `thread.updated` for a reply |
 
+`GET /sessions` pages on `lastMessageAt`, which moves: a session not yet returned that gets a
+message during a page walk moves above the cursor and is skipped by the later pages. A client
+building its full list takes a `/sync` cursor (or opens its socket) before page 1 and adds the
+sessions named by events that arrive during the walk.
+
 A DM is created with `type: "direct"` and a deterministic `direct_key`, so two concurrent requests
-for the same pair produce one session. A session's `externalRef` is not unique, so `PATCH` never
+for the same pair produce one session. The key stays taken for good, so a repeat returns the pair's
+one DM: it answers `409 resource_archived` once the DM is archived (the pair cannot start another),
+and re-adds the caller as a `member` if an admin removed them (the other principal is left as they
+are, and rejoins the same way). A session's `externalRef` is not unique, so `PATCH` never
 answers `external_ref_taken`.
 
 An attachment's upload URL stays valid until it expires (15 minutes), and the bytes behind it can be
@@ -183,7 +211,7 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `DELETE /messages/:messageId` | `canDeleteMessage` | `403`, `409 resource_archived` | `message.deleted`, then `thread.updated` for a reply |
 | `GET /messages/:messageId/revisions` | sender, or `canModerateSpace` | `403` | |
 | `GET /messages/:messageId/thread` | `canReadSession` | `400 reply_to_reply` for a reply | |
-| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived` | `reaction.added` (a repeat records nothing) |
+| `PUT /messages/:messageId/reactions/:emoji` | `canReact` | `403 not_a_participant`, `409 resource_archived`, `409 reaction_limit` (a 51st distinct emoji on the message) | `reaction.added` (a repeat records nothing) |
 | `DELETE /messages/:messageId/reactions/:emoji` | `canReact` | `403`, `404` not reacted | `reaction.removed` |
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
@@ -204,7 +232,10 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
   `homileo-attachments` under `sessions/<sessionId>/<principalId>/<uuid>` with `deleteAfter` = now +
   24 h, and returns a presigned write URL for the object's id. A message names the object id. The
   send fetches the objects from tereo before its transaction, then checks inside it the key prefix
-  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit.
+  (this session, this sender) and `sizeBytes > 0`, and clears `deleteAfter` after commit. If that
+  fails or never runs, a repeat of the send with the same `clientMessageId` (`409
+  duplicate_client_message`) clears it again, and the worker's keep run (`src/jobs/attachmentKeep.ts`,
+  every 10 minutes) clears it for any attachment stored in the last 24 h whose object still expires.
   Unreferenced placeholders expire by themselves. `GET /v1/messages/:messageId/attachments/:attachmentId`
   returns a presigned read URL. A tereo failure on these routes, other than a 404, is
   `503 temporarily_unavailable`.

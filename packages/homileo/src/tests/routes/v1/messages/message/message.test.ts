@@ -154,6 +154,25 @@ describe("PATCH /v1/messages/:messageId", () => {
     expect(await notificationsTo(b.tereoUserId!)).toHaveLength(1);
   });
 
+  it("does not email a reader again when an edit removes and restores the mention", async () => {
+    const { me, session } = await room();
+    const a = await fixtures.principal();
+    await fixtures.participant(session, a);
+    const sent = await sendMessage(session.id, me.token, {
+      body: `<@${a.id}> hello`,
+    });
+    const id = sent.body.message.id;
+
+    await editMessage(id, me.token, { body: "hello" });
+    await editMessage(id, me.token, { body: `<@${a.id}> hello again` });
+    await editMessage(id, me.token, { body: "hello" });
+    const res = await editMessage(id, me.token, { body: `hi <@${a.id}>` });
+
+    expect(res.status).toBe(200);
+    expect(await mentionIds(id)).toEqual([a.id]);
+    expect(await notificationsTo(a.tereoUserId!)).toHaveLength(1);
+  });
+
   it("leaves a malformed id as text and stores at most 100 user mentions", async () => {
     const { me, session } = await room();
     const sent = await sendMessage(session.id, me.token, { body: "x" });
@@ -253,7 +272,7 @@ describe("PATCH /v1/messages/:messageId", () => {
 });
 
 describe("DELETE /v1/messages/:messageId", () => {
-  it("clears the message and keeps its revisions and mentions' removal", async () => {
+  it("clears the message and keeps its revisions and mentions", async () => {
     const { me, session } = await room();
     const a = await fixtures.principal();
     await fixtures.participant(session, a);
@@ -276,7 +295,7 @@ describe("DELETE /v1/messages/:messageId", () => {
     });
     const row = await prisma.message.findUniqueOrThrow({ where: { id } });
     expect(row).toMatchObject({ body: null, bodyText: null, payload: null });
-    expect(await mentionIds(id)).toEqual([]);
+    expect(await mentionIds(id)).toEqual([a.id]);
     expect(
       await prisma.messageRevision.count({ where: { messageId: id } })
     ).toBe(2);

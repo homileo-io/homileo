@@ -144,10 +144,15 @@ export const findOrCreateMany = async (
   const unique = [...new Map(users.map((u) => [u.tereoUserId, u])).values()];
   if (unique.length === 0) return [];
 
+  // In id order: two inserts of overlapping new ids in opposite orders would
+  // each wait on the other's uncommitted row and deadlock.
+  const inIdOrder = [...unique].sort((a, b) =>
+    a.tereoUserId < b.tereoUserId ? -1 : a.tereoUserId > b.tereoUserId ? 1 : 0
+  );
   await client.$executeRaw`INSERT INTO "chat"."principals"
       (id, kind, tereo_user_id, is_bot, display_name, created_at, updated_at)
     VALUES ${Prisma.join(
-      unique.map(
+      inIdOrder.map(
         (u) =>
           Prisma.sql`(${uuidv7()}::uuid, 'user', ${u.tereoUserId}::uuid, ${u.isBot},
             ${truncateDisplayName(u.displayName)}, NOW(), NOW())`

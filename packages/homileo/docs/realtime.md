@@ -44,7 +44,8 @@ const socket = io(baseUrl, { path: "/ws", auth: { token } });
 | `presence:<organizationId>:<principalId>` | sockets watching that principal | `presence.watch` |
 
 A socket joined for membership or participation never leaves it on `unsubscribe`; that only undoes
-`subscribe`. Joins on connect are loaded in the handshake and reloaded and re-checked once the
+`subscribe`. `unsubscribe` checks participation or membership again after leaving, and joins again
+if one was added meanwhile. Joins on connect are loaded in the handshake and reloaded and re-checked once the
 socket is up, so a change committed in between is not missed.
 
 ## Client events
@@ -67,8 +68,10 @@ postable: never `forbidden`), `too_many_subscriptions`, `too_many_watched`, `rat
 `subscribe` requires that the caller can read the target now (the same check as the REST route,
 [access.md](access.md)). A session subscription also joins that session's `spaceof:` room. A socket
 holds at most 200 explicit subscriptions; one already in the room (subscribed or joined for
-membership) answers `ok` without counting. `until` in the ack is a sync cursor taken once the
-socket is in the room, as `ready`'s is. `unsubscribe` of something not subscribed is `ok`.
+membership) answers `ok` without counting. After joining, the socket's rooms are re-checked, so a
+revocation that committed during the check cannot leave it in the room: the ack is then
+`not_found`. `until` in the ack is a sync cursor taken once the socket is in the room, as
+`ready`'s is. `unsubscribe` of something not subscribed is `ok`.
 
 ## The envelope
 
@@ -102,13 +105,24 @@ resource now, and is one of:
 
 More precisely:
 
-- **Space events** (channel `space`) go to `space:<id>`.
+- **Space events** (channel `space`) go to `space:<id>`, except join requests below.
+- **Join requests** (`space.join_requested`, `space.join_decided`) go to the requester and to the
+  sockets in `space:<id>` that, judged by their own token, can moderate the space; `/sync` returns
+  them to a member or `spaceIds` subscriber who can moderate it now. The same readers as
+  `GET /v1/spaces/:id/join-requests`, which refuses anyone else with `403`.
+- **Created events** go to the principals their transaction adds: `session.created` to the personal
+  room of each participant added with the session, `space.created` to that of each member added
+  with the space. Their joins come later in the transaction, so the session or space room is still
+  empty when the created event is sent.
 - **Session events** (channel `session`) go to `session:<id>`. `session.created`, `session.updated`
   and `session.archived` of an `access: space` session also go to `space:<id>`. Those of an
   `access: members` session do not, not even to readers of the space who could read the session
   through a kind grant or `homileo.chat.admin`: they hear it by taking part or subscribing.
-- **Mentions:** `message.created` and `message.edited` also go to the personal room of each mentioned
-  user (the stored mentions name only principals who could read the session when it was written).
+- **Mentions:** `message.created`, `message.edited` and `message.deleted` also go to the personal room
+  of each mentioned user who is still a mention reader of the session (`isMentionReader`: a current
+  participant, or a member of the space of an `access: space` session). Someone removed since the
+  message was written no longer gets it, on the socket or on `/sync`. A delete keeps the mention
+  rows, so the readers a message reached through a mention also learn it was deleted.
 - **Targeted events** go to the principal they name, on the socket and on `/sync`, whatever that
   principal can currently read: `space.member_added`, `space.member_role_changed`,
   `space.member_removed`, `space.join_requested`, `space.join_decided`,
@@ -162,7 +176,8 @@ Transactions committed on different nodes reach a socket in no guaranteed order 
   `expiresInMs` (6000): a client refreshes it every 3 s while typing, sends `typing.stop` when
   done, and hides the indicator on expiry or on a `message.created` from that sender.
 - **Presence** is per organization and by request. `presence.watch { principalIds }` replaces the
-  socket's watched set (at most 200, else `too_many_watched`) and acks the current statuses. Changes
+  socket's watched set (at most 200, else `too_many_watched`) and acks the current statuses. A
+  socket's watches run one at a time, in the order received. Changes
   go out as `presence` events to the watchers. A client sends `presence.heartbeat` every 25 s; a
   principal is offline 60 s after its last heartbeat, when its last socket disconnects, or when the
   30 s sweep finds the entry expired. State is in Redis (`src/utils/presence.ts`), shared by nodes.
@@ -199,10 +214,12 @@ the catch-up must reach). It answers
   transaction outlives that margin, so none still open at `at` wrote into a dropped day. Before
   retention has dropped anything (a deploy younger than `EVENT_RETENTION_DAYS`) the margin does not
   apply. Reload state and start again without `since`. A malformed cursor, or one from the
-  future, is `400 invalid_request`.
+  future (an `at` ahead of the clock, or a `since` or `until` whose transaction id is past what
+  the database has assigned, as after a restore onto a new cluster), is `400 invalid_request`.
 - Events are filtered by the audience rule above, against what the caller can read now, and by
-  organization. Mention parity uses the current mention rows: an edit that adds or removes a mention
-  changes whether the earlier `message.created` is returned. Clients drop events whose `id` they
+  organization. Mention parity uses the current mention rows and the reader's current participation
+  and membership: an edit that adds or removes a mention changes whether the earlier
+  `message.created` is returned. Clients drop events whose `id` they
   have applied.
 
 Limits of the implementation:

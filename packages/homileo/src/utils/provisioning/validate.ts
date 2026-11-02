@@ -13,7 +13,6 @@ export const createPayloadAjv = () =>
 /** The rules that span documents, and the ones a schema cannot express. Returns every problem. */
 export const validateSet = (documents: LoadedDocument[]): Problem[] => {
   const problems: Problem[] = [];
-  const ajv = createPayloadAjv();
 
   const appFiles = new Map<string, string>();
   const kindFiles = new Map<string, string>();
@@ -64,8 +63,9 @@ export const validateSet = (documents: LoadedDocument[]): Problem[] => {
         });
       else typeFiles.set(type.name, file);
 
+      // An instance per schema, as at runtime: two types may share a `$id`.
       try {
-        ajv.compile(type.payloadSchema);
+        createPayloadAjv().compile(type.payloadSchema);
       } catch (err) {
         problems.push({
           file,

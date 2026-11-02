@@ -74,6 +74,16 @@ export const lockSpaceOf = async (tx: Tx, sessionId: string): Promise<void> => {
     FOR SHARE OF sp`;
 };
 
+/** The session's space and access, or `null` when there is no such session. */
+export const accessOf = (
+  tx: Tx,
+  sessionId: string
+): Promise<{ spaceId: string | null; access: "space" | "members" } | null> =>
+  tx.session.findUnique({
+    where: { id: sessionId },
+    select: { spaceId: true, access: true },
+  });
+
 /** The indexes in `ids` that name no principal. */
 export const unknownPrincipalIndexes = async (
   tx: Tx,
@@ -133,12 +143,19 @@ export const insertDirect = async (
   return tx.session.findUniqueOrThrow({ where: { id } });
 };
 
-export const findDirect = (
+/** The organization's DM for the pair, its row locked `FOR UPDATE`. */
+export const lockDirect = async (
   tx: Tx,
   organizationId: string,
   directKey: string
-): Promise<Session | null> =>
-  tx.session.findFirst({ where: { organizationId, directKey } });
+): Promise<Session | null> => {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "chat"."sessions"
+    WHERE organization_id = ${organizationId}::uuid AND direct_key = ${directKey}
+    FOR UPDATE`;
+  if (rows.length === 0) return null;
+  return tx.session.findUniqueOrThrow({ where: { id: rows[0].id } });
+};
 
 /** Where a page starts: after this row in `last_message_at DESC NULLS LAST, created_at DESC, id DESC`. */
 export interface SessionPageStart {

@@ -42,7 +42,7 @@ const outbox = (org: string, entityId: string) =>
     ORDER BY id`;
 
 describe("PATCH /v1/messages/:messageId events", () => {
-  it("records message.edited and a homileo.message.edited webhook, with no audit entry", async () => {
+  it("records message.edited and a homileo.private_message.edited webhook, with no audit entry", async () => {
     const { org, me, session } = await room();
     const sent = await sendMessage(session.id, me.token, { body: "a" });
     const id = sent.body.message.id;
@@ -59,8 +59,8 @@ describe("PATCH /v1/messages/:messageId events", () => {
     ).toEqual({ message: res.body.message });
     const rows = await outbox(org, id);
     expect(rows.map((r) => r.payload.eventType)).toEqual([
-      "homileo.message.created",
-      "homileo.message.edited",
+      "homileo.private_message.created",
+      "homileo.private_message.edited",
     ]);
     expect(rows.every((r) => r.destination === "webhook")).toBe(true);
   });
@@ -108,7 +108,7 @@ describe("DELETE /v1/messages/:messageId events", () => {
     ).toEqual({ message: res.body.message });
     const rows = await outbox(org, id);
     expect(rows.map((r) => r.destination)).toEqual(["webhook", "webhook"]);
-    expect(rows[1].payload.eventType).toBe("homileo.message.deleted");
+    expect(rows[1].payload.eventType).toBe("homileo.private_message.deleted");
   });
 
   it("records an audit DELETE when a moderator deletes someone else's message", async () => {

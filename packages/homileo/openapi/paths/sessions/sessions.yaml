@@ -15,6 +15,12 @@
       first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
       caller's own `participant`, or `null`.
 
+      The cursor holds the last row's `lastMessageAt`, which moves: a session not yet returned
+      that gets a message while a client walks the pages moves above the cursor and is on none of
+      the later pages (a fresh first page has it at the top). A client building its full list
+      takes a `/v1/sync` cursor (or opens its socket) before page 1 and adds the sessions named
+      by events that arrive during the walk.
+
       **Required permissions:** none; any signed-in caller in an organization.
     operationId: listSessions
     parameters:

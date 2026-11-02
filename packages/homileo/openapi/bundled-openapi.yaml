@@ -393,7 +393,8 @@ paths:
         Makes the principal a member with the given role. A new member is `201`; a role change is
         `200`, and so is a request for the role they already have, which records nothing. An
         addition records `space.member_added`, a change `space.member_role_changed` (with the
-        previous role); each emits its webhook and writes an audit entry.
+        previous role); each emits its webhook and writes an audit entry. Adding a principal with a
+        pending join request approves it as the caller (recording `space.join_decided`).
 
         **Required permissions:** none; the caller must be able to moderate the space to add a
         `member`. Adding a moderator or owner, or changing any role, needs the `owner` or a
@@ -483,7 +484,8 @@ paths:
       summary: Join a space, or ask to
       description: |
         Follows the space's `joinPolicy`. `open`: the caller becomes a `member` (`200`; `200`
-        again, changing nothing, if they already are one) and `space.member_added` is recorded.
+        again, changing nothing, if they already are one) and `space.member_added` is recorded; a
+        request the caller filed while the space took requests is approved (`space.join_decided`).
         `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
         a repeat returns the pending request without a new event. `invite`: 403.
 
@@ -557,7 +559,7 @@ paths:
         - Spaces
       summary: Approve a join request
       description: |
-        Approves the applicant's pending request and makes them a `member` (recording `space.member_added`). Records `space.join_decided`, emits its webhook and writes an audit entry.
+        Approves the applicant's pending request and makes them a `member` (recording `space.member_added`); for an applicant who is already a member it only closes the request. Records `space.join_decided`, emits its webhook and writes an audit entry.
 
         **Required permissions:** none; the caller must be able to moderate the space. A caller who
         can read the space but not moderate it gets 403; one who cannot read it, 404.
@@ -599,7 +601,8 @@ paths:
         can read the space but not moderate it gets 403; one who cannot read it, 404.
 
         **Errors:** `404` when the principal has no request, `409 conflict` when their latest
-        request is already decided, `409 resource_archived` for an archived space.
+        request is already decided, `409 already_member` when the principal is already a member
+        (approve the request to close it), `409 resource_archived` for an archived space.
       operationId: denyJoinRequest
       parameters:
         - $ref: '#/components/parameters/SpaceIdParam'
@@ -707,6 +710,12 @@ paths:
         first. Archived sessions are left out unless `includeArchived=true`. Each item carries the
         caller's own `participant`, or `null`.
 
+        The cursor holds the last row's `lastMessageAt`, which moves: a session not yet returned
+        that gets a message while a client walks the pages moves above the cursor and is on none of
+        the later pages (a fresh first page has it at the top). A client building its full list
+        takes a `/v1/sync` cursor (or opens its socket) before page 1 and adds the sessions named
+        by events that arrive during the walk.
+
         **Required permissions:** none; any signed-in caller in an organization.
       operationId: listSessions
       parameters:
@@ -809,7 +818,10 @@ paths:
         `400 cannot_dm_self`; an unknown principal is `404`.
 
         Only `homileo.chat.admin` can archive a DM, and an admin who is not one of its two
-        participants cannot read it.
+        participants cannot read it. The pair keeps its one DM for good: once it is archived this
+        answers `409 resource_archived` and no new DM can be made for the pair. A caller an admin
+        removed from the DM is re-added as a `member` (recording `session.participant_added`); the
+        other principal is left as they are.
 
         **Required permissions:** none; any signed-in caller in an organization.
       operationId: createDirectSession
@@ -838,6 +850,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedResponse'
         '404':
           $ref: '#/components/responses/NotFoundResponse'
+        '409':
+          $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
   /v1/sessions/{sessionId}:
@@ -1227,7 +1241,8 @@ paths:
 
         - A repeat of `clientMessageId` by the same sender in the session is
           `409 duplicate_client_message`, whose body carries the existing `message`; nothing is
-          recorded and no `seq` is used.
+          recorded and no `seq` is used. The repeat keeps that message's attachments again, so a
+          retry after a lost response leaves them kept.
         - The caller must be a participant (`403 not_a_participant`) and, in a space whose
           `postPolicy` is `moderators`, able to moderate it (`403 posting_restricted`). An archived
           session or space is `409 resource_archived`.
@@ -1290,6 +1305,8 @@ paths:
                   - $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}:
     get:
       tags:
@@ -1330,8 +1347,9 @@ paths:
         - A changed `body` or `payload` makes a new revision (`revision` + 1, `editedAt` set),
           keeping the earlier ones, and is checked as when sending: a `text` message takes no
           `payload` (`400 invalid_payload`), a provisioned type's `payload` must match its schema.
-        - A changed `body` rewrites the message's mentions. Principals newly mentioned (who can read
-          the session) are emailed, as when sending; those mentioned before are not emailed again.
+        - A changed `body` rewrites the message's mentions. Principals no earlier revision mentioned
+          (who can read the session) are emailed, as when sending; anyone an earlier revision
+          mentioned is not emailed again, even after the mention was removed and added back.
         - A `metadata`-only change (a whole replacement) makes no revision and leaves `editedAt`.
         - An edit that changes nothing answers `200` and records nothing.
         - A deleted message is `409 resource_archived`. Past the space kind's edit window the
@@ -1456,6 +1474,8 @@ paths:
           $ref: '#/components/responses/ConflictResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/attachments/{attachmentId}:
     get:
       tags:
@@ -1491,6 +1511,8 @@ paths:
           $ref: '#/components/responses/NotFoundResponse'
         '500':
           $ref: '#/components/responses/ServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableResponse'
   /v1/messages/{messageId}/revisions:
     get:
       tags:
@@ -1536,6 +1558,9 @@ paths:
         A deleted message, or one in an archived session or space, is `409 resource_archived`. A
         caller who can read the session but is not a participant gets `403 not_a_participant`; a
         caller who cannot read the message gets `404`.
+
+        A message carries at most 50 distinct emoji. Adding one it does not have yet when it already
+        has 50 is `409 reaction_limit`; reacting with an emoji it already has is always allowed.
 
         **Required permissions:** none; the caller must be a participant.
       operationId: addMessageReaction
@@ -1731,8 +1756,13 @@ paths:
         - a current participant of the event's session (session events);
         - a member of the event's space (space events, and `session.created`, `session.updated` and
           `session.archived` of an `access: space` session in it);
-        - mentioned in a `message.created` or `message.edited`;
+        - mentioned in a `message.created`, `message.edited` or `message.deleted`, while still a
+          participant of the session, or a member of the space of an `access: space` session;
         - or the session or space is named in `sessionIds` / `spaceIds`.
+
+        `space.join_requested` and `space.join_decided` are returned to a member or `spaceIds`
+        subscriber only when they can moderate the space, as with
+        `GET /v1/spaces/{spaceId}/join-requests`.
 
         An event that names the caller is returned whatever the caller can read now: a member,
         join-request or participant event about them, and `read.updated`. An access revocation
@@ -1869,6 +1899,7 @@ webhooks:
       tags:
         - Sessions
       summary: Session created
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.created` instead.
       operationId: webhookSessionCreated
       requestBody:
         required: true
@@ -1893,6 +1924,7 @@ webhooks:
       tags:
         - Sessions
       summary: Session updated
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.updated` instead.
       operationId: webhookSessionUpdated
       requestBody:
         required: true
@@ -1917,6 +1949,7 @@ webhooks:
       tags:
         - Sessions
       summary: Session archived
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.archived` instead.
       operationId: webhookSessionArchived
       requestBody:
         required: true
@@ -1941,6 +1974,7 @@ webhooks:
       tags:
         - Sessions
       summary: Participant added to a session
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.participant_added` instead.
       operationId: webhookSessionParticipantAdded
       requestBody:
         required: true
@@ -2065,6 +2099,7 @@ webhooks:
       tags:
         - Sessions
       summary: Participant removed from a session
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.participant_removed` instead.
       operationId: webhookSessionParticipantRemoved
       requestBody:
         required: true
@@ -2089,7 +2124,7 @@ webhooks:
       tags:
         - Messages
       summary: Message created
-      description: A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.created` instead. A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
       operationId: webhookMessageCreated
       security: []
       requestBody:
@@ -2115,7 +2150,7 @@ webhooks:
       tags:
         - Messages
       summary: Thread updated
-      description: A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_thread.updated` instead. A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
       operationId: webhookThreadUpdated
       security: []
       requestBody:
@@ -2141,7 +2176,7 @@ webhooks:
       tags:
         - Messages
       summary: Message edited
-      description: A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.edited` instead. A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
       operationId: webhookMessageEdited
       security: []
       requestBody:
@@ -2167,7 +2202,7 @@ webhooks:
       tags:
         - Messages
       summary: Message deleted
-      description: A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_message.deleted` instead. A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
       operationId: webhookMessageDeleted
       security: []
       requestBody:
@@ -2193,7 +2228,7 @@ webhooks:
       tags:
         - Messages
       summary: Reaction added
-      description: A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_reaction.added` instead. A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
       operationId: webhookReactionAdded
       security: []
       requestBody:
@@ -2219,7 +2254,7 @@ webhooks:
       tags:
         - Messages
       summary: Reaction removed
-      description: A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_reaction.removed` instead. A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
       operationId: webhookReactionRemoved
       security: []
       requestBody:
@@ -2233,6 +2268,287 @@ webhooks:
                   properties:
                     eventType:
                       const: homileo.reaction.removed
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_session.created:
+    post:
+      tags:
+        - Sessions
+      summary: Session created (private session)
+      description: Sent instead of `homileo.session.created` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+      operationId: webhookPrivateSessionCreated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_session.created
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_session.updated:
+    post:
+      tags:
+        - Sessions
+      summary: Session updated (private session)
+      description: Sent instead of `homileo.session.updated` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+      operationId: webhookPrivateSessionUpdated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_session.updated
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_session.archived:
+    post:
+      tags:
+        - Sessions
+      summary: Session archived (private session)
+      description: Sent instead of `homileo.session.archived` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+      operationId: webhookPrivateSessionArchived
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_session.archived
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_session.participant_added:
+    post:
+      tags:
+        - Sessions
+      summary: Participant added to a session (private session)
+      description: Sent instead of `homileo.session.participant_added` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+      operationId: webhookPrivateSessionParticipantAdded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_session.participant_added
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantAddedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_session.participant_removed:
+    post:
+      tags:
+        - Sessions
+      summary: Participant removed from a session (private session)
+      description: Sent instead of `homileo.session.participant_removed` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+      operationId: webhookPrivateSessionParticipantRemoved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_session.participant_removed
+                    entityType:
+                      const: session
+                    data:
+                      $ref: '#/components/schemas/SessionParticipantRemovedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_message.created:
+    post:
+      tags:
+        - Messages
+      summary: Message created (private session)
+      description: Sent instead of `homileo.message.created` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message or a reply was sent. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookPrivateMessageCreated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_message.created
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_thread.updated:
+    post:
+      tags:
+        - Messages
+      summary: Thread updated (private session)
+      description: Sent instead of `homileo.thread.updated` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reply changed a thread root's `replyCount` and `lastReplyAt`. `entityId` is the root's id.
+      operationId: webhookPrivateThreadUpdated
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_thread.updated
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ThreadUpdatedEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_message.edited:
+    post:
+      tags:
+        - Messages
+      summary: Message edited (private session)
+      description: Sent instead of `homileo.message.edited` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message was edited, with a new revision or a metadata change. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookPrivateMessageEdited
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_message.edited
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_message.deleted:
+    post:
+      tags:
+        - Messages
+      summary: Message deleted (private session)
+      description: Sent instead of `homileo.message.deleted` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A message was deleted. `data.message` is the cleared message. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookPrivateMessageDeleted
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_message.deleted
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/MessageEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_reaction.added:
+    post:
+      tags:
+        - Messages
+      summary: Reaction added (private session)
+      description: Sent instead of `homileo.reaction.added` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reaction was added. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookPrivateReactionAdded
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_reaction.added
+                    entityType:
+                      const: message
+                    data:
+                      $ref: '#/components/schemas/ReactionEventData'
+      responses:
+        2XX:
+          description: Any 2xx response acknowledges the delivery; anything else is retried.
+  homileo.private_reaction.removed:
+    post:
+      tags:
+        - Messages
+      summary: Reaction removed (private session)
+      description: Sent instead of `homileo.reaction.removed` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it. A reaction was removed. Deliveries come from tereo, signed by tereo; see tereo's webhook documentation for the headers and signature.
+      operationId: webhookPrivateReactionRemoved
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEvent'
+                - type: object
+                  properties:
+                    eventType:
+                      const: homileo.private_reaction.removed
                     entityType:
                       const: message
                     data:
@@ -2406,8 +2722,9 @@ components:
       required: false
       description: |
         The `next` of the previous `/v1/sync` response, as it was returned: an opaque cursor. Omit it
-        to get the head, the position a reader starting now begins from. A malformed cursor is
-        `400 invalid_request`.
+        to get the head, the position a reader starting now begins from. A malformed cursor, one from
+        the future, or one past what this database has issued (as after a restore onto a new cluster)
+        is `400 invalid_request`.
       schema:
         type: string
         minLength: 1
@@ -2485,7 +2802,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ConflictResponse:
-      description: Conflict - the request clashes with the resource's state, e.g. `resource_archived`, `already_archived`, `last_owner`, `external_ref_taken`, `managed_by_provisioning`
+      description: Conflict - the request clashes with the resource's state, e.g. `conflict`, `resource_archived`, `already_archived`, `last_owner`, `already_member`, `external_ref_taken`, `managed_by_provisioning`, `reaction_limit`
       content:
         application/json:
           schema:
@@ -2498,6 +2815,12 @@ components:
             $ref: '#/components/schemas/Error'
     NoContentResponse:
       description: Done; no content
+    ServiceUnavailableResponse:
+      description: Service unavailable - `temporarily_unavailable`, tereo's file storage did not answer; the request may be retried
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     SyncResyncRequiredResponse:
       description: |
         Gone - `resync_required`: the cursor is older than the oldest retained events (plus a 10 minute
@@ -3768,7 +4091,7 @@ components:
           type:
             - string
             - 'null'
-          description: Markdown (CommonMark with GFM strikethrough, task lists and autolinks), with mentions as `<@principal-id>`, `<!here>` and `<!session>`
+          description: Markdown (CommonMark with GFM strikethrough and task lists; clients may also render bare URLs as links, which the server does not parse), with mentions as `<@principal-id>`, `<!here>` and `<!session>`. A body past the parse limits (over 10,000 characters, 500 markup marks or 100 nested block quotes and list items on one line) is accepted and read as plain text for mentions
         payload:
           description: A provisioned type's data, valid against its schema; `null` for `text`
         metadata:

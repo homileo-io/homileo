@@ -4,7 +4,8 @@
     summary: Join a space, or ask to
     description: |
       Follows the space's `joinPolicy`. `open`: the caller becomes a `member` (`200`; `200`
-      again, changing nothing, if they already are one) and `space.member_added` is recorded.
+      again, changing nothing, if they already are one) and `space.member_added` is recorded; a
+      request the caller filed while the space took requests is approved (`space.join_decided`).
       `request`: a pending join request is filed (`202`) and `space.join_requested` is recorded;
       a repeat returns the pending request without a new event. `invite`: 403.
 

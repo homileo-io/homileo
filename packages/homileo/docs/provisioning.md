@@ -4,7 +4,9 @@ Apps declare their space kinds and custom message types in provisioning document
 the folder `PROVISIONING_PATH` names. Homileo reads them at every start, validates the whole set
 and applies it in one transaction, before it listens (`ROLE` `all` and `api`).
 `npm run cli -- provision [--path <path>]` applies them on demand and prints
-`{ "applied": n, "retired": [...] }`.
+`{ "applied": n, "retired": [...] }`. The production image has no `tsx` and no `src`; there, run
+the compiled CLI with `npm run cli:prod -- provision` (`node dist/cli/index.js provision`), e.g.
+`kubectl exec deploy/homileo -- npm run cli:prod -- provision`.
 
 With `PROVISIONING_PATH` unset nothing is read and nothing changes. An invalid set stops the
 start (or exits the CLI with 1) after logging every problem, each with its file and path.
@@ -20,7 +22,7 @@ start (or exits the CLI with 1) after logging every problem, each with its file 
 
 ```jsonc
 {
-  "version": "1.0.0",                     // semver
+  "version": "1.0.0",                     // semver, at most 64 characters
   "app": "support",                       // ^[a-z][a-z0-9-]{0,62}$; the namespace of kinds and message types
   "spaceKinds": [
     {

@@ -87,7 +87,9 @@ caller can publish it after commit. A payload the type's schema rejects throws `
    schema and `webhook: true|false` (`read.updated` and other noisy events are not webhooks).
    Names are `<area>.<verb>`.
 2. If it is a webhook event it must be in Homileo's tereo declaration: `npm run tereo:provisioning`
-   in `packages/homileo`, commit `tereo-provisioning.json` (readable with `homileo.spaces.read`).
+   in `packages/homileo`, commit `tereo-provisioning.json` (readable with `homileo.spaces.read`;
+   a `session` channel event also gets a `homileo.private_<type>` twin, readable with
+   `homileo.messages.read_private`, which `recordChange` uses for a private session).
 3. Use it in `recordChange({ type: "…" })`.
 4. Document it in `packages/homileo/docs/events.md` and, once the spec exists, the OpenAPI
    `webhooks:` section.

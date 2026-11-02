@@ -16,6 +16,15 @@ export const canReadSession = (c: OrgCaller, ss: SessionFacts): boolean => {
   );
 };
 
+/**
+ * A session its space's readers cannot all read: a space-less one (DMs, groups) or an
+ * `access: members` one. Its webhook events need `homileo.messages.read_private`.
+ */
+export const isPrivateSession = (ss: {
+  spaceId: string | null;
+  access: "space" | "members";
+}): boolean => ss.spaceId === null || ss.access !== "space";
+
 /** Whether the caller may make themselves a participant of an `access: space` session. */
 export const canJoinSession = (c: OrgCaller, ss: SessionFacts): boolean => {
   if (!sameOrganization(c, ss) || ss.archived) return false;

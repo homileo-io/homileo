@@ -1,7 +1,16 @@
 // @module-tag unit
 // @module-tag messages
-import { plainText } from "../../utils/markdown.js";
-import { describe, expect, it } from "vitest";
+import { MESSAGE_BODY_MAX } from "../../routes/v1/sessions/session/messages/schemas.js";
+import { beforeAll, describe, expect, it } from "vitest";
+import { parseMentions } from "../../utils/mentions.js";
+import {
+  measureMarkup,
+  parseBody,
+  PARSE_MAX_DEPTH,
+  PARSE_MAX_LENGTH,
+  PARSE_MAX_MARKUP,
+  plainText,
+} from "../../utils/markdown.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -45,5 +54,116 @@ describe("plainText", () => {
 
   it("caps at 40,000 characters", () => {
     expect(plainText("a".repeat(50_000), names)).toHaveLength(40_000);
+  });
+});
+
+describe("measureMarkup", () => {
+  it.each([
+    ["plain prose", "just some words, no markup.", 0, 0],
+    [
+      "emphasis, strikethrough, link and image delimiters",
+      "a *b* _c_ ~~d~~ [e](f) ![g](h)!",
+      13,
+      0,
+    ],
+    ["nested quote and list markers", "> > - 1. x\n> y", 5, 4],
+    ["a marker needs a space after it", "+x 1.z", 0, 0],
+    ["heading, fence and thematic-break lines", "# a\n```\n---\n=", 4, 0],
+    ["\\r ends a line", ">x\r>y\r\n>z", 3, 1],
+  ])("%s", (_name, markdown, count, depth) => {
+    expect(measureMarkup(markdown)).toEqual({ count, depth });
+  });
+});
+
+describe("parseBody", () => {
+  it("parses a body within both limits", () => {
+    expect(parseBody("**hi**")?.type).toBe("root");
+  });
+
+  it.each([
+    ["longer than PARSE_MAX_LENGTH", "a".repeat(PARSE_MAX_LENGTH + 1)],
+    [
+      "with more markup than PARSE_MAX_MARKUP",
+      "a*".repeat(PARSE_MAX_MARKUP + 1),
+    ],
+    ["nested deeper than PARSE_MAX_DEPTH", ">".repeat(PARSE_MAX_DEPTH + 1)],
+  ])("reads a body %s as plain text", (_name, markdown) => {
+    expect(parseBody(markdown)).toBeNull();
+  });
+});
+
+describe("plainText of a body read as plain text", () => {
+  it("keeps the markup and names the mentions", () => {
+    const body = `**hi** <@${A}> <!here> ${"x".repeat(PARSE_MAX_LENGTH)}`;
+    expect(plainText(body, names)).toBe(
+      `**hi** @Ada @here ${"x".repeat(PARSE_MAX_LENGTH)}`
+    );
+  });
+});
+
+describe("pathological bodies", () => {
+  const filled = (head: string, size: number) =>
+    (head + " word".repeat(size)).slice(0, size);
+
+  // The fastest of three runs, so a busy machine does not fail the bound.
+  const readTime = (markdown: string): number => {
+    const times = [0, 1, 2].map(() => {
+      const started = performance.now();
+      const tree = parseBody(markdown);
+      parseMentions(markdown, tree);
+      plainText(markdown, names, tree);
+      return performance.now() - started;
+    });
+    return Math.min(...times);
+  };
+
+  beforeAll(() => {
+    readTime(filled("warm *up*", PARSE_MAX_LENGTH));
+  });
+
+  it.each([
+    ["> nesting", ">".repeat(MESSAGE_BODY_MAX - 1) + "x"],
+    ["'> ' nesting", "> ".repeat(MESSAGE_BODY_MAX / 2 - 1) + "x"],
+    ["'- ' nesting", "- ".repeat(MESSAGE_BODY_MAX / 2 - 1) + "x"],
+    ["nested emphasis", "*a _".repeat(5000) + "b" + "_ a*".repeat(4999)],
+    ["a delimiter run", "*".repeat(MESSAGE_BODY_MAX / 2) + "x".repeat(10)],
+    ["nested images", "![a ".repeat(5000) + "x" + "](u)".repeat(4999)],
+    ["setext headings", "a\n=\n".repeat(MESSAGE_BODY_MAX / 4)],
+    ["sibling block quotes", ">x\n\n".repeat(MESSAGE_BODY_MAX / 4)],
+  ])("reads %s in under 100 ms", (_name, markdown) => {
+    expect(markdown.length).toBeLessThanOrEqual(MESSAGE_BODY_MAX);
+    expect(parseBody(markdown)).toBeNull();
+    expect(readTime(markdown)).toBeLessThan(100);
+  });
+
+  const atLimit = (head: string) => filled(head, PARSE_MAX_LENGTH);
+  const half = PARSE_MAX_MARKUP / 2;
+
+  it.each([
+    ["'- ' nesting", atLimit("- ".repeat(PARSE_MAX_DEPTH) + "x")],
+    ["'> ' nesting", atLimit("> ".repeat(PARSE_MAX_DEPTH) + "x")],
+    [
+      "lines of '- ' nesting",
+      atLimit(`${"- ".repeat(PARSE_MAX_DEPTH)}x\n`.repeat(5)),
+    ],
+    [
+      "nested images",
+      atLimit(
+        "![a ".repeat(PARSE_MAX_MARKUP / 3) +
+          "x" +
+          "](u)".repeat(PARSE_MAX_MARKUP / 3 - 1)
+      ),
+    ],
+    [
+      "nested emphasis",
+      atLimit("a*a _".repeat(half / 2) + "b" + "_ a*".repeat(half / 2 - 1)),
+    ],
+    ["sibling block quotes", atLimit(">x\n\n".repeat(PARSE_MAX_MARKUP))],
+    ["setext headings", atLimit("a\n=\n".repeat(PARSE_MAX_MARKUP))],
+    ["a list of links", atLimit("- [a](u)\n".repeat(PARSE_MAX_MARKUP / 3))],
+    ["an unmatched bracket before a long paragraph", atLimit("[a [a x](u)")],
+  ])("parses %s at the parse limits in under 100 ms", (_name, markdown) => {
+    expect(parseBody(markdown)).not.toBeNull();
+    expect(readTime(markdown)).toBeLessThan(100);
   });
 });

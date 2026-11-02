@@ -2,6 +2,7 @@ homileo.session.created:
   post:
     tags: [Sessions]
     summary: Session created
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.created` instead.
     operationId: webhookSessionCreated
     requestBody:
       required: true
@@ -22,6 +23,7 @@ homileo.session.updated:
   post:
     tags: [Sessions]
     summary: Session updated
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.updated` instead.
     operationId: webhookSessionUpdated
     requestBody:
       required: true
@@ -42,6 +44,7 @@ homileo.session.archived:
   post:
     tags: [Sessions]
     summary: Session archived
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.archived` instead.
     operationId: webhookSessionArchived
     requestBody:
       required: true
@@ -62,6 +65,7 @@ homileo.session.participant_added:
   post:
     tags: [Sessions]
     summary: Participant added to a session
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.participant_added` instead.
     operationId: webhookSessionParticipantAdded
     requestBody:
       required: true
@@ -82,6 +86,7 @@ homileo.session.participant_removed:
   post:
     tags: [Sessions]
     summary: Participant removed from a session
+    description: For a session with `access` `space`; a private session (space-less, or `access` `members`) sends `homileo.private_session.participant_removed` instead.
     operationId: webhookSessionParticipantRemoved
     requestBody:
       required: true
@@ -93,6 +98,111 @@ homileo.session.participant_removed:
               - type: object
                 properties:
                   eventType: { const: homileo.session.participant_removed }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionParticipantRemovedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_session.created:
+  post:
+    tags: [Sessions]
+    summary: Session created (private session)
+    description: Sent instead of `homileo.session.created` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+    operationId: webhookPrivateSessionCreated
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_session.created }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_session.updated:
+  post:
+    tags: [Sessions]
+    summary: Session updated (private session)
+    description: Sent instead of `homileo.session.updated` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+    operationId: webhookPrivateSessionUpdated
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_session.updated }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_session.archived:
+  post:
+    tags: [Sessions]
+    summary: Session archived (private session)
+    description: Sent instead of `homileo.session.archived` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+    operationId: webhookPrivateSessionArchived
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_session.archived }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_session.participant_added:
+  post:
+    tags: [Sessions]
+    summary: Participant added to a session (private session)
+    description: Sent instead of `homileo.session.participant_added` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+    operationId: webhookPrivateSessionParticipantAdded
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_session.participant_added }
+                  entityType: { const: session }
+                  data: { $ref: '../../components/sessions/schemas.yaml#/SessionParticipantAddedEventData' }
+    responses:
+      '2XX':
+        description: Any 2xx response acknowledges the delivery; anything else is retried.
+homileo.private_session.participant_removed:
+  post:
+    tags: [Sessions]
+    summary: Participant removed from a session (private session)
+    description: Sent instead of `homileo.session.participant_removed` for a private session (space-less, or `access` `members`); only a webhook whose creator holds `homileo.messages.read_private` receives it.
+    operationId: webhookPrivateSessionParticipantRemoved
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../../components/webhook-schemas.yaml#/WebhookEvent'
+              - type: object
+                properties:
+                  eventType: { const: homileo.private_session.participant_removed }
                   entityType: { const: session }
                   data: { $ref: '../../components/sessions/schemas.yaml#/SessionParticipantRemovedEventData' }
     responses:

@@ -1,7 +1,7 @@
 // @module-tag unit
 // @module-tag provisioning
+import { privateWebhookEventTypes, webhookEventTypes } from "@homileo-io/sdk";
 import { buildTereoDocument } from "../../definitions/tereoDeclaration.js";
-import { webhookEventTypes } from "@homileo-io/sdk";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 
@@ -15,7 +15,7 @@ describe("buildTereoDocument", () => {
     expect(service.secretFrom).toBe("TEREO_CLIENT_SECRET");
   });
 
-  it("declares homileo.chat.admin and homileo.spaces.write", () => {
+  it("declares homileo.chat.admin, homileo.spaces.write, homileo.spaces.read and homileo.messages.read_private", () => {
     const permissions = service.permissions!;
     const names = permissions.map((p) => p.name);
 
@@ -24,6 +24,7 @@ describe("buildTereoDocument", () => {
         "homileo.chat.admin",
         "homileo.spaces.write",
         "homileo.spaces.read",
+        "homileo.messages.read_private",
       ])
     );
     expect(permissions.every((p) => p.orgAssignable === true)).toBe(true);
@@ -44,15 +45,21 @@ describe("buildTereoDocument", () => {
     ]);
   });
 
-  it("declares exactly the webhook event types, each readable with homileo.spaces.read", () => {
+  it("declares exactly the webhook event types, private ones readable only with homileo.messages.read_private", () => {
     const events = service.eventTypes!;
+    const privateTypes = new Set(privateWebhookEventTypes());
 
     expect(events.map((e) => e.eventType).sort()).toEqual(
       webhookEventTypes().sort()
     );
-    expect(
-      events.every((e) => e.readPermission === "homileo.spaces.read")
-    ).toBe(true);
+    expect(privateTypes.has("homileo.private_message.created")).toBe(true);
+    for (const e of events) {
+      expect(e.readPermission, e.eventType).toBe(
+        privateTypes.has(e.eventType)
+          ? "homileo.messages.read_private"
+          : "homileo.spaces.read"
+      );
+    }
   });
 
   it("asks for the audit_writer, webhook_publisher and notification_sender roles", () => {

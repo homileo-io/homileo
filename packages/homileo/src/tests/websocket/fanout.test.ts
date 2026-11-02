@@ -2,11 +2,11 @@
 // @module-tag websocket
 // @module-tag events
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { deleteMessage, sendMessage } from "../support/messageApi.js";
 import { sessionRoom, spaceOfRoom } from "../../realtime/rooms.js";
 import { fetchJson, type JsonResponse } from "../support/http.js";
 import { spaceApiFixtures } from "../support/spaceApi.js";
 import { drainSync, syncHead } from "../support/sync.js";
-import { sendMessage } from "../support/messageApi.js";
 import { startV1App } from "../support/v1App.js";
 import {
   collect,
@@ -143,6 +143,45 @@ describe("startFanout", () => {
       expect(toBoth.map((e) => e.payload.message.id)).toEqual([sent.id]);
     });
 
+    it("sends message.deleted to a mentioned member who is not a participant, as /sync does", async () => {
+      const space = await fixtures.space({ org, visibility: "members" });
+      const session = await fixtures.session({ space, access: "space" });
+      await fixtures.member(space, owner.principal, "owner");
+      await fixtures.participant(session, owner.principal, "owner");
+      const mentioned = await api.actor(org);
+      await fixtures.member(space, mentioned.principal);
+      const since = await syncHead(mentioned.token, app.url);
+      const socket = await connect(mentioned);
+      const created = nextEvent<JsonResponse["body"]>(
+        socket,
+        "message.created"
+      );
+      const deleted = nextEvent<JsonResponse["body"]>(
+        socket,
+        "message.deleted"
+      );
+
+      const sent = await send(
+        session.id,
+        owner,
+        `<@${mentioned.principal.id}> secret`
+      );
+      await created;
+      const res = await deleteMessage(sent.id, owner.token, app.url);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+
+      const received = await deleted;
+      expect(received.payload.message).toMatchObject({
+        id: sent.id,
+        body: null,
+      });
+      const { events } = await drainSync(mentioned.token, since, {}, app.url);
+      expect(events.map((e) => e.type)).toEqual([
+        "message.created",
+        "message.deleted",
+      ]);
+    });
+
     it("does not send a mention to a principal who cannot read the session", async () => {
       const space = await fixtures.space({ org, visibility: "members" });
       const session = await fixtures.session({ space, access: "space" });
@@ -155,6 +194,58 @@ describe("startFanout", () => {
       await send(session.id, owner, `hi <@${outsider.principal.id}>`);
 
       await silent;
+    });
+  });
+
+  describe("created", () => {
+    it("sends session.created of a direct session to both participants' sockets, as /sync does", async () => {
+      const alice = await api.actor(org);
+      const bob = await api.actor(org);
+      const since = await syncHead(bob.token, app.url);
+      const toAlice = nextEvent<JsonResponse["body"]>(
+        await connect(alice),
+        "session.created"
+      );
+      const toBob = nextEvent<JsonResponse["body"]>(
+        await connect(bob),
+        "session.created"
+      );
+
+      const res = await fetchJson(
+        "POST",
+        `${app.url}/v1/sessions/direct`,
+        alice.token,
+        { principalId: bob.principal.id }
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+      const sessionId = res.body.session.id;
+      expect((await toAlice).payload.session.id).toBe(sessionId);
+      const received = await toBob;
+      expect(received.payload.session.id).toBe(sessionId);
+      const { events } = await drainSync(bob.token, since, {}, app.url);
+      expect(events.find((e) => e.type === "session.created")).toEqual(
+        received
+      );
+    });
+
+    it("sends space.created to its owner's sockets, as /sync does", async () => {
+      const alice = await api.actor(org, ["homileo.spaces.write"]);
+      const since = await syncHead(alice.token, app.url);
+      const arriving = nextEvent<JsonResponse["body"]>(
+        await connect(alice),
+        "space.created"
+      );
+
+      const res = await fetchJson("POST", `${app.url}/v1/spaces`, alice.token, {
+        name: "a new space",
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+      const received = await arriving;
+      expect(received.payload.space.id).toBe(res.body.space.id);
+      const { events } = await drainSync(alice.token, since, {}, app.url);
+      expect(events.find((e) => e.type === "space.created")).toEqual(received);
     });
   });
 

@@ -32,8 +32,9 @@
       - A changed `body` or `payload` makes a new revision (`revision` + 1, `editedAt` set),
         keeping the earlier ones, and is checked as when sending: a `text` message takes no
         `payload` (`400 invalid_payload`), a provisioned type's `payload` must match its schema.
-      - A changed `body` rewrites the message's mentions. Principals newly mentioned (who can read
-        the session) are emailed, as when sending; those mentioned before are not emailed again.
+      - A changed `body` rewrites the message's mentions. Principals no earlier revision mentioned
+        (who can read the session) are emailed, as when sending; anyone an earlier revision
+        mentioned is not emailed again, even after the mention was removed and added back.
       - A `metadata`-only change (a whole replacement) makes no revision and leaves `editedAt`.
       - An edit that changes nothing answers `200` and records nothing.
       - A deleted message is `409 resource_archived`. Past the space kind's edit window the

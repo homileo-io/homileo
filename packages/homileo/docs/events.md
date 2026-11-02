@@ -42,6 +42,16 @@ so a consumer never sees a `replyCount` for a reply it has not received.
 The channel says whose realtime channel receives the event. The webhook types are declared to tereo
 (`tereo-provisioning.json`), readable with `homileo.spaces.read`.
 
+A `session` channel event of a **private session** (`isPrivateSession`: no space, or
+`access: members`) leaves under its own name, `homileo.private_<area>.<verb>`
+(`homileo.private_message.created`, `homileo.private_session.updated`, …;
+`webhookEventName` and `privateWebhookEventTypes` in the SDK). Those types are readable only with
+`homileo.messages.read_private`, which nothing else implies, `homileo.chat.admin` included: tereo
+sends a webhook an event only when the user who created it holds the type's read permission, and
+it checks nothing per session. So a holder of `homileo.spaces.read` receives the events of every
+`access: space` session in the organization, even of spaces it is not a member of, and none of a
+DM's.
+
 ## Write path
 
 ```ts
@@ -65,7 +75,7 @@ await withChanges(async (tx, record) => {
    is written.
 2. Inserts the `chat.events` row and reads back its `id` and `created_at`.
 3. If the type is a webhook, `outbox.emit(tx, …)` writes a `core.core_outbox` row with
-   `eventType: "homileo.<type>"`, the change's `organizationId`, `entityType`/`entityId` from
+   `eventType: "homileo.<type>"` (`"homileo.private_<type>"` for a private session's event), the change's `organizationId`, `entityType`/`entityId` from
    `entity`, and `data: { ...payload, eventId: String(id) }` (the real id wins over a payload key).
 4. If `audit` is given, `outbox.audit(tx, …)` writes an audit row with the change's
    `organizationId`, `entityType` and `entityId`; the SDK sets `source` from the service slug.
@@ -88,7 +98,10 @@ sessions the principal participated in).
 
 On a socket and in `/sync`, an event is `{ id, type, createdAt, organizationId, spaceId,
 sessionId, actorId, payload }`, with `id` a decimal string (`src/views/event.ts`). The channel
-and the payload decide who receives it ([realtime.md](realtime.md)). Revocations are re-checked
+and the payload decide who receives it ([realtime.md](realtime.md)): `space.join_requested` and
+`space.join_decided` are channel `space` but reach only the requester and the space's moderators,
+and `session.created` and `space.created` also reach the participants or members their transaction
+adds. Revocations are re-checked
 before delivery: a socket gets one only if it really lost the resource, and `/sync` drops one when
 the reader can still read it.
 
@@ -108,6 +121,9 @@ Partitions are named `events_YYYY_MM_DD` (UTC days). An insert for a day with no
   `PARTITION_DDL_LOCK_TIMEOUT_MS` (5 s by default) and then leaves the day for the next run.
   While it waits, inserts into `chat.events` queue behind it, so a long read on the table can
   hold every write up to that long. Dropping a partition for retention does the same.
+- `actor_id` has no foreign key to `chat.principals`: a partition's copy of one would lock
+  `chat.principals` on every create, detach and drop (exclusively on drop). Principals are never
+  deleted, so nothing is lost.
 - The migration that adds `tx_id` (`20261031125557_events_tx_id`) rewrites `chat.events` under
   an exclusive lock, blocking writes for as long as that takes on a large table.
 

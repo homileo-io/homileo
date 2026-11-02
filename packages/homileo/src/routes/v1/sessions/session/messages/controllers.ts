@@ -1,6 +1,5 @@
 import { ListMessagesQuerySchema, SendMessageBodySchema } from "./schemas.js";
 import { callerOf, principalOf } from "../../../../../middleware/auth.js";
-import { resolveMentions } from "../../../../../utils/resolveMentions.js";
 import { notifyMentioned } from "../../../../../utils/notifyMentions.js";
 import { postRefusalError } from "../../../../../utils/postRefusals.js";
 import { validatePayload } from "../../../../../utils/messageTypes.js";
@@ -13,9 +12,14 @@ import { SessionParamsSchema } from "../schemas.js";
 import type { Request, Response } from "express";
 import type { Message } from "@homileo-io/sdk";
 import {
+  readBody,
+  resolveMentions,
+} from "../../../../../utils/resolveMentions.js";
+import {
   attachMessageFiles,
   keepAttachments,
   resolveAttachments,
+  type AttachmentRef,
 } from "../../../../../utils/attachments.js";
 import {
   validateBody,
@@ -53,9 +57,17 @@ export const sendMessage = async (req: Request, res: Response) => {
   const { sessionId } = validateParams(SessionParamsSchema, req);
   const body = validateBody(SendMessageBodySchema, req);
   const attachments = await resolveAttachments(body.attachments ?? []);
+  const read = readBody(body.body);
 
   const outcome = await withChanges(
-    async (tx, record): Promise<{ created: boolean; message: Message }> => {
+    async (
+      tx,
+      record
+    ): Promise<{
+      created: boolean;
+      message: Message;
+      keep: AttachmentRef[];
+    }> => {
       const context = await readableSession(caller, sessionId, {
         tx,
         lock: true,
@@ -71,7 +83,15 @@ export const sendMessage = async (req: Request, res: Response) => {
       );
       if (existing) {
         const [message] = await db.messages.loadViews(tx, [existing]);
-        return { created: false, message };
+        const kept = await tx.attachment.findMany({
+          where: { messageId: existing.id },
+          select: { tereoObjectId: true },
+        });
+        return {
+          created: false,
+          message,
+          keep: kept.map((a) => ({ objectId: a.tereoObjectId })),
+        };
       }
 
       const refusal = postRefusal(caller, context.facts);
@@ -98,7 +118,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       const now = new Date();
       const seq = await db.messages.nextSeq(tx, sessionId, now, !root);
 
-      const mentions = await resolveMentions(tx, context, body.body);
+      const mentions = await resolveMentions(tx, context, read);
 
       const row = await db.messages.insert(tx, {
         sessionId,
@@ -173,10 +193,12 @@ export const sendMessage = async (req: Request, res: Response) => {
         await db.messages.markRead(tx, sessionId, caller.principalId, seq);
       }
 
-      return { created: true, message };
+      return { created: true, message, keep: attachments };
     }
   );
 
+  // Again on a repeat: the first send's keep may have failed, or never run.
+  await keepAttachments(outcome.keep);
   if (!outcome.created) {
     throw new AppError(
       409,
@@ -185,6 +207,5 @@ export const sendMessage = async (req: Request, res: Response) => {
       { details: { message: outcome.message } }
     );
   }
-  await keepAttachments(attachments);
   res.status(201).json({ message: outcome.message });
 };

@@ -1,5 +1,5 @@
 import type { SessionFacts, SpaceFacts, SpaceRole } from "../policy/index.js";
-import type { MentionedPrincipal } from "./db/messages.js";
+import type { MentionedPrincipal, StoredMention } from "./db/messages.js";
 import { BUILTIN_KIND } from "../definitions/builtins.js";
 import { prisma, type Prisma } from "./db/prisma.js";
 import type { Caller } from "../middleware/auth.js";
@@ -13,6 +13,7 @@ import type {
   Space,
 } from "../../prisma/generated/client/index.js";
 import {
+  canModerateSpace,
   canReadSession,
   canReadSpace,
   isMentionReader,
@@ -241,6 +242,29 @@ export const mentionReaders = (
   principals.filter((p) => isMentionReader(context.facts, p));
 
 /**
+ * The principals of stored mentions who are still mention readers of the session
+ * (`isMentionReader`), by message id: a principal who left the session or its space since
+ * was mentioned no longer gets the message.
+ */
+export const currentMentionReaders = (
+  mentions: StoredMention[]
+): Map<string, string[]> => {
+  const byMessage = new Map<string, string[]>();
+  for (const m of mentions) {
+    const ss = {
+      access: m.access,
+      space: m.spaceId ? { id: m.spaceId } : null,
+    };
+    if (!isMentionReader(ss, m)) continue;
+    byMessage.set(m.messageId, [
+      ...(byMessage.get(m.messageId) ?? []),
+      m.userId,
+    ]);
+  }
+  return byMessage;
+};
+
+/**
  * The sessions among `sessionIds` the caller can read now, in their organization,
  * by session id. Loads the sessions, spaces and the caller's memberships and
  * participation in bulk rather than one `readableSession` per row.
@@ -316,4 +340,52 @@ export const readableSpaces = async (
     if (canReadSpace(c, facts)) readable.set(space.id, space);
   }
   return readable;
+};
+
+/** The spaces among `spaceIds` the caller can moderate now, in their organization. */
+export const moderatedSpaces = async (
+  c: Caller,
+  spaceIds: string[]
+): Promise<Set<string>> => {
+  const moderated = new Set<string>();
+  if (spaceIds.length === 0) return moderated;
+  const [spaces, members] = await Promise.all([
+    prisma.space.findMany({
+      where: { id: { in: spaceIds }, organizationId: c.organizationId },
+    }),
+    prisma.spaceMember.findMany({
+      where: { spaceId: { in: spaceIds }, userId: c.principalId },
+    }),
+  ]);
+  const roleOf = new Map(members.map((m) => [m.spaceId, m.role]));
+  for (const space of spaces) {
+    const facts = await spaceFactsFor(c, space, roleOf.get(space.id) ?? null);
+    if (canModerateSpace(c, facts)) moderated.add(space.id);
+  }
+  return moderated;
+};
+
+/** Which of `callers` can moderate the space now, by index. */
+export const moderatingCallers = async (
+  callers: Caller[],
+  spaceId: string
+): Promise<boolean[]> => {
+  if (callers.length === 0) return [];
+  const space = await prisma.space.findUnique({ where: { id: spaceId } });
+  if (!space) return callers.map(() => false);
+  const members = await prisma.spaceMember.findMany({
+    where: {
+      spaceId,
+      userId: { in: [...new Set(callers.map((c) => c.principalId))] },
+    },
+  });
+  const roleOf = new Map(members.map((m) => [m.userId, m.role]));
+  return Promise.all(
+    callers.map(async (c) =>
+      canModerateSpace(
+        c,
+        await spaceFactsFor(c, space, roleOf.get(c.principalId) ?? null)
+      )
+    )
+  );
 };

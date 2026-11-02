@@ -1,9 +1,9 @@
 import { sessionRoom, spaceOfRoom, spaceRoom } from "../realtime/rooms.js";
 import { readableSession, readableSpace } from "../utils/access.js";
+import { leaveSpaceOfIfUnused, recheckSockets } from "./rooms.js";
 import { NotFoundError, issuesOf } from "../utils/errors.js";
 import { encodeSyncCursor } from "../realtime/syncCursor.js";
 import type { Ack, AckError, AppSocket } from "./types.js";
-import { leaveSpaceOfIfUnused } from "./rooms.js";
 import { IdSchema } from "../utils/idSchema.js";
 import { MAX_SUBSCRIPTIONS } from "./limits.js";
 import { prisma } from "../utils/db/prisma.js";
@@ -88,6 +88,9 @@ const subscribe = async (socket: AppSocket, payload: unknown): Promise<Ack> => {
   if (atLimit()) return tooMany;
   subscriptions.add(room);
   await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
+  // A revocation committed during the check re-checked the sockets before this one joined.
+  await recheckSockets([socket]);
+  if (!socket.rooms.has(room)) return notFound(target);
   return subscribed();
 };
 
@@ -126,16 +129,24 @@ const unsubscribe = async (
   // Another node may have joined it for either since: it could not update this list.
   if (await joinedForAccess(socket, target)) return OK;
   await socket.leave(room);
-
-  if ("sessionId" in target) {
-    const session = await prisma.session.findUnique({
-      where: { id: target.sessionId },
-      select: { spaceId: true },
-    });
-    if (session?.spaceId) {
-      await leaveSpaceOfIfUnused(socket, session.spaceId, room);
-    }
+  const spaceId =
+    "sessionId" in target
+      ? ((
+          await prisma.session.findUnique({
+            where: { id: target.sessionId },
+            select: { spaceId: true },
+          })
+        )?.spaceId ?? null)
+      : null;
+  // A join that committed during the check found the socket still in the room.
+  if (await joinedForAccess(socket, target)) {
+    await socket.join(spaceId ? [room, spaceOfRoom(spaceId)] : room);
+    // As in subscribe: a removal that committed meanwhile may have checked
+    // this socket before it joined.
+    await recheckSockets([socket]);
+    return OK;
   }
+  if (spaceId) await leaveSpaceOfIfUnused(socket, spaceId, room);
   return OK;
 };
 

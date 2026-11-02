@@ -135,7 +135,10 @@ export const attachMessageFiles = async (
   }
 };
 
-/** Clears the placeholders' expiry once the message is committed; a failure leaves the object to expire. */
+/**
+ * Clears the placeholders' expiry once the message is committed. A failure is
+ * left to a repeat of the send or to the worker's keep run (`jobs/attachmentKeep.ts`).
+ */
 export const keepAttachments = async (
   attachments: AttachmentRef[]
 ): Promise<void> => {

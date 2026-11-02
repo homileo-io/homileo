@@ -7,7 +7,9 @@ async function main() {
   const command = args[0];
 
   if (!command || command === "--help" || command === "-h") {
-    console.error("Usage: npm run cli -- <command> [options]");
+    console.error(
+      "Usage: npm run cli -- <command> [options]  (npm run cli:prod -- … in the image)"
+    );
     console.error("");
     console.error("Commands:");
     console.error(

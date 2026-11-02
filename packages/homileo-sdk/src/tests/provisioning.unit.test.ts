@@ -39,6 +39,11 @@ const INVALID: [string, unknown, string][] = [
   ["an unknown top-level key", { ...valid, extra: 1 }, ""],
   ["a missing version", { ...valid, version: undefined }, "version"],
   ["a bad semver", { ...valid, version: "1.0" }, "version"],
+  [
+    "a version longer than its 64-character column",
+    { ...valid, version: `1.4.0-rc.1+build.${"0".repeat(48)}` },
+    "version",
+  ],
   ["an uppercase app", { ...valid, app: "Support" }, "app"],
   [
     "a kind name without the app prefix",
