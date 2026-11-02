@@ -66,6 +66,7 @@ export const applyDocuments = async (
       );
       const declaredKinds = new Set<string>();
       const declaredTypes = new Set<string>();
+      const searchChanged: string[] = [];
 
       for (const { file, document } of documents) {
         const documentVersion = document.version;
@@ -81,6 +82,14 @@ export const applyDocuments = async (
             sourceFile: file,
           };
           const found = existingKinds.get(declaration.name);
+          // Order matters too: it is the order of the words in search_text.
+          if (
+            !found ||
+            canonical(found.definition.search?.metadata ?? []) !==
+              canonical(definition.search.metadata)
+          ) {
+            searchChanged.push(declaration.name);
+          }
           const unchanged =
             found &&
             !found.retired &&
@@ -156,6 +165,8 @@ export const applyDocuments = async (
 
       // Throwing rolls the whole transaction back.
       if (problems.length > 0) throw new ProvisioningError(problems);
+      // Last, so the stamp is later than any space written under the old keys.
+      await db.provisioned.markSearchChanged(tx, searchChanged);
       return { applied, retired };
     },
     { timeout }

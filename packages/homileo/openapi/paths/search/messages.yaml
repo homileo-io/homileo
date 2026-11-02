@@ -1,0 +1,69 @@
+/v1/search/messages:
+  get:
+    tags: [Search]
+    summary: Search messages
+    description: |
+      Messages in sessions the caller can read, best match first. Matches the message text by
+      full-text search (English stemming) and, for a query of 3 or more characters without a
+      phrase, exclusion or `OR`, by trigram similarity; also matches attachment filenames
+      (trigram). Ranking is `ts_rank_cd` plus trigram word similarity, then newer first.
+      Only the current revision is indexed; deleted messages never match; file contents are not
+      searched. Messages of archived spaces and sessions are included. A `metadata` filter
+      matches the message's session or its space.
+
+      `inThread=true` lists thread replies only; roots count as not in a thread.
+
+      Pages are offset-based, at most `SEARCH_MAX_DEPTH` results deep (default 1,000).
+
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+    operationId: searchMessages
+    parameters:
+      - $ref: '../../components/search/parameters.yaml#/SearchQueryParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchSpaceIdParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchKindParam'
+      - name: sessionId
+        in: query
+        required: false
+        description: Only messages of this session
+        schema: { type: string, format: uuid }
+      - name: senderId
+        in: query
+        required: false
+        description: Only messages sent by this principal
+        schema: { type: string, format: uuid }
+      - name: from
+        in: query
+        required: false
+        description: Only messages created at or after this time (inclusive)
+        schema: { type: string, format: date-time }
+      - name: to
+        in: query
+        required: false
+        description: Only messages created before this time (exclusive)
+        schema: { type: string, format: date-time }
+      - name: hasAttachment
+        in: query
+        required: false
+        description: '`true`: only messages with an attachment. `false`: only messages without one.'
+        schema: { type: boolean }
+      - name: inThread
+        in: query
+        required: false
+        description: |
+          `true`: thread replies only. `false`: roots and messages not in a thread only.
+        schema: { type: boolean }
+      - $ref: '../../components/search/parameters.yaml#/SearchMetadataParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchCursorParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchLimitParam'
+    responses:
+      '200':
+        description: A page of matching messages
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/search/schemas.yaml#/SearchMessagesResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

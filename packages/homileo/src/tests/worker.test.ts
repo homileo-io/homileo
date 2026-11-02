@@ -1,6 +1,7 @@
 // @module-tag int
 // @module-tag platform
 // @module-tag job
+import { processSearchTextRebuild } from "../jobs/searchTextRebuild.js";
 import { processEventRetention } from "../jobs/eventRetention.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { partitionName } from "../utils/partitions.js";
@@ -11,6 +12,10 @@ import { prisma } from "../utils/db/prisma.js";
 // every partition the suite uses.
 vi.mock("../jobs/eventRetention.js", () => ({
   processEventRetention: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../jobs/searchTextRebuild.js", () => ({
+  processSearchTextRebuild: vi.fn().mockResolvedValue({ kinds: [], rows: 0 }),
 }));
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -65,6 +70,34 @@ describe("worker", () => {
       expect(await partitionExists(dayEight)).toBe(true);
     });
     expect(processEventRetention).toHaveBeenCalledTimes(2);
+  });
+
+  it("rebuilds search text on start and every minute", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date", "setInterval", "clearInterval"],
+      now: START,
+    });
+    vi.mocked(processSearchTextRebuild).mockClear();
+
+    await startWorker();
+    expect(processSearchTextRebuild).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(processSearchTextRebuild).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a failed search text rebuild on the next run", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date", "setInterval", "clearInterval"],
+      now: START,
+    });
+    vi.mocked(processSearchTextRebuild).mockClear();
+    vi.mocked(processSearchTextRebuild).mockRejectedValueOnce(new Error("db"));
+
+    await startWorker();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(processSearchTextRebuild).toHaveBeenCalledTimes(2);
   });
 
   describe("stopWorker", () => {

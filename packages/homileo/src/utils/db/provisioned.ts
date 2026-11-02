@@ -155,3 +155,15 @@ export const messageUses = async (tx: Tx, type: string): Promise<boolean> =>
       WHERE type = ${type} AND type <> 'text'
       LIMIT 1`
   ).length > 0;
+
+/** Stamps kinds whose search keys changed, for the search_text rebuild job. */
+export const markSearchChanged = async (
+  tx: Tx,
+  names: string[]
+): Promise<void> => {
+  if (names.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE "chat"."provisioned_space_kinds"
+    SET search_changed_at = date_trunc('milliseconds', clock_timestamp())
+    WHERE name = ANY(${names}::text[])`;
+};

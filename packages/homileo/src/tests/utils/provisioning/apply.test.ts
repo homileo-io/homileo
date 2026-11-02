@@ -287,3 +287,79 @@ describe("provision", () => {
     expect((await loadKinds()).has("support:case")).toBe(true);
   });
 });
+
+describe("provision: search_changed_at", () => {
+  beforeEach(async () => {
+    await fixtures.cleanup();
+    await wipe();
+  });
+  afterAll(async () => {
+    await wipe();
+    await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
+  });
+
+  const searching = (metadata: string[]) =>
+    supportDoc({
+      spaceKinds: [kind("support:case", { search: { metadata } })],
+    });
+
+  const changedAt = async () =>
+    (
+      await prisma.provisionedSpaceKind.findUniqueOrThrow({
+        where: { name: "support:case" },
+      })
+    ).searchChangedAt;
+
+  const apply = async (doc: object) =>
+    provision({ path: await provisioningDir({ "support.json": doc }) });
+
+  it("stamps a new kind", async () => {
+    await apply(searching(["customerName"]));
+
+    expect(await changedAt()).toBeInstanceOf(Date);
+  });
+
+  it("leaves the stamp when the same keys are applied again", async () => {
+    await apply(searching(["customerName", "orderNo"]));
+    const first = await changedAt();
+
+    await apply(searching(["customerName", "orderNo"]));
+
+    expect(await changedAt()).toEqual(first);
+  });
+
+  it("moves the stamp forward when the keys change", async () => {
+    await apply(searching(["customerName"]));
+    const first = await changedAt();
+
+    await apply(searching(["customerName", "orderNo"]));
+
+    expect((await changedAt())!.getTime()).toBeGreaterThan(first!.getTime());
+  });
+
+  it("moves the stamp forward when only the order of the keys changes", async () => {
+    await apply(searching(["customerName", "orderNo"]));
+    const first = await changedAt();
+
+    await apply(searching(["orderNo", "customerName"]));
+
+    expect((await changedAt())!.getTime()).toBeGreaterThan(first!.getTime());
+  });
+
+  it("does not touch the stamp of a retired kind", async () => {
+    await apply(searching(["customerName"]));
+    const first = await changedAt();
+
+    await apply({
+      version: "1.4.1",
+      app: "support",
+      spaceKinds: [kind("support:other")],
+    });
+
+    const row = await prisma.provisionedSpaceKind.findUniqueOrThrow({
+      where: { name: "support:case" },
+    });
+    expect(row.retiredAt).not.toBeNull();
+    expect(row.searchChangedAt).toEqual(first);
+  });
+});

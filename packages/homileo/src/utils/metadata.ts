@@ -3,6 +3,7 @@ import { z } from "zod";
 export const METADATA_MAX_KEYS = 50;
 export const METADATA_MAX_BYTES = 16 * 1024;
 export const JSON_MAX_DEPTH = 32;
+export const METADATA_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
 
 const withinDepth = (value: unknown, depth: number): boolean => {
   if (typeof value !== "object" || value === null) return true;
@@ -35,9 +36,7 @@ export const metadataSchema: z.ZodType<Record<string, unknown>> = z
     message: `At most ${METADATA_MAX_KEYS} keys`,
     abort: true,
   })
-  .pipe(
-    z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/), boundedJson())
-  )
+  .pipe(z.record(z.string().regex(METADATA_KEY_PATTERN), boundedJson()))
   .refine((m) => Buffer.byteLength(JSON.stringify(m)) <= METADATA_MAX_BYTES, {
     message: "At most 16 KiB serialized",
   });

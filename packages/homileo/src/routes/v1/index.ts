@@ -3,6 +3,7 @@ import messagesRouter from "./messages/index.js";
 import sessionsRouter from "./sessions/index.js";
 import threadsRouter from "./threads/index.js";
 import spacesRouter from "./spaces/index.js";
+import searchRouter from "./search/index.js";
 import express, { Router } from "express";
 import syncRouter from "./sync/index.js";
 import meRouter from "./me/index.js";
@@ -27,6 +28,7 @@ v1Router.use("/messages", express.json({ limit: "256kb" }), messagesRouter);
 v1Router.use("/threads", json64k, threadsRouter);
 // GET only: no body to parse.
 v1Router.use("/sync", syncRouter);
+v1Router.use("/search", searchRouter);
 v1Router.use(hideRefusalsUnlessReader);
 
 export default v1Router;

@@ -1,4 +1,5 @@
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
+import { searchKeysFor, searchTextOf } from "../../../utils/searchText.js";
 import { ensureBotPrincipals } from "../../../utils/db/principals.js";
 import { encodeCursor, parseCursor } from "../../../utils/cursor.js";
 import { mapUniqueViolation } from "../../../utils/prismaErrors.js";
@@ -64,6 +65,7 @@ export const createSpace = async (req: Request, res: Response) => {
       (bot) => bot.id !== caller.principalId
     );
 
+    const searchKeys = await searchKeysFor(tx, kind.name);
     const row = await mapUniqueViolation(
       () =>
         tx.space.create({
@@ -78,6 +80,11 @@ export const createSpace = async (req: Request, res: Response) => {
             state: body.state ?? null,
             externalRef: body.externalRef ?? null,
             metadata: (body.metadata ?? {}) as Prisma.InputJsonObject,
+            searchText: searchTextOf(
+              body.name,
+              body.metadata ?? {},
+              searchKeys
+            ),
             createdBy: caller.principalId,
           },
         }),

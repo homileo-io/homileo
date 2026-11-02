@@ -1,0 +1,38 @@
+/v1/search/principals:
+  get:
+    tags: [Search]
+    summary: Search principals
+    description: |
+      Principals that have a participation row, current or past, in a session the caller can
+      read. Principals belong to no organization, so this is how a caller is kept from listing
+      everyone. A name matches by substring (`%`, `_` and `\` are literal) or by trigram
+      similarity; names that start with the query rank first. No cursor.
+
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+    operationId: searchPrincipals
+    parameters:
+      - name: q
+        in: query
+        required: true
+        description: |
+          The name to look for, 1–200 characters after trimming. Plain text: a substring match
+          (`%`, `_` and `\` are literal) or trigram similarity, with no `"phrase"`, `-exclude` or
+          `OR` syntax and no stemming.
+        schema: { type: string, minLength: 1, maxLength: 200 }
+      - name: limit
+        in: query
+        required: false
+        description: Maximum number of principals
+        schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+    responses:
+      '200':
+        description: Matching principals
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/search/schemas.yaml#/SearchPrincipalsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }

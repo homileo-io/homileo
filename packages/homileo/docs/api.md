@@ -96,6 +96,10 @@ extra one on the newer side).
 | attachment `contentType` | a media type, `type/subtype` with optional `; name=value` parameters, at most 255 characters |
 | mention emails | 25 per send or edit, to the first readers mentioned who are out of cooldown; and one per sender and reader per `MENTION_EMAIL_COOLDOWN_SECONDS` (60 by default) |
 | unread counts | capped at 99: `unread` is 0 to 99, with `unreadCapped: true` past it |
+| search `q` | 1 to 200 characters after trimming |
+| search metadata filters | at most 5 `metadata[key]=value`, each value 1 to 255 characters |
+| search page | `limit` 1 to 50 (default 20; principals 1 to 20, default 10) |
+| search depth | `SEARCH_MAX_DEPTH` results per query (100 to 10,000, default 1,000) |
 
 ## JSON shapes
 
@@ -260,6 +264,61 @@ Query: `since` (the previous `next`), `limit` (default 100, at most 500), `sessi
 | `GET /messages/:messageId/attachments/:attachmentId` | `canReadSession` | `404`, `503` | |
 | `PUT /threads/:rootId/read` | `canReadSession` (a reader may track a thread) | `400 reply_to_reply` | `read.updated` |
 | `PUT /threads/:rootId/follow` | `canReadSession`; takes the session lock, as a thread read does | `400 reply_to_reply` | |
+
+### Search
+
+| Route | Policy | Errors | Events |
+|---|---|---|---|
+| `GET /search/messages` | readable sessions only (`readableSessionSql`) | `400 invalid_request` (also a bad or past-depth cursor) | |
+| `GET /search/sessions` | readable spaces and sessions only (`readableSpaceSql`, `readableSessionSql`) | `400 invalid_request` (also a bad or past-depth cursor) | |
+| `GET /search/principals` | principals with a participation row in a readable session | `400 invalid_request` | |
+
+All three need `homileo.spaces.read` like every `/v1` route, and are limited to the caller's
+organization. Details, as built:
+
+- **Shapes.** Messages answer `{ data: [{ message, session, snippet }], nextCursor }`. Sessions
+  answer one ranked list `{ data: [{ type: "space", space } | { type: "session", session }],
+  nextCursor }`. Principals answer `{ data: Principal[] }`, with no cursor.
+- **Snippet.** `{ text, highlights: [start, end][] }`: offsets in UTF-16 code units into `text`, end
+  exclusive. It is plain text, never HTML. A hit found only by an attachment filename has an empty
+  snippet.
+- **Query syntax.** On messages and sessions, `q` goes through `websearch_to_tsquery('english', q)`: `"phrase"`, `-exclude`
+  and `OR` / `or`, with English stemming. Typo-tolerant (trigram) matching applies only to queries of
+  3 or more characters with no phrase, exclusion or `OR`. A query of only stop words (`the`) has no
+  full-text terms, so only the trigram match can find anything. `/search/principals` takes none of
+  this syntax: its `q` is plain text, matched as a substring or by trigram similarity, with no
+  stemming.
+- **Ranking.** `ts_rank_cd(…, 32)` plus trigram word similarity, rounded to 2 decimals, then newer
+  first, then id. On messages the similarity is the body's or, when closer, an attachment
+  filename's, so a file named exactly the query ranks high. Every match is ranked before a page is
+  cut, and `SEARCH_MAX_DEPTH` bounds how deep a walk goes: a deep page of a very common term costs
+  more than the first.
+- **Metadata filters.** `metadata[key]=value`, at most 5; keys follow the metadata key pattern
+  (`__proto__` and other invalid keys are `400`). A value matches a stored string, a number when it
+  is a canonical JSON number (`1234` matches 1234; `01234` and `1.50` do not), or a boolean for
+  `true` and `false`. On `/search/messages` a filter matches the message's session or its space; on
+  `/search/sessions` each result's own `metadata`. Which metadata keys the free-text `q` matches for
+  a space kind is set by its provisioning document (see [provisioning.md](provisioning.md)).
+- **What is searched.** Archived spaces and sessions are included. Messages also match attachment
+  filenames (trigram). Deleted messages never match, only the current revision is indexed, and file
+  contents are not.
+- **Message filters.** `spaceId`, `kind` (the kind of the message's space, not a message type),
+  `sessionId`, `senderId`, `from` (inclusive) and `to` (exclusive) on `createdAt`, `hasAttachment`
+  (`true`: with an attachment; `false`: without one), and `inThread` (`true`: thread replies only;
+  `false`: roots and messages not in a thread only). `/search/sessions` takes `kind` (spaces of that
+  kind and the sessions in them) and `spaceId`.
+- **Principals.** Only principals with a participation row, current or past, in a session the
+  caller can read (principals belong to no organization, so this keeps a caller from listing
+  everyone). A name matches by substring, where `%`, `_` and `\` are literal, or by trigram
+  similarity; names that start with the query rank first. `limit` is 1 to 20, default 10. A query
+  of 1 or 2 characters is too short for the trigram index, so it is a scan of the principals with
+  the participation check; at ordinary sizes that is fine, and matches are still limited to
+  principals in readable sessions.
+- **Paging.** The cursor is opaque (`[asOf, offset]`); `limit` is 1 to 50, default 20; a walk
+  reaches at most `SEARCH_MAX_DEPTH` results, and a bad or past-depth cursor is `400
+  invalid_request`. Paging is by offset: results that change between pages (a session getting a new
+  message, a message whose transaction committed after the first page) can repeat or be skipped;
+  `asOf` only keeps rows created later out.
 
 ## Decisions the routes fix
 

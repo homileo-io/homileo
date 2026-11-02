@@ -170,3 +170,32 @@ export const EVENT_EXAMPLES: Record<string, unknown> = {
   "space.access_revoked": { principalId: id(1), spaceId: id(3) },
   "session.access_revoked": { principalId: id(1), sessionId: id(6) },
 };
+
+export const searchSnippet = {
+  text: "hello there",
+  highlights: [[0, 5]],
+};
+
+export const messageSearchHit = {
+  message,
+  session,
+  snippet: searchSnippet,
+};
+
+export const spaceSearchHit = { type: "space", space };
+
+export const sessionSearchHit = { type: "session", session };
+
+export const messageSearchPage = {
+  data: [messageSearchHit],
+  nextCursor: null,
+};
+
+export const sessionSearchPage = {
+  data: [spaceSearchHit, sessionSearchHit],
+  nextCursor: "eyJvZmZzZXQiOjIwfQ",
+};
+
+export const principalSearchResult = {
+  data: [principal],
+};

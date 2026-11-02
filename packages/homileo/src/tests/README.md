@@ -94,6 +94,7 @@ line silently drop all but the first):
 | `platform`      | area   | Health, startup and shutdown                      |
 | `websocket`     | area   | Sockets, their rooms and subscriptions            |
 | `sync`          | area   | Catching up on events through /v1/sync            |
+| `search`        | area   | Search over spaces, sessions, messages and people |
 | `race`          | detail | Concurrent requests or processes                  |
 | `job`           | detail | Background jobs and schedulers                    |
 | `security`      | detail | Security properties and attack paths              |

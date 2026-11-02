@@ -38,6 +38,7 @@ export interface KindOptions {
   bots?: string[];
   defaults?: { visibility: string; join: string; posting: string };
   editWindowSeconds?: number | null;
+  search?: { metadata: string[] };
   retired?: boolean;
 }
 
@@ -63,7 +64,7 @@ export const provisionKind = async (o: KindOptions = {}): Promise<string> => {
         grants: o.grants ?? [],
         bots: o.bots ?? [],
         editWindowSeconds: o.editWindowSeconds ?? null,
-        search: { metadata: [] },
+        search: o.search ?? { metadata: [] },
       },
       documentVersion: "1.0.0",
       sourceFile: "v1-test.json",

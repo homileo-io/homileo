@@ -1,5 +1,6 @@
 import { CreateSessionBodySchema, ListSessionsQuerySchema } from "./schemas.js";
 import { validateBody, validateQuery } from "../../../utils/validateReq.js";
+import { searchKeysFor, searchTextOf } from "../../../utils/searchText.js";
 import { readableSessions, readableSpace } from "../../../utils/access.js";
 import { approvePendingJoinRequest } from "../../../utils/joinRequests.js";
 import { participantView, sessionView } from "../../../views/session.js";
@@ -157,6 +158,11 @@ export const createSession = async (req: Request, res: Response) => {
         state: body.state ?? null,
         externalRef: body.externalRef ?? null,
         metadata: (body.metadata ?? {}) as Prisma.InputJsonValue,
+        searchText: searchTextOf(
+          body.name ?? null,
+          body.metadata ?? {},
+          await searchKeysFor(tx, space?.space.kind ?? null)
+        ),
         createdBy: caller.principalId,
       },
     });

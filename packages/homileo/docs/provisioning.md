@@ -76,6 +76,15 @@ timeout cannot interrupt a wait already on the server.
 A problem rolls the whole transaction back. Retired kinds drop out of `loadKinds()`, which returns
 the active kinds and the built-in one by name. Provisioned rows are read-only through the API.
 
+## Search metadata
+
+A kind's `search.metadata` lists the metadata keys whose values `GET /v1/search/sessions` matches
+for spaces and sessions of that kind, together with the name. Changing it stamps the kind
+(`search_changed_at`); the worker (`src/jobs/searchTextRebuild.ts`) then rebuilds `search_text` for
+that kind's spaces and sessions in batches of 500, but only once `DB_TRANSACTION_TIMEOUT_MS` has
+passed since the change, so no write still using the old keys can undo it. Expect search to
+reflect the change within about that time plus the 60 s job interval.
+
 ## JSON Schema for editors
 
 `@homileo-io/sdk` exports `provisioningJsonSchema`, and `packages/homileo-sdk/provisioning.schema.json`

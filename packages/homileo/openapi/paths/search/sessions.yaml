@@ -1,0 +1,35 @@
+/v1/search/sessions:
+  get:
+    tags: [Search]
+    summary: Search spaces and sessions
+    description: |
+      Spaces and sessions the caller can read, in one ranked list: each result is
+      `{ type: "space", space }` or `{ type: "session", session }`. Matches names and the
+      metadata keys a space kind's provisioning document lists under `search.metadata`, by
+      full-text search and, for a query of 3 or more characters without a phrase, exclusion or
+      `OR`, trigram similarity. Archived spaces and sessions are included. `metadata` filters
+      match each result's own metadata.
+
+      Pages are offset-based, at most `SEARCH_MAX_DEPTH` results deep (default 1,000).
+
+      **Required permissions:** `homileo.spaces.read`, which `homileo.spaces.write` and `homileo.chat.admin` include (`403 forbidden` without).
+    operationId: searchSessions
+    parameters:
+      - $ref: '../../components/search/parameters.yaml#/SearchQueryParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchKindParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchSpaceIdParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchMetadataParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchCursorParam'
+      - $ref: '../../components/search/parameters.yaml#/SearchLimitParam'
+    responses:
+      '200':
+        description: A page of matching spaces and sessions
+        content:
+          application/json:
+            schema:
+              $ref: '../../components/search/schemas.yaml#/SearchSessionsResponse'
+      '400': { $ref: '../../components/responses.yaml#/BadRequestResponse' }
+      '401': { $ref: '../../components/responses.yaml#/UnauthorizedResponse' }
+      '403': { $ref: '../../components/responses.yaml#/ForbiddenResponse' }
+      '500': { $ref: '../../components/responses.yaml#/ServerErrorResponse' }
+      '503': { $ref: '../../components/responses.yaml#/ServiceUnavailableResponse' }
