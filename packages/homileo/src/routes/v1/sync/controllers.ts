@@ -174,7 +174,8 @@ export const sync = async (req: Request, res: Response) => {
   );
   const { rows } = page;
   const { until } = query;
-  // No position this database issued lies past the first unassigned transaction id.
+  // Every position this database issues is at or below the tail (one past the
+  // highest completed transaction id), which only grows.
   for (const [path, cursor] of [
     ["since", after],
     ["until", until],

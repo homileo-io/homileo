@@ -147,10 +147,10 @@ export const head = async (): Promise<SyncPosition> => {
 };
 
 /**
- * The first transaction id not yet assigned: every transaction at or above it
- * starts after this call. A socket takes it once its rooms are joined, so
- * those transactions' fan-out reaches it, and its catch-up runs until the
- * horizon passes it.
+ * One past the highest completed transaction id: no transaction at or above it
+ * had ended when this ran, so each commits, and fans out, after this call. A
+ * socket takes it once its rooms are joined, so those transactions' fan-out
+ * reaches it, and its catch-up runs until the horizon passes it.
  */
 export const tail = async (): Promise<SyncPosition> => {
   const [row] = await prisma.$queryRaw<Array<{ tx_id: string; at: Date }>>`
@@ -185,7 +185,7 @@ export const readFrom = async (
   hasMore: boolean;
   /** The horizon read up to: every transaction below it had ended. */
   horizon: bigint;
-  /** The first transaction id not yet assigned when the page was read. */
+  /** One past the highest transaction id completed when the page was read. */
   tail: bigint;
 }> => {
   const scope = o.scope ?? Prisma.sql`true`;
