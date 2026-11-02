@@ -5,8 +5,8 @@ import { SpaceSchema } from "./space.js";
 import { z } from "zod";
 
 /**
- * `highlights` are `[start, end)` character offsets into `text`, which is the matched excerpt
- * and not the whole body.
+ * `highlights` are `[start, end]` offsets into `text` in UTF-16 code units (JavaScript string
+ * indices), end exclusive. `text` is the matched excerpt, not the whole body.
  */
 export const SearchSnippetSchema = z.strictObject({
   text: z.string(),
